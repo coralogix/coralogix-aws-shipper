@@ -1,0 +1,103 @@
+name: Cloudformation Template Sync
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'template.yaml'
+      - 'README.md'
+      - 'CHANGELOG.md'
+
+env:
+  REPO_BUCKET_PREFIX: coralogix-serverless-repo
+  REPO_PACKAGE_ZIP: coralogix-aws-shipper.zip
+  CFN_INTEGRATION_DIR: aws-integrations/aws-shipper-lambda
+  CLOUDFORMATION_REPO: coralogix/cloudformation-coralogix-aws
+
+
+jobs:
+  get-template:
+    runs-on: ubuntu-latest    
+    steps:
+      - name: checkout coralogix-aws-shipper repository
+        uses: actions/checkout@v3
+
+      - name: get last commit_message
+        id: commits
+        run: |
+          echo "last_commit=$(git log -1 --pretty=%B -- template.yaml | tr '\n' ' ' )" >> $GITHUB_OUTPUT
+
+      - run: sudo snap install yq
+        # Update the CodeUri property of all AWS::Serverless::Function resources using Yq
+      - uses: actions/checkout@v3
+      - name: update-template
+        run: |
+          set -xv
+          yq -i '(.Resources[] | 
+            select(
+              has("Type") 
+              and .Type == "AWS::Serverless::Function" 
+              and .Properties.CodeUri != null) | 
+            .Properties.CodeUri) |= {"Bucket": "!Sub coralogix-serverless-repo-${AWS::Region}", "Key": "coralogix-aws-shipper.zip"}' ./template.yaml
+          sed -i "s/'!Sub coralogix-serverless-repo-\${AWS::Region}/!Sub 'coralogix-serverless-repo-\${AWS::Region}/g" ./template.yaml
+          cat ./template.yaml       
+          set +xv
+
+      - name: store artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: store
+          path: |
+            ./template.yaml
+            ./README.md
+            ./CHANGELOG.md
+    outputs:
+      last_commit: ${{ steps.commits.outputs.last_commit }}
+
+
+  sync-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: get-template
+    steps:
+      - uses: actions/checkout@v3
+        id: checkout
+        with:
+          repository: ${{ env.CLOUDFORMATION_REPO }}
+          token: ${{ secrets.GH_TOKEN }}
+
+      - run: mkdir .tmp
+
+      - name: download template
+        uses: actions/download-artifact@v3
+        with:
+          name: store
+          path: .tmp
+        
+      - run: sudo snap install yq
+      - name: git-add
+        id: changes
+  
+        # git add files if they've changed
+        run: |
+          set -xv
+          ls -ltr .tmp
+          mkdir -p ${{ env.CFN_INTEGRATION_DIR }}
+          mv -v ./.tmp/* ${{ env.CFN_INTEGRATION_DIR }}/
+
+          git add ${{ env.CFN_INTEGRATION_DIR }}/  
+          git status
+          set +xv
+
+      # Commit all changed files back to the repository
+      - uses: planetscale/ghcommit-action@v0.1.19
+        with:
+          commit_message: ${{ needs.get-template.outputs.last_commit }}
+          repo: ${{ env.CLOUDFORMATION_REPO }}
+          branch: master
+          file_pattern: '*.yaml *.md' 
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
