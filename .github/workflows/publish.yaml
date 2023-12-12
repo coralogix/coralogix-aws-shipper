@@ -1,0 +1,132 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+       
+  workflow_dispatch:
+
+env:
+  AWS_DEFAULT_REGION: eu-central-1
+  AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
+  AWS_S3_PREFIX: coralogix-aws-shipper
+  REPO_BUCKET_PREFIX: coralogix-serverless-repo
+
+jobs:
+  check_version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2 # Fetches the last two commits for comparison
+
+      - name: install yq
+        run: sudo snap install yq
+
+      - name: check if specific value has changed
+        id: check_change
+        run: |
+          set -xv
+          # Extract the value from the current commit
+          current=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
+
+          # Extract the value from the previous commit
+          git checkout HEAD^ template.yaml
+          previous=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
+
+          # Compare the two values
+          echo "updated=false" >> $GITHUB_ENV
+          [ "$current" != "$previous" ] && echo "updated=true" >> $GITHUB_ENV
+          
+          lastcommit=$(git log -1 --pretty=%B)
+          [[ $lastcommit =~ .*skip-version-check.* ]] && echo "updated=true" >> $GITHUB_ENV
+
+          set +xv
+
+      - name: 
+        if: env.updated == 'false'
+        run: |
+          echo "The SemanticVersion value has not changed. Please update the SemanaticVersion value in the template.yaml file and try again."
+          exit 1
+
+  build:
+    name: build
+    needs: check_version
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: 'pip' # caching pip dependencies
+      - run: pip3 install cargo-lambda
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: start ssh agent for rust private dependencies
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: install protobuf compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: sam build
+        run: sam build
+
+      - name: package
+        run: |
+          sam package \
+            --s3-bucket ${{ env.AWS_SERVERLESS_BUCKET }} \
+            --s3-prefix ${{ env.AWS_S3_PREFIX }} \
+            --output-template-file packaged.yaml
+
+      - name: store
+        uses: actions/upload-artifact@v3
+        with:
+          name: packaged.yaml
+          path: packaged.yaml
+
+  publish:
+    name: publish
+    needs: build
+    # if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true }}
+    runs-on: ubuntu-latest
+    env:
+      AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: download
+        uses: actions/download-artifact@v3
+        with:
+          name: packaged.yaml
+
+      - name: publish
+        run: sam publish --template packaged.yaml
+
+      - name: store
+        run: |
+          aws s3 cp \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
+

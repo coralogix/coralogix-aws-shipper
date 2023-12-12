@@ -1,0 +1,42 @@
+name: Changelog
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [master]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "template.yaml"
+      - "requirements.txt"
+      - "Makefile"
+
+jobs:
+  get-label:
+    runs-on: ubuntu-latest
+    name: get label
+    outputs:
+      labels: "${{ steps.pr-labels.outputs.labels }}"
+    steps:
+      - name: Get PR labels
+        id: pr-labels
+        uses: joerick/pr-labels-action@v1.0.8
+        
+  check-changelog-updates:
+    if: "${{ needs.get-label.outputs.labels != ' skip-changelog ' }}"
+    runs-on: ubuntu-latest
+    needs: get-label
+    name: Check changelog update
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Get changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v37
+
+    - name: Checking Files
+      if: ${{ steps.changed-files.outputs.all_changed_files != '' }}
+      run: |
+        chmod +x ./scripts/changelog_check.sh
+        ./scripts/changelog_check.sh
