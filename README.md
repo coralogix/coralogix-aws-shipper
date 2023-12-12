@@ -20,6 +20,7 @@ The `coralogix-aws-shipper` supports forwarding of logs for the following AWS Se
 * [Amazon S3 access logs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerLogs.html)
 * [Amazon VPC DNS query logs](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resolver-query-logs.html)
 * [AWS WAF](https://docs.aws.amazon.com/waf/latest/developerguide/logging-s3.html)
+* [AWS SNS](https://aws.amazon.com/sns/)
 
 Additionally, you can ingest any generic text, JSON and csv logs stored in your S3 bucket
 
@@ -57,7 +58,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | Application name | The stack name of this application created via AWS CloudFormation. |   | :heavy_check_mark: |
-| IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv' |  S3 | :heavy_check_mark: | 
+| IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns' |  S3 | :heavy_check_mark: | 
 | CoralogixRegion | The Coralogix location region, possible options are [Custom, Europe, Europe2, India, Singapore, US, US2] If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter |  Custom | :heavy_check_mark: | 
 | CustomDomain | The Custom Domain. If set, will be the domain used to send telemetry (e.g. cx123.coralogix.com) |   |   |
 | ApplicationName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your application. for dynamically value from the log you should use *$.my_log.field* |   | :heavy_check_mark: | 
@@ -69,8 +70,8 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | S3BucketName | The name of the AWS S3 bucket to watch |   | :heavy_check_mark: |
-| S3KeyPrefix | The AWS S3 path prefix to watch | CloudTrail/VpcFlow 'AWSLogs/' |   |
-| S3KeySuffix | The AWS S3 path suffix to watch | CloudTrail '.json.gz',  VpcFlow '.log.gz' |   |
+| S3KeyPrefix | The AWS S3 path prefix to watch. This value is ignored when the SNSTopicArn parameter is provided. | CloudTrail/VpcFlow 'AWSLogs/' |   |
+| S3KeySuffix | The AWS S3 path suffix to watch. This value is ignored when the SNSTopicArn parameter is provided. | CloudTrail '.json.gz',  VpcFlow '.log.gz' |   |
 | NewlinePattern | Regular expression to detect a new log line for multiline logs from S3 source, e.g., use expression \n(?=\d{2}\-\d{2}\s\d{2}\:\d{2}\:\d{2}\.\d{3}) |   |   |
 | SNSTopicArn | The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3 |   |   |
 | CSVDelimiter | Single Character for using as a Delimiter when ingesting CSV (This value is applied when the S3Csv integration type  is selected), e.g. "," or " " | , |   |
@@ -89,7 +90,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | NotificationEmail | Failure notification email address |   |   | 
-| BlockingPattern | Regular expression to detect lines that should be excluded from sent to Coralogix, e.g., use expression MainActivity.java\:\d{3} to match all log that MainActivity ends with 3 digits| This will block a specific ipaddr in a json ' "srcaddr"\:"172\.31\.24\.253" ' |   | 
+| BlockingPattern | Regular expression to detect lines that should be excluded from sent to Coralogix, e.g., use expression MainActivity.java\:\d{3} to match all log that MainActivity ends with 3 digits, This will block a specific ipaddr in a json ' "srcaddr"\:"172\.31\.24\.253" '|  |   | 
 | SamplingRate | Send messages with specific rate (1 out of N) e.g., put the value 10 if you want to send every 10th log | 1 | :heavy_check_mark: | 
 
 ### Lambda configuration (Optional)
