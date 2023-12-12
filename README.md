@@ -31,12 +31,6 @@ Additionally, you can ingest any generic text, JSON and csv logs stored in your 
 
 ## Deployment instructions
 
-### AWS Serverless Application
-
-The lambda can be deployed by clicking the link below and signing into your AWS account:
-[Deployment link](https://serverlessrepo.aws.amazon.com/applications/eu-central-1/597078901540/Coralogix-aws-shipper)
-Please make sure you selecet the AWS region before you deploy
-
 ### Coralogix In Product Integration
 
 Link To Coralogix Document (Work in Progress)
@@ -45,6 +39,12 @@ Link To Coralogix Document (Work in Progress)
 
 Log into your AWS account and deploy the CloudFormation Stack with the button below
 [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=coralogix-aws-shipper&templateURL=https://cgx-cloudformation-templates.s3.amazonaws.com/aws-integrations/aws-shipper-lambda/template.yaml)
+
+### AWS Serverless Application
+
+The lambda can be deployed by clicking the link below and signing into your AWS account:
+[Deployment link](https://serverlessrepo.aws.amazon.com/applications/eu-central-1/597078901540/Coralogix-aws-shipper)
+Please make sure you selecet the AWS region before you deploy
 
 ### Terraform
 
