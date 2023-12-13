@@ -20,13 +20,12 @@ pub async fn process_batches(
     metadata_instance: &process::Metadata,
     exporter: DynLogExporter,
 ) -> Result<(), Error> {
+    let logs: Vec<String> = logs.into_iter().filter(|log| !log.trim().is_empty()).collect();
     let number_of_logs = logs.len();
-
     if number_of_logs == 0 {
         info!("No logs to send");
         return Ok(());
     }
-    let logs = logs.into_iter().filter(|log| !log.trim().is_empty()).collect();
 
     let batches = into_batches_of_estimated_size(logs);
 

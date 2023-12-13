@@ -331,6 +331,10 @@ async fn process_cloudtrail(raw_data: Vec<u8>, sampling: usize, blocking_pattern
 }
 
 fn ungzip(compressed_data: Vec<u8>) -> Result<Vec<u8>, Error> {
+    if compressed_data.is_empty() {
+        tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
+        return Ok(Vec::new());
+    }
     let mut d = GzDecoder::new(&compressed_data[..]);
     let mut v = Vec::new();
     d.read_to_end(&mut v)?;
