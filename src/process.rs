@@ -43,27 +43,28 @@ pub async fn s3(
     let batches = match config.integration_type {
         // VPC Flow Logs Needs Prefix and Sufix to be exact AWSLogs/ and .log.gz
         IntegrationType::VpcFlow => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key).await?;
-            process_vpcflows(raw_data, config.sampling, &config.blocking_pattern).await?
+            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            process_vpcflows(raw_data, config.sampling, &config.blocking_pattern, key).await?
         }
         IntegrationType::S3Csv => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key).await?;
-            process_csv(raw_data, config.sampling, key_path, &config.csv_delimiter, &config.blocking_pattern).await?
+            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            process_csv(raw_data, config.sampling, key_path, &config.csv_delimiter, &config.blocking_pattern,key).await?
         }
         IntegrationType::S3 => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key).await?;
+            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
             process_s3(
                 raw_data,
                 config.sampling,
                 key_path,
                 &config.newline_pattern,
                 &config.blocking_pattern,
+                key,
             )
             .await?
         }
         IntegrationType::CloudTrail => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key).await?;
-            process_cloudtrail(raw_data, config.sampling, &config.blocking_pattern).await?
+            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            process_cloudtrail(raw_data, config.sampling, &config.blocking_pattern,key).await?
         }
         _ => {
             tracing::warn!(
@@ -219,8 +220,8 @@ async fn process_cloudwatch_logs(cw_event: AwsLogs, sampling: usize) -> Result<V
     debug!("Cloudwatch Logs: {:?}", log_entries);
     Ok(sample(sampling, log_entries))
 }
-async fn process_vpcflows(raw_data: Vec<u8>, sampling: usize, blocking_pattern: &str) -> Result<Vec<String>, Error> {
-    let v = ungzip(raw_data)?;
+async fn process_vpcflows(raw_data: Vec<u8>, sampling: usize, blocking_pattern: &str, key: String) -> Result<Vec<String>, Error> {
+    let v = ungzip(raw_data,key)?;
     let s = String::from_utf8(v)?;
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
     let flow_header = split(Regex::new(r"\s+")?, array_s[0])?;
@@ -238,9 +239,10 @@ async fn process_csv(
     key_path: &Path,
     csv_delimiter: &str,
     blocking_pattern: &str,
+    key: String,
 ) -> Result<Vec<String>, Error> {
     let s = if key_path.extension() == Some(OsStr::new("gz")) {
-        let v = ungzip(raw_data)?;
+        let v = ungzip(raw_data,key)?;
         let s = String::from_utf8(v)?;
         debug!("ZIP S3 object: {}", s);
         s
@@ -265,9 +267,10 @@ async fn process_s3(
     key_path: &Path,
     newline_pattern: &str,
     blocking_pattern: &str,
+    key: String,
 ) -> Result<Vec<String>, Error> {
     let s = if key_path.extension() == Some(OsStr::new("gz")) {
-        let v = ungzip(raw_data)?;
+        let v = ungzip(raw_data, key)?;
         let s = String::from_utf8(v)?;
         debug!("ZIP S3 object: {}", s);
         s
@@ -300,9 +303,9 @@ async fn process_s3(
     Ok(logs)
 }
 
-async fn process_cloudtrail(raw_data: Vec<u8>, sampling: usize, blocking_pattern: &str,) -> Result<Vec<String>, Error> {
+async fn process_cloudtrail(raw_data: Vec<u8>, sampling: usize, blocking_pattern: &str, key: String) -> Result<Vec<String>, Error> {
     tracing::info!("Cloudtrail Integration Type");
-    let v = ungzip(raw_data)?;
+    let v = ungzip(raw_data,key)?;
     let s = String::from_utf8(v)?;
     let mut logs_vec: Vec<String> = Vec::new();
     let array_s = serde_json::from_str::<serde_json::Value>(&s)?;
@@ -330,15 +333,20 @@ async fn process_cloudtrail(raw_data: Vec<u8>, sampling: usize, blocking_pattern
     }
 }
 
-fn ungzip(compressed_data: Vec<u8>) -> Result<Vec<u8>, Error> {
+fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
     if compressed_data.is_empty() {
         tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
         return Ok(Vec::new());
     }
     let mut d = GzDecoder::new(&compressed_data[..]);
     let mut v = Vec::new();
-    d.read_to_end(&mut v)?;
-    Ok(v)
+    match d.read_to_end(&mut v) {
+        Ok(_) => Ok(v),
+        Err(e) => {
+            tracing::error!("Failed to ungzip data from  Key_Path: {}. Error: {}", key, e);
+             Err(Box::new(e))
+        }
+    }
 }
 
 fn parse_records(flow_header: &[&str], records: &[&str], csv_delimiter: &str) -> Result<Vec<String>, String> {
