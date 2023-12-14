@@ -140,10 +140,10 @@ Parameters:
     Description: 'Log level for the Lambda function. Can be one of: INFO, WARNING, ERROR, DEBUG'
     AllowedValues:
       - "INFO"
-      - "WARNING"
+      - "WARN"
       - "ERROR"
       - "DEBUG"
-    Default: "INFO"
+    Default: "WARM"
 
   S3BucketName:
     Type: String
