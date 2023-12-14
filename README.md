@@ -118,3 +118,6 @@ To use privatelink please forllow the instruction in this [link](https://coralog
 - Look out for TimeOut Errors "Task timed out after", if you see them, please increase lambda timeout from Configuration -> General Configuration
 - Look out for out of Memory logs "Task out of Memory" , if you see them, please increase lambda max memory from Configuration -> General Configuration
 - To add more verbosity to Lambda logs, you can set RUST_LOG to DEBUG. Remamber to change it back to INFO once troubleshooting is done.
+- set MAX_ELAPSED_TIME variable for default change ( default = 250 )
+- Set BATCHES_MAX_SIZE (in MB) sets batch max size before sending to coralogix. This value is limited by the max payload accepted by Coralogix Endpoing. (default = 4)
+- Set BATCHES_MAX_CONCURRENCY sets max amount of concurrect batches can be sent. 

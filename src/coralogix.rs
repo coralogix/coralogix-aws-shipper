@@ -20,14 +20,17 @@ pub async fn process_batches(
     metadata_instance: &process::Metadata,
     exporter: DynLogExporter,
 ) -> Result<(), Error> {
-    let logs: Vec<String> = logs.into_iter().filter(|log| !log.trim().is_empty()).collect();
+    let logs: Vec<String> = logs
+        .into_iter()
+        .filter(|log| !log.trim().is_empty())
+        .collect();
     let number_of_logs = logs.len();
     if number_of_logs == 0 {
         info!("No logs to send");
         return Ok(());
     }
 
-    let batches = into_batches_of_estimated_size(logs);
+    let batches = into_batches_of_estimated_size(logs, config);
 
     info!(
         "Will send {} logs in {} batches. (On average {} logs per batch)",
@@ -64,9 +67,9 @@ pub async fn process_batches(
     Ok(())
 }
 
-fn into_batches_of_estimated_size(logs: Vec<String>) -> Vec<Vec<String>> {
+fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec<String>> {
     // The hard limit is 10MB. We're aiming for 2MB, so we don't need to be precise with the size estimation.
-    let target_batch_size = 2 * 1024 * 1024; // 2MB
+    let target_batch_size = config.batches_max_size * 1024 * 1024; // 4MB
     let overhead_per_log_estimation = 200;
 
     let (mut batches, batch, _) = logs

@@ -3,7 +3,7 @@ use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
 use aws_sdk_s3::Client;
 use combined_event::CombinedEvent;
-use cx_sdk_rest_logs::config::{LogExporterConfig, BackoffConfig};
+use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
 use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
 use http::header::USER_AGENT;
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
@@ -112,9 +112,9 @@ async fn function_handler(
             debug!("SNS Message: {:?}", message);
             //let json: serde_json::Value = serde_json::from_str(message)?;
             //let result = serde_json::from_str::<serde_json::Value>(message);
-            
-            if config.integration_type != IntegrationType::Sns  {
-                let records = serde_json::from_str::<serde_json::Value>(message)?;               
+
+            if config.integration_type != IntegrationType::Sns {
+                let records = serde_json::from_str::<serde_json::Value>(message)?;
                 debug!("SNS S3 EVENT Detected");
                 let bucket = records["Records"][0]["s3"]["bucket"]["name"]
                     .as_str()
