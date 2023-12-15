@@ -160,9 +160,9 @@ fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<Strin
                 .and_then(|obj| obj.remove(segment))?;
         }
         json_data.as_str().map(|str| str.to_owned())
-    } else if app_name.starts_with("{{key") {
+    } else if app_name.starts_with("{{s3_key") {
         // Check if there is an index provided
-        let maybe_index_str = app_name.trim_start_matches("{{key").trim_end_matches('}');
+        let maybe_index_str = app_name.trim_start_matches("{{s3_key").trim_end_matches('}');
 
         if let Some('.') = maybe_index_str.chars().next() {
             // Parse the index
@@ -265,6 +265,6 @@ mod test {
             }
         }"#;
         let dapp = dynamic_metadata_for_log(app_name, log_file_contents,key_name.to_string());
-        assert_eq!(dapp, "my-awesome-app2");
+         assert_eq!(dapp, "my-awesome-app2");
     }
 }

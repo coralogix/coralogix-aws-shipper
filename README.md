@@ -110,6 +110,11 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | UsePrivateLink | Will you be using our PrivateLink? | false | :heavy_check_mark: | 
 
 ## Advanced
+### Dynamic Application and Subsystem Name
+- Json support: for dynamically value from the log you should use *$.my_log.field* 
+- s3 folder: Use the following tag: {{s3_key.*value*}} where value is the folder level, for example:
+    if the file path that triggers the event is AWSLogs/112322232/ELB1/elb.log or AWSLogs/112322232/ELB2/elb.log and you
+    want ELB1 and ELB2 to be the subsystem, you subsystemName shoudl be {{s3_key.3}}
 
 ### AWS PrivateLink
 To use privatelink please forllow the instruction in this [link](https://coralogix.com/docs/coralogix-amazon-web-services-aws-privatelink-endpoints/)
