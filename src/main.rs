@@ -103,15 +103,13 @@ async fn function_handler(
     // TODO will this always produce just one bucket/key? (check this)
     match evt.payload {
         CombinedEvent::S3(s3_event) => {
+            info!("S3 Event: {:?}", s3_event);
             let (bucket, key) = handle_s3_event(s3_event).await?;
             crate::process::s3(s3_client, coralogix_exporter, config, bucket, key).await?;
         }
         CombinedEvent::Sns(sns_event) => {
-            debug!("SNS Event: {:?}", sns_event.records[0]);
+            info!("SNS Event: {:?}", sns_event);
             let message = &sns_event.records[0].sns.message;
-            debug!("SNS Message: {:?}", message);
-            //let json: serde_json::Value = serde_json::from_str(message)?;
-            //let result = serde_json::from_str::<serde_json::Value>(message);
 
             if config.integration_type != IntegrationType::Sns {
                 let records = serde_json::from_str::<serde_json::Value>(message)?;
@@ -136,6 +134,7 @@ async fn function_handler(
             }
         }
         CombinedEvent::CloudWatchLogs(awslogs) => {
+            info!("Cloudwatch Event: {:?}", awslogs);
             let cloudwatch_event_log = handle_cloudwatch_logs_event(awslogs).await?;
             crate::process::cloudwatch_logs(cloudwatch_event_log, coralogix_exporter, config)
                 .await?;
