@@ -23,7 +23,7 @@ pub async fn s3(
     bucket: String,
     key: String,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
+    let mut metadata_instance = Metadata {
         stream_name: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
@@ -59,7 +59,9 @@ pub async fn s3(
             .await?
         }
         IntegrationType::S3 => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
+            metadata_instance.key_name = key.clone();
+            metadata_instance.bucket_name = bucket;
             process_s3(
                 raw_data,
                 config.sampling,
@@ -106,7 +108,7 @@ pub async fn sns_logs(
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
+    let mut metadata_instance = Metadata {
         stream_name: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
