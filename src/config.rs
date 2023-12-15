@@ -20,6 +20,8 @@ pub struct Config {
     pub endpoint: String,
     pub max_elapsed_time: u64,
     pub csv_delimiter: String,
+    pub batches_max_size: usize,
+    pub batches_max_concurrency: usize,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -58,11 +60,9 @@ impl Config {
     pub fn load_from_env() -> Result<Config, String> {
         // let conf: Config;
         let conf = Config {
-            newline_pattern: env::var("NEWLINE_PATTERN")
-                .unwrap_or("".to_string()),
+            newline_pattern: env::var("NEWLINE_PATTERN").unwrap_or("".to_string()),
 
-            blocking_pattern: env::var("BLOCKING_PATTERN")
-                .unwrap_or("".to_string()),
+            blocking_pattern: env::var("BLOCKING_PATTERN").unwrap_or("".to_string()),
 
             sampling: env::var("SAMPLING")
                 .map_err(|e| format!("sampling not set - {}", e))?
@@ -94,6 +94,14 @@ impl Config {
                 .parse::<char>()
                 .map_err(|e| format!("Error parsing CSV_DELIMITER to char - {}", e))?
                 .to_string(),
+            batches_max_size: env::var("BATCHES_MAX_SIZE")
+                .unwrap_or("4".to_string())
+                .parse::<usize>()
+                .map_err(|e| format!("Error parsing BATCHES_MAX_SIZE to usize - {}", e))?,
+            batches_max_concurrency: env::var("BATCHES_MAX_CONCURRENCY")
+                .unwrap_or("10".to_string())
+                .parse::<usize>()
+                .map_err(|e| format!("Error parsing BATCHES_MAX_CONCURRENCY to usize - {}", e))?,
         };
 
         Ok(conf)

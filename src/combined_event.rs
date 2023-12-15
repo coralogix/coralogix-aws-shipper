@@ -32,7 +32,7 @@ impl<'de> Deserialize<'de> for CombinedEvent {
                 Err(de::Error::custom("Unknown Records event type"))
             }
         } else if let Some(records) = raw_value.get("awslogs") {
-            tracing::info!("records: {:?}", records);
+            tracing::debug!("records: {:?}", records);
             Ok(CombinedEvent::CloudWatchLogs(
                 AwsLogs::deserialize(records).map_err(de::Error::custom)?,
             ))
