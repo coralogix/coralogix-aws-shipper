@@ -43,27 +43,36 @@ pub async fn s3(
     let batches = match config.integration_type {
         // VPC Flow Logs Needs Prefix and Sufix to be exact AWSLogs/ and .log.gz
         IntegrationType::VpcFlow => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key).await?;
-            process_vpcflows(raw_data, config.sampling, &config.blocking_pattern).await?
+            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            process_vpcflows(raw_data, config.sampling, &config.blocking_pattern, key).await?
         }
         IntegrationType::S3Csv => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key).await?;
-            process_csv(raw_data, config.sampling, key_path, &config.csv_delimiter, &config.blocking_pattern).await?
+            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            process_csv(
+                raw_data,
+                config.sampling,
+                key_path,
+                &config.csv_delimiter,
+                &config.blocking_pattern,
+                key,
+            )
+            .await?
         }
         IntegrationType::S3 => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key).await?;
+            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
             process_s3(
                 raw_data,
                 config.sampling,
                 key_path,
                 &config.newline_pattern,
                 &config.blocking_pattern,
+                key,
             )
             .await?
         }
         IntegrationType::CloudTrail => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key).await?;
-            process_cloudtrail(raw_data, config.sampling, &config.blocking_pattern).await?
+            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            process_cloudtrail(raw_data, config.sampling, &config.blocking_pattern, key).await?
         }
         _ => {
             tracing::warn!(
@@ -181,11 +190,13 @@ async fn get_bytes_from_s3(
 ) -> Result<Vec<u8>, Error> {
     let start_time = Instant::now();
     let decoded_key = percent_encoding::percent_decode_str(&key)
-        .decode_utf8()?.replace("+", " ");
+        .decode_utf8()?
+        .replace("+", " ");
+    let decoded_key_clone = decoded_key.clone();
     let request = s3_client
         .get_object()
         .bucket(bucket.clone())
-        .key(decoded_key)
+        .key(decoded_key_clone)
         .response_content_type("application/json");
     let response = request.send().await?;
     tracing::info!(
@@ -194,7 +205,7 @@ async fn get_bytes_from_s3(
     );
 
     // Downloading the content this way is faster and allocates less memory than using `body.collect().await?.to_vec()`
-    let mut data = Vec::with_capacity(response.content_length.unwrap_or(1024*1024) as usize);
+    let mut data = Vec::with_capacity(response.content_length.unwrap_or(1024 * 1024) as usize);
     let mut body = response.body;
     while let Some(result) = body.next().await {
         let bytes = result?;
@@ -202,9 +213,12 @@ async fn get_bytes_from_s3(
     }
 
     tracing::info!(
-        "Downloaded file from S3 in {}ms.",
-        start_time.elapsed().as_millis()
+        "Downloaded file from S3 in {}ms. Actual size: {} bytes. Name of the file: {}",
+        start_time.elapsed().as_millis(),
+        data.len(),
+        decoded_key
     );
+
     Ok(data)
 }
 
@@ -219,17 +233,30 @@ async fn process_cloudwatch_logs(cw_event: AwsLogs, sampling: usize) -> Result<V
     debug!("Cloudwatch Logs: {:?}", log_entries);
     Ok(sample(sampling, log_entries))
 }
-async fn process_vpcflows(raw_data: Vec<u8>, sampling: usize, blocking_pattern: &str) -> Result<Vec<String>, Error> {
-    let v = ungzip(raw_data)?;
+async fn process_vpcflows(
+    raw_data: Vec<u8>,
+    sampling: usize,
+    blocking_pattern: &str,
+    key: String,
+) -> Result<Vec<String>, Error> {
+    let v = ungzip(raw_data, key)?;
     let s = String::from_utf8(v)?;
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
     let flow_header = split(Regex::new(r"\s+")?, array_s[0])?;
     let csv_delimiter = " ";
-    let records: Vec<&str> = array_s.iter().skip(1).filter(|&line| !line.trim().is_empty()).copied().collect_vec();
+    let records: Vec<&str> = array_s
+        .iter()
+        .skip(1)
+        .filter(|&line| !line.trim().is_empty())
+        .copied()
+        .collect_vec();
     let parsed_records = parse_records(&flow_header, &records, csv_delimiter)?;
     let re_block: Regex = Regex::new(blocking_pattern)?;
     tracing::debug!("Parsed Records: {:?}", &parsed_records);
-    Ok(sample(sampling, block(re_block, parsed_records, blocking_pattern)?))
+    Ok(sample(
+        sampling,
+        block(re_block, parsed_records, blocking_pattern)?,
+    ))
 }
 
 async fn process_csv(
@@ -238,9 +265,10 @@ async fn process_csv(
     key_path: &Path,
     csv_delimiter: &str,
     blocking_pattern: &str,
+    key: String,
 ) -> Result<Vec<String>, Error> {
     let s = if key_path.extension() == Some(OsStr::new("gz")) {
-        let v = ungzip(raw_data)?;
+        let v = ungzip(raw_data, key)?;
         let s = String::from_utf8(v)?;
         debug!("ZIP S3 object: {}", s);
         s
@@ -252,11 +280,19 @@ async fn process_csv(
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
     let flow_header = array_s[0].split(csv_delimiter).collect_vec();
     tracing::debug!("Flow Header: {:?}", &flow_header);
-    let records: Vec<&str> = array_s.iter().skip(1).filter(|&line| !line.trim().is_empty()).copied().collect_vec();
+    let records: Vec<&str> = array_s
+        .iter()
+        .skip(1)
+        .filter(|&line| !line.trim().is_empty())
+        .copied()
+        .collect_vec();
     let re_block: Regex = Regex::new(blocking_pattern)?;
     let parsed_records = parse_records(&flow_header, &records, csv_delimiter)?;
     debug!("Parsed Records: {:?}", &parsed_records);
-    Ok(sample(sampling, block(re_block, parsed_records, blocking_pattern)?))
+    Ok(sample(
+        sampling,
+        block(re_block, parsed_records, blocking_pattern)?,
+    ))
 }
 
 async fn process_s3(
@@ -265,9 +301,10 @@ async fn process_s3(
     key_path: &Path,
     newline_pattern: &str,
     blocking_pattern: &str,
+    key: String,
 ) -> Result<Vec<String>, Error> {
     let s = if key_path.extension() == Some(OsStr::new("gz")) {
-        let v = ungzip(raw_data)?;
+        let v = ungzip(raw_data, key)?;
         let s = String::from_utf8(v)?;
         debug!("ZIP S3 object: {}", s);
         s
@@ -300,9 +337,14 @@ async fn process_s3(
     Ok(logs)
 }
 
-async fn process_cloudtrail(raw_data: Vec<u8>, sampling: usize, blocking_pattern: &str,) -> Result<Vec<String>, Error> {
+async fn process_cloudtrail(
+    raw_data: Vec<u8>,
+    sampling: usize,
+    blocking_pattern: &str,
+    key: String,
+) -> Result<Vec<String>, Error> {
     tracing::info!("Cloudtrail Integration Type");
-    let v = ungzip(raw_data)?;
+    let v = ungzip(raw_data, key)?;
     let s = String::from_utf8(v)?;
     let mut logs_vec: Vec<String> = Vec::new();
     let array_s = serde_json::from_str::<serde_json::Value>(&s)?;
@@ -330,36 +372,54 @@ async fn process_cloudtrail(raw_data: Vec<u8>, sampling: usize, blocking_pattern
     }
 }
 
-fn ungzip(compressed_data: Vec<u8>) -> Result<Vec<u8>, Error> {
+fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
+    if compressed_data.is_empty() {
+        tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
+        return Ok(Vec::new());
+    }
     let mut d = GzDecoder::new(&compressed_data[..]);
     let mut v = Vec::new();
-    d.read_to_end(&mut v)?;
-    Ok(v)
-}
-
-fn parse_records(flow_header: &[&str], records: &[&str], csv_delimiter: &str) -> Result<Vec<String>, String> {
-    records.iter().map(|record| {
-        let values: Vec<&str> = record.split(csv_delimiter).collect();
-        let mut parsed_log = serde_json::Map::new();
-
-        for (index, field) in flow_header.iter().enumerate() {
-            // Use a default empty string if the value is missing
-            let value = values.get(index).unwrap_or(&"");
-
-            let parsed_value = if let Ok(num) = value.parse::<i32>() {
-                serde_json::Value::Number(serde_json::Number::from(num))
-            } else {
-                serde_json::Value::String(value.to_string())
-            };
-
-            parsed_log.insert(field.to_string(), parsed_value);
+    match d.read_to_end(&mut v) {
+        Ok(_) => Ok(v),
+        Err(e) => {
+            tracing::error!(
+                "Failed to ungzip data from  Key_Path: {}. Error: {}",
+                key,
+                e
+            );
+            Err(Box::new(e))
         }
-
-        serde_json::to_string(&parsed_log).map_err(|e| e.to_string())
-    }).collect()
+    }
 }
 
+fn parse_records(
+    flow_header: &[&str],
+    records: &[&str],
+    csv_delimiter: &str,
+) -> Result<Vec<String>, String> {
+    records
+        .iter()
+        .map(|record| {
+            let values: Vec<&str> = record.split(csv_delimiter).collect();
+            let mut parsed_log = serde_json::Map::new();
 
+            for (index, field) in flow_header.iter().enumerate() {
+                // Use a default empty string if the value is missing
+                let value = values.get(index).unwrap_or(&"");
+
+                let parsed_value = if let Ok(num) = value.parse::<i32>() {
+                    serde_json::Value::Number(serde_json::Number::from(num))
+                } else {
+                    serde_json::Value::String(value.to_string())
+                };
+
+                parsed_log.insert(field.to_string(), parsed_value);
+            }
+
+            serde_json::to_string(&parsed_log).map_err(|e| e.to_string())
+        })
+        .collect()
+}
 
 fn split(re: Regex, string: &str) -> Result<Vec<&str>, Error> {
     let mut logs: Vec<&str> = Vec::new();
