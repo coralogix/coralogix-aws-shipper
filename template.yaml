@@ -143,7 +143,7 @@ Parameters:
       - "WARN"
       - "ERROR"
       - "DEBUG"
-    Default: "WARM"
+    Default: "WARN"
 
   S3BucketName:
     Type: String
