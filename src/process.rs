@@ -192,10 +192,11 @@ async fn get_bytes_from_s3(
     let decoded_key = percent_encoding::percent_decode_str(&key)
         .decode_utf8()?
         .replace("+", " ");
+    let decoded_key_clone = decoded_key.clone();
     let request = s3_client
         .get_object()
         .bucket(bucket.clone())
-        .key(decoded_key)
+        .key(decoded_key_clone)
         .response_content_type("application/json");
     let response = request.send().await?;
     tracing::info!(
@@ -212,9 +213,12 @@ async fn get_bytes_from_s3(
     }
 
     tracing::info!(
-        "Downloaded file from S3 in {}ms.",
-        start_time.elapsed().as_millis()
+        "Downloaded file from S3 in {}ms. Actual size: {} bytes. Name of the file: {}",
+        start_time.elapsed().as_millis(),
+        data.len(),
+        decoded_key
     );
+
     Ok(data)
 }
 
