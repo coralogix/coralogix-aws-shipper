@@ -175,11 +175,11 @@ fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<Strin
                 }
             }
         }
-        // If no index or index parsing failed, return the whole key_name
+        tracing::warn!("Application or Subsystem Name Parsing Failed {}", app_name);
         Some("default".to_string())
     } else {
-        //tracing::warn!("Application or Subsystem Name Parsing Failed {}", app_name);
-        None
+        tracing::warn!("Application or Subsystem Name Parsing Failed {}", app_name);
+        Some("default".to_string())
     }
 }
 
