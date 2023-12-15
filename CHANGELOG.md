@@ -3,6 +3,7 @@
 
 ### 🧰 Bug fixes 🧰
 - Lambda fail on empty empty gzip file for ELB logs.
+- Change LogLevel to WARN
 
 ### 💡 Enhancements 💡
 - Added key_path to ungzip error log for reference.
