@@ -1,5 +1,11 @@
 # Changelog
-## v0.0.2 Beta / 2023-13-15
+
+## v0.0.3 / 2023-12-20
+### 🧰 Bug fixes 🧰
+### 💡 Enhancements 💡
+- Added s3_key flag for dynamic app and subname.
+
+## v0.0.2 Beta / 2023-12-15
 
 ### 🧰 Bug fixes 🧰
 - Lambda fail on empty empty gzip file for ELB logs.
