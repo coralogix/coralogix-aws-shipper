@@ -710,12 +710,14 @@ checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
 name = "coralogix-aws-shipper"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-sdk-s3",
  "aws-sdk-secretsmanager",
  "aws_lambda_events",
+ "cx_sdk_core",
  "cx_sdk_rest_logs",
  "derive_more",
  "fancy-regex",
@@ -724,6 +726,7 @@ dependencies = [
  "http",
  "itertools",
  "lambda_runtime",
+ "lazy_static",
  "percent-encoding",
  "pretty_assertions_sorted",
  "serde",

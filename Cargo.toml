@@ -9,6 +9,7 @@ aws-config = "1.0.3"
 aws-sdk-s3 = "1.5.0"
 aws-sdk-secretsmanager = "1.4.0"
 cx_sdk_rest_logs = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false, features=["rustls"] }
+cx_sdk_core = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false}
 derive_more = "0.99.17"
 fancy-regex ="0.12.0"
 flate2 = "1.0"
@@ -24,6 +25,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 serde_json = "1.0.64"
 serde = { version = "1.0.130", features = ["derive"] }
 percent-encoding = "2.3.1"
+async-trait = "0.1.74"
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
