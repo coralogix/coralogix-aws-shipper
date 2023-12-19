@@ -103,6 +103,39 @@ pub struct Metadata {
     pub key_name: String,
 }
 
+pub async fn sqs_logs(
+    sqs_message: String,
+    coralogix_exporter: DynLogExporter,
+    config: &Config,
+) -> Result<(), Error> {
+    let metadata_instance = Metadata {
+        stream_name: String::new(),
+        bucket_name: String::new(),
+        key_name: String::new(),
+    };
+    let defined_app_name = config
+        .app_name
+        .clone()
+        .unwrap_or_else(|| "NO APPLICATION NAME".to_string());
+    let defined_sub_name = config
+        .sub_name
+        .clone()
+        .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
+    let mut batches = Vec::new();
+    tracing::debug!("SNS Message: {:?}", sqs_message);
+    batches.push(sqs_message.clone());
+    coralogix::process_batches(
+        batches,
+        &defined_app_name,
+        &defined_sub_name,
+        config,
+        &metadata_instance,
+        coralogix_exporter,
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn sns_logs(
     sns_message: String,
     coralogix_exporter: DynLogExporter,
