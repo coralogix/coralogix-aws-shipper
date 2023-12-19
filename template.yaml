@@ -88,10 +88,10 @@ Parameters:
       The Coralogix location region, possible options are [Europe, Europe2, India, Singapore, US, US2]
       If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter.
     AllowedValues:
-      - Europe
-      - Europe2
-      - India
-      - Singapore
+      - EU1
+      - EU2
+      - AP1
+      - AP2
       - US
       - US2
       - Custom
@@ -261,13 +261,13 @@ Parameters:
 
 Mappings:
   CoralogixRegionMap:
-    Europe:
+    EU1:
       Domain: coralogix.com
-    Europe2:
+    EU2:
       Domain: eu2.coralogix.com
-    India:
+    AP1:
       Domain: coralogix.in
-    Singapore:
+    AP2:
       Domain: coralogixsg.com
     US:
       Domain: coralogix.us
