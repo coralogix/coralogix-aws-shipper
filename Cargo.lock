@@ -726,7 +726,6 @@ dependencies = [
  "http",
  "itertools",
  "lambda_runtime",
- "lazy_static",
  "percent-encoding",
  "pretty_assertions_sorted",
  "serde",
