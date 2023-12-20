@@ -1,4 +1,3 @@
-use aws_config::BehaviorVersion;
 use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
 use aws_sdk_s3::Client;
@@ -6,7 +5,7 @@ use combined_event::CombinedEvent;
 use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
 use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
 use http::header::USER_AGENT;
-use lambda_runtime::{run, service_fn, Error, LambdaEvent};
+use lambda_runtime::{Error, LambdaEvent};
 use std::collections::HashMap;
 use std::string::String;
 use std::sync::Arc;
