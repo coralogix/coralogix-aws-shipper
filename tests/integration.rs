@@ -540,19 +540,19 @@ async fn run_test_s3_event() {
             .await
             .unwrap();
 
-        // let bulks = exporter.take_bulks();
-        // assert!(bulks.is_empty());
+        let bulks = exporter.take_bulks();
+        assert!(bulks.is_empty());
 
-        // let singles = exporter.take_singles();
-        // assert_eq!(singles.len(), 4);
-        // assert_eq!(singles[0].entries.len(), 1);
-        // assert_eq!(singles[0].entries[0].body, "[ERROR] First test message");
-        // assert_eq!(singles[1].entries.len(), 1);
-        // assert_eq!(singles[1].entries[0].body, "[ERROR] Second test message");
-        // assert_eq!(singles[2].entries.len(), 1);
-        // assert_eq!(singles[2].entries[0].body, "[ERROR] Third test message");
-        // assert_eq!(singles[3].entries.len(), 1);
-        // assert_eq!(singles[3].entries[0].body, "[ERROR] Fourth test message");
+        let singles = exporter.take_singles();
+        assert_eq!(singles.len(), 4);
+        assert_eq!(singles[0].entries.len(), 1);
+        assert_eq!(singles[0].entries[0].body, "[ERROR] First test message");
+        assert_eq!(singles[1].entries.len(), 1);
+        assert_eq!(singles[1].entries[0].body, "[ERROR] Second test message");
+        assert_eq!(singles[2].entries.len(), 1);
+        assert_eq!(singles[2].entries[0].body, "[ERROR] Third test message");
+        assert_eq!(singles[3].entries.len(), 1);
+        assert_eq!(singles[3].entries[0].body, "[ERROR] Fourth test message");
 
 }
 
