@@ -1,6 +1,7 @@
 # Changelog
 ## v0.0.2 Beta / 2023-13-15
 - Fix readme version link
+- Moved internal logic to lib.rs and Added Integration tests
 
 ### 🧰 Bug fixes 🧰
 - Lambda fail on empty empty gzip file for ELB logs.
