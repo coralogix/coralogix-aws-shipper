@@ -189,14 +189,10 @@ pub async fn get_bytes_from_s3(
     key: String,
 ) -> Result<Vec<u8>, Error> {
     let start_time = Instant::now();
-    let decoded_key = percent_encoding::percent_decode_str(&key)
-        .decode_utf8()?
-        .replace("+", " ");
-    let decoded_key_clone = decoded_key.clone();
     let request = s3_client
         .get_object()
         .bucket(bucket.clone())
-        .key(decoded_key_clone)
+        .key(key.clone())
         .response_content_type("application/json");
     let response = request.send().await?;
     tracing::info!(
@@ -216,7 +212,7 @@ pub async fn get_bytes_from_s3(
         "Downloaded file from S3 in {}ms. Actual size: {} bytes. Name of the file: {}",
         start_time.elapsed().as_millis(),
         data.len(),
-        decoded_key
+        key
     );
 
     Ok(data)
