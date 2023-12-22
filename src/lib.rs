@@ -133,7 +133,12 @@ pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Erro
         .as_ref()
         .expect("Object key to exist")
         .to_owned();
-    Ok((bucket, key))
+
+    let decoded_key = percent_encoding::percent_decode_str(&key)
+        .decode_utf8()?
+        .replace("+", " ");
+    
+    Ok((bucket, decoded_key))
 }
 
 // async fn handle_sns_event(sns_event: SnsEvent) -> Result<(String, String), Error> {
