@@ -154,3 +154,74 @@ pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Erro
 //         .to_owned();
 //     Ok((bucket, key))
 // }
+
+#[cfg(test)]
+mod test {
+    use aws_lambda_events::event::s3::S3Event;
+    use super::*;
+
+    // Note: we test the s3_event handler directly here, since the integration tests will bypass it
+    // using the mock s3 client. The [handle_cloudwatch_logs_event] is however invoked as part of the
+    // integration test workflow.
+    #[tokio::test]
+    async fn test_handle_s3_event() {
+        let s3_event_str = |bucket: &str, key: &str| -> String {
+            format!(
+                r#"{{
+                "Records": [
+                    {{
+                    "eventVersion": "2.0",
+                    "eventSource": "aws:s3",
+                    "awsRegion": "eu-west-1",
+                    "eventTime": "1970-01-01T00:00:00.000Z",
+                    "eventName": "ObjectCreated:Put",
+                    "userIdentity": {{
+                        "principalId": "EXAMPLE"
+                    }},
+                    "requestParameters": {{
+                        "sourceIPAddress": "127.0.0.1"
+                    }},
+                    "responseElements": {{
+                        "x-amz-request-id": "EXAMPLE123456789",
+                        "x-amz-id-2": "EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+                    }},
+                    "s3": {{
+                        "s3SchemaVersion": "1.0",
+                        "configurationId": "testConfigRule",
+                        "bucket": {{
+                        "name": "{}",
+                        "ownerIdentity": {{
+                            "principalId": "EXAMPLE"
+                        }},
+                        "arn": "arn:aws:s3:::{}"
+                        }},
+                        "object": {{
+                        "key": "{}",
+                        "size": 311000048,
+                        "eTag": "0123456789abcdef0123456789abcdef",
+                        "sequencer": "0A1B2C3D4E5F678901"
+                        }}
+                    }}
+                    }}
+                ]
+            }}"#,
+                bucket, bucket, key
+            )
+        };
+
+        // test normal s3 event
+        let s3_event = s3_event_str("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
+        let evt: S3Event = serde_json::from_str(s3_event.as_str()).expect("failed to parse s3_event");
+        let (bucket, key) = handle_s3_event(evt).await.unwrap();
+        assert_eq!(bucket, "coralogix-serverless-repo");
+        assert_eq!(key, "coralogix-aws-shipper/s3.log");
+
+        // test s3 event with spaces in key name (note: aws event replaces spaces with +)
+        let s3_event = s3_event_str("coralogix-serverless-repo", "coralogix-aws-shipper/s3+with+spaces.log");
+        let evt: S3Event = serde_json::from_str(s3_event.as_str()).expect("failed to parse s3_event");
+        let (bucket, key) = handle_s3_event(evt).await.unwrap();
+        assert_eq!(bucket, "coralogix-serverless-repo");
+        assert_eq!(key, "coralogix-aws-shipper/s3 with spaces.log");
+    }
+    
+}
