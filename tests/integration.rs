@@ -16,7 +16,6 @@ use std::string::String;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-
 fn s3event_string(bucket: &str, key: &str) -> String {
     format!(
         r#"{{
@@ -61,6 +60,42 @@ fn s3event_string(bucket: &str, key: &str) -> String {
     )
 }
 
+// get_mock_s3client returns a mock s3 client that returns the data from the given file
+fn get_mock_s3client(src: Option<&str>) -> Result<Client, String> {
+    let data = match src {
+        Some(source) => std::fs::read(source).map_err(|e| e.to_string())?,
+        None => Vec::new(),
+    };
+
+    let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::from(""))
+            .unwrap(),
+        http::Response::builder()
+            .status(200)
+            .body(aws_smithy_types::body::SdkBody::from(data))
+            .unwrap(),
+    );
+
+    let conf = aws_sdk_s3::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .credentials_provider(aws_sdk_s3::config::Credentials::new(
+            "SOMETESTKEYID",
+            "somesecretkey",
+            Some("somesessiontoken".to_string()),
+            None,
+            "",
+        ))
+        .region(aws_sdk_s3::config::Region::new("eu-central-1"))
+        .http_client(
+            aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
+                replay_event,
+            ]),
+        )
+        .build();
+
+    Ok(aws_sdk_s3::Client::from_conf(conf))
+}
 
 #[derive(Default, Debug, Clone)]
 pub struct FakeLogExporter {
@@ -116,14 +151,16 @@ impl LogExporter for FakeLogExporter {
 }
 
 async fn run_test_s3_event() {
-    let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
-    let s3_client = Client::new(&aws_config);
-    let config = Config::load_from_env().unwrap();
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
 
+    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
     let evt: S3Event = serde_json::from_str(
-        s3event_string("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log").as_str(),
+        s3event_string(bucket, key).as_str(),
     )
     .expect("failed to parse s3_event");
+
     let exporter = Arc::new(FakeLogExporter::new());
     let combined_event = CombinedEvent::S3(evt);
     let event = LambdaEvent::new(combined_event, Context::default());
@@ -177,9 +214,9 @@ async fn test_s3_event() {
 }
 
 async fn run_cloudtraillogs_s3_event() {
-    let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
-    let s3_client = Client::new(&aws_config);
-    let config = Config::load_from_env().unwrap();
+    let s3_client = get_mock_s3client(Some("./tests/fixtures/cloudtrail.log.gz"))
+        .expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
 
     let evt: S3Event = serde_json::from_str(
         s3event_string(
@@ -243,18 +280,16 @@ async fn test_cloudtraillogs_s3_event() {
 }
 
 async fn run_csv_s3_event() {
-    let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
-    let s3_client = Client::new(&aws_config);
-    let config = Config::load_from_env().unwrap();
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/s3csv.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
 
-    let evt: S3Event = serde_json::from_str(
-        s3event_string(
-            "coralogix-serverless-repo",
-            "coralogix-aws-shipper/s3csv.log",
-        )
-        .as_str(),
-    )
-    .expect("failed to parse s3_event");
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/s3csv.log",
+    );
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let combined_event = CombinedEvent::S3(evt);
@@ -308,8 +343,8 @@ async fn test_csv_s3_event() {
 }
 
 async fn run_vpcflowlgos_s3_event() {
-    let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
-    let s3_client = Client::new(&aws_config);
+    let s3_client = get_mock_s3client(Some("./tests/fixtures/vpcflow.log.gz"))
+        .expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
     let evt: S3Event = serde_json::from_str(
@@ -373,8 +408,7 @@ async fn test_vpcflowlgos_s3_event() {
 }
 
 async fn run_sns_event() {
-    let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
-    let s3_client = Client::new(&aws_config);
+    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
     let evt: SnsEvent = serde_json::from_str(
@@ -457,8 +491,7 @@ async fn test_sns_event() {
 }
 
 async fn run_cloudwatchlogs_event() {
-    let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
-    let s3_client = Client::new(&aws_config);
+    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
     let evt: AwsLogs = serde_json::from_str(
@@ -481,10 +514,7 @@ async fn run_cloudwatchlogs_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
-    let log_lines = vec![
-        "[ERROR] First test message",
-        "[ERROR] Second test message"
-    ];
+    let log_lines = vec!["[ERROR] First test message", "[ERROR] Second test message"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
@@ -519,6 +549,82 @@ async fn test_cloudwatchlogs_event() {
             ("INTEGRATION_TYPE", Some("CloudWatch")),
         ],
         run_cloudwatchlogs_event(),
+    )
+    .await;
+}
+
+async fn run_blocking_and_newline_pattern() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/multiline.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/multiline.log",
+    );
+
+    let evt: S3Event = serde_json::from_str(
+        s3event_string(
+            bucket,
+            key,
+        )
+        .as_str(),
+    )
+    .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::S3(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    println!("{:?}", exporter);
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 1);
+    let log_lines = vec!["00:40:45.810 [main] INFO  example.MapMessageExample"];
+
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(
+            singles[0].entries[i].body == *log_line,
+            "log line: {}",
+            singles[0].entries[i].body
+        );
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "lambda",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+#[tokio::test]
+async fn test_blocking_and_newline_pattern() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("BLOCKING_PATTERN", Some("ERROR")), // blocking pattern
+            ("NEWLINE_PATTERN", Some(r"\<\|\>")), // newline pattern
+        ],
+        run_blocking_and_newline_pattern(),
     )
     .await;
 }
