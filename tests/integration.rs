@@ -628,3 +628,24 @@ async fn test_blocking_and_newline_pattern() {
     )
     .await;
 }
+
+
+// Note: we test the s3_event handler directly here, since the integration tests above will bypass it
+// using the mock s3 client. The cloudwatch and sns events are not bypassed, since they don't use
+// the s3client, as such, they are covered by the integration tests above.
+#[tokio::test]
+async fn test_s3_event_handler() {
+    // test normal s3 event
+    let s3_event = s3event_string("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
+    let evt: S3Event = serde_json::from_str(s3_event.as_str()).expect("failed to parse s3_event");
+    let (bucket, key) = coralogix_aws_shipper::handle_s3_event(evt).await.unwrap();
+    assert_eq!(bucket, "coralogix-serverless-repo");
+    assert_eq!(key, "coralogix-aws-shipper/s3.log");
+
+    // test s3 event with spaces in key name (note: aws event replaces spaces with +)
+    let s3_event = s3event_string("coralogix-serverless-repo", "coralogix-aws-shipper/s3+with+spaces.log");
+    let evt: S3Event = serde_json::from_str(s3_event.as_str()).expect("failed to parse s3_event");
+    let (bucket, key) = coralogix_aws_shipper::handle_s3_event(evt).await.unwrap();
+    assert_eq!(bucket, "coralogix-serverless-repo");
+    assert_eq!(key, "coralogix-aws-shipper/s3 with spaces.log");
+}
