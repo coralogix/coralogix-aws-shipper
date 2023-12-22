@@ -20,8 +20,6 @@ pub mod combined_event;
 pub mod config;
 pub mod coralogix;
 pub mod process;
- 
-
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()
@@ -116,11 +114,11 @@ pub async fn function_handler(
     Ok(())
 }
 
-async fn handle_cloudwatch_logs_event(awslogs: AwsLogs) -> Result<AwsLogs, Error> {
+pub async fn handle_cloudwatch_logs_event(awslogs: AwsLogs) -> Result<AwsLogs, Error> {
     debug!("Cloudwatch Event: {:?}", awslogs.data);
     Ok(awslogs)
 }
-async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Error> {
+pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Error> {
     let bucket = s3_event.records[0]
         .s3
         .bucket

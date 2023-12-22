@@ -30,7 +30,12 @@ async fn main() -> Result<(), Error> {
     let coralogix_exporter = coralogix_aws_shipper::set_up_coralogix_exporter(&config)?;
 
     run(service_fn(|request: LambdaEvent<CombinedEvent>| {
-        coralogix_aws_shipper::function_handler(&s3_client, coralogix_exporter.clone(), &config, request)
+        coralogix_aws_shipper::function_handler(
+            &s3_client,
+            coralogix_exporter.clone(),
+            &config,
+            request,
+        )
     }))
     .await
 }

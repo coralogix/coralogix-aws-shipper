@@ -183,7 +183,7 @@ pub async fn cloudwatch_logs(
 
     Ok(())
 }
-async fn get_bytes_from_s3(
+pub async fn get_bytes_from_s3(
     s3_client: &Client,
     bucket: String,
     key: String,
