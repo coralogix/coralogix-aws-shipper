@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - master
-      - dev
+    paths:
+      - 'template.yaml'
        
   workflow_dispatch:
 
@@ -33,6 +34,7 @@ jobs:
           set -xv
           # Extract the value from the current commit
           current=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
+          echo "current_version=$current" >> $GITHUB_ENV
 
           # Extract the value from the previous commit
           git checkout HEAD^ template.yaml
@@ -52,6 +54,18 @@ jobs:
         run: |
           echo "The SemanticVersion value has not changed. Please update the SemanaticVersion value in the template.yaml file and try again."
           exit 1
+
+      - name: create tag
+        if: env.updated == 'true'
+        uses: actions/github-script@v5
+        with:
+          script: |
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ env.current_version }}',
+              sha: context.sha
+            })
 
   build:
     name: build

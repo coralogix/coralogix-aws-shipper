@@ -1,6 +1,14 @@
 # Changelog
+
+## v0.0.3 Beta / 2023-12-20
+
+## 💡 Enhancements 💡
+- Moved internal logic to lib.rs and Added Integration tests
+
+### 🧰 Bug fixes 🧰
+- Fixed readme badge link for version
+
 ## v0.0.2 Beta / 2023-13-15
-- Fix readme version link
 
 ### 🧰 Bug fixes 🧰
 - Lambda fail on empty empty gzip file for ELB logs.
