@@ -178,8 +178,7 @@ fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<Strin
         tracing::warn!("Application or Subsystem Name Parsing Failed {}", app_name);
         Some("default".to_string())
     } else {
-        tracing::warn!("Application or Subsystem Name Parsing Failed {}", app_name);
-        Some("default".to_string())
+        Some(app_name.to_string())
     }
 }
 
