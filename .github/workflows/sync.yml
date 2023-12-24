@@ -6,12 +6,6 @@ on:
     workflows: ["Publish"]
     types:
       - completed
-  push:
-    branches:
-      - master
-    paths:
-      - 'README.md'
-      - 'CHANGELOG.md'
 
 env:
   REPO_BUCKET_PREFIX: coralogix-serverless-repo
