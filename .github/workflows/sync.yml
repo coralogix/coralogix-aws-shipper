@@ -26,7 +26,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: checkout coralogix-aws-shipper repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: get last commit_message
         id: commits
@@ -35,7 +35,7 @@ jobs:
 
       - run: sudo snap install yq
         # Update the CodeUri property of all AWS::Serverless::Function resources using Yq
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: update-template
         run: |
           set -xv
@@ -68,7 +68,7 @@ jobs:
     needs: get-template
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         id: checkout
         with:
           repository: ${{ env.CLOUDFORMATION_REPO }}
