@@ -2,13 +2,10 @@ name: Cloudformation Template Sync
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - 'template.yaml'
-      - 'README.md'
-      - 'CHANGELOG.md'
+  workflow_run:
+    workflows: ["Publish"]
+    types:
+      - completed
 
 env:
   REPO_BUCKET_PREFIX: coralogix-serverless-repo
@@ -19,10 +16,11 @@ env:
 
 jobs:
   get-template:
-    runs-on: ubuntu-latest    
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: checkout coralogix-aws-shipper repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: get last commit_message
         id: commits
@@ -31,7 +29,7 @@ jobs:
 
       - run: sudo snap install yq
         # Update the CodeUri property of all AWS::Serverless::Function resources using Yq
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: update-template
         run: |
           set -xv
@@ -62,8 +60,9 @@ jobs:
     permissions:
       contents: write
     needs: get-template
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         id: checkout
         with:
           repository: ${{ env.CLOUDFORMATION_REPO }}
