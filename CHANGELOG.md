@@ -11,6 +11,7 @@
 
 ### 🧰 Bug fixes 🧰
 - Fixed readme badge link for version
+- Reduce Secret Manage IAM permissions
 - Added default App or Subsystem name.
 
 ## v0.0.2 Beta / 2023-13-15

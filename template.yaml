@@ -285,8 +285,14 @@ Conditions:
   IsCustomDomain: !Equals [ !Ref CoralogixRegion, Custom ]
   S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
   S3SuffixIsSet: !Not [ !Equals [ !Ref S3KeySuffix, '' ] ]
-  IsCloudTrailIntegration: !Equals [ !Ref IntegrationType, 'CloudTrail' ]
+  # IsCloudTrailIntegration: !Equals [ !Ref IntegrationType, 'CloudTrail' ]
   IsApiKeyNotArn: !Equals [!Ref ApiKey , !Select [0,!Split [":" , !Ref ApiKey]]]
+  ApiKeyIsArn: !Not [!Condition IsApiKeyNotArn]
+  UseCloudwatchLogsWithSecretPolicy: !And
+    - !Condition UseCloudwatchLogs
+    - !Or
+      - !Condition StoreAPIKeyInSecretsManager
+      - !Condition ApiKeyIsArn
   # IsVPCFlowLogsIntegration: !Equals [ !Ref IntegrationType, 'VpcFlow' ]
   UseAWSDefaultPrefix: !Or 
     - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
@@ -330,6 +336,7 @@ Conditions:
   UseSNSTopicARNWithNotification: !And
     - !Condition UseSNSTopicARN
     - !Condition IsNotificationEnabled
+  
 
 Rules:
   ValidateCloudWatchLogs:
@@ -471,11 +478,29 @@ Resources:
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref S3BucketName
-        - Statement:
-          - Effect: Allow
-            Action:
-              - 'secretsmanager:GetSecretValue'
-            Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*'
+        - !If
+          - ApiKeyIsArn
+          - Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource: !Ref ApiKey
+          - !If
+            - StoreAPIKeyInSecretsManager
+            - Statement:
+                - Effect: Allow
+                  Action:
+                    - 'secretsmanager:GetSecretValue'
+                  Resource: !Ref Secret
+            # Note, this is a hack to get around the fact that you can't have a condition on a policy
+            # If the Apikey is not an ARn or we are not storing the key in secrets manager, then we don't need access
+            # to secrets manager
+            - Statement:
+                - Effect: Deny
+                  Action:
+                    - 'secretsmanager:GetSecretValue'
+                  Resource: '*'
+
 
   LambdaLogGroupDefault:
     Condition: UseDefault
@@ -545,11 +570,28 @@ Resources:
           - !Ref AWS::NoValue
           - S3ReadPolicy: 
               BucketName: !Ref S3BucketName
-        - Statement:
-            - Effect: Allow
-              Action:
-                - 'secretsmanager:GetSecretValue'
-              Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*'
+        - !If
+          - ApiKeyIsArn
+          - Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource: !Ref ApiKey
+          - !If
+            - StoreAPIKeyInSecretsManager
+            - Statement:
+                - Effect: Allow
+                  Action:
+                    - 'secretsmanager:GetSecretValue'
+                  Resource: !Ref Secret
+            # Note, this is a hack to get around the fact that you can't have a condition on a policy
+            # If the Apikey is not an ARn or we are not storing the key in secrets manager, then we don't need access
+            # to secrets manager
+            - Statement:
+                - Effect: Deny
+                  Action:
+                    - 'secretsmanager:GetSecretValue'
+                  Resource: '*'
       EventInvokeConfig: 
         DestinationConfig:
           OnFailure:
@@ -601,15 +643,67 @@ Resources:
     Properties:
       CodeUri: .
       Policies:
-        - Statement:
-          - Effect: Allow
-            Action:
-              - 'secretsmanager:GetSecretValue'
-            Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*'
+        - !If
+          - ApiKeyIsArn
+          - Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource: !Ref ApiKey
+          - !If
+            - StoreAPIKeyInSecretsManager
+            - Statement:
+                - Effect: Allow
+                  Action:
+                    - 'secretsmanager:GetSecretValue'
+                  Resource: !Ref Secret
+            # Note, this is a hack to get around the fact that you can't have a condition on a policy
+            # If the Apikey is not an ARn or we are not storing the key in secrets manager, then we don't need access
+            # to secrets manager
+            - Statement:
+                - Effect: Deny
+                  Action:
+                    - 'secretsmanager:GetSecretValue'
+                  Resource: '*'
+
+        # - !If
+        #   - ApiKeyIsArn
+        #   - Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - 'secretsmanager:GetSecretValue'
+        #         Resource: !Ref ApiKey
+        #   - !If
+        #     - StoreAPIKeyInSecretsManager
+        #     - Statement:
+        #         - Effect: Allow
+        #           Action:
+        #             - 'secretsmanager:GetSecretValue'
+        #           Resource: !Ref Secret
+        #     - !Ref AWS::NoValue
       EventInvokeConfig: 
         DestinationConfig:
           OnFailure:
             Type: SNS
+
+  LambdaFunctionCloudwatchLogsPolicies:
+    Condition: UseCloudwatchLogsWithSecretPolicy
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      Path: "/"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "secretsmanager:GetSecretValue"
+            Resource: !If
+              - ApiKeyIsArn
+              - !Ref ApiKey
+              - !If
+                - StoreAPIKeyInSecretsManager
+                - !Ref Secret
+                - !Ref AWS::NoValue
 
   LambdaLogGroupCloudwatchLogs:
     Condition: UseCloudwatchLogs
