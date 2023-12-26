@@ -7,6 +7,7 @@
 
 ### 🧰 Bug fixes 🧰
 - Fixed readme badge link for version
+- Reduce Secret Manage IAM permissions
 
 ## v0.0.2 Beta / 2023-13-15
 
