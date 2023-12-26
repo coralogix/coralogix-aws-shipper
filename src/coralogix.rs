@@ -104,9 +104,9 @@ fn convert_to_log_entry(
     metadata_instance: &Metadata,
 ) -> LogSinglesEntry<String> {
     let now = OffsetDateTime::now_utc();
-    let application_name = dynamic_metadata_for_log(configured_app_name, &log);
+    let application_name = dynamic_metadata_for_log(configured_app_name, &log, metadata_instance.key_name.clone());
     tracing::debug!("App Name: {}", &application_name);
-    let subsystem_name = dynamic_metadata_for_log(configured_sub_name, &log);
+    let subsystem_name = dynamic_metadata_for_log(configured_sub_name, &log, metadata_instance.key_name.clone());
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
@@ -147,11 +147,12 @@ async fn send_logs(
     Ok(())
 }
 
-fn dynamic_metadata_for_log(app_name: &str, log: &str) -> String {
-    dynamic_metadata(app_name, log).unwrap_or_else(|| app_name.to_owned())
+fn dynamic_metadata_for_log(app_name: &str, log: &str, key_name: String) -> String {
+    dynamic_metadata(app_name, log, key_name).unwrap_or_else(|| app_name.to_owned())
 }
 
-fn dynamic_metadata(app_name: &str, log: &str) -> Option<String> {
+
+fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<String> {
     if app_name.starts_with("$.") {
         let mut json_data = serde_json::from_str::<serde_json::Value>(log).ok()?;
         for segment in app_name[2..].split('.') {
@@ -160,9 +161,28 @@ fn dynamic_metadata(app_name: &str, log: &str) -> Option<String> {
                 .and_then(|obj| obj.remove(segment))?;
         }
         json_data.as_str().map(|str| str.to_owned())
+    } else if app_name.starts_with("{{s3_key") {
+        // Check if there is an index provided
+        let maybe_index_str = app_name.trim_start_matches("{{s3_key").trim_end_matches('}');
+        info!("Getting s3 Key from {}", app_name);
+        if let Some('.') = maybe_index_str.chars().next() {
+            // Parse the index
+            let index_str = &maybe_index_str[1..]; // Remove the leading '.'
+            if let Ok(index) = index_str.parse::<usize>() {
+                info!("Getting index {} from {}", index_str, key_name);
+                let segments: Vec<&str> = key_name.split('/').collect();
+                info!("Segments: {:?}", segments);
+                if index > 0 && index <= segments.len() {
+                    // Return the directory at the specified index (1-based)
+                    info!("Returning {}", segments[index - 1]);
+                    return Some(segments[index - 1].to_string());
+                }
+            }
+        }
+        tracing::warn!("Application or Subsystem Name Parsing Failed {}", app_name);
+        Some("default".to_string())
     } else {
-        //tracing::warn!("Application or Subsystem Name Parsing Failed {}", app_name);
-        None
+        Some(app_name.to_string())
     }
 }
 
@@ -201,40 +221,44 @@ mod test {
 
     #[test]
     fn test_nondynamic_app_name() {
+        let key_name = "AwsLogs/folder1/folder2";
         let app_name = "my-app";
         let log_file_contents = r#"{
             "timestamp": "09-24 16:09:07.042",
             "message": "java.lang.NullPointerException",
         }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents);
+        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
         assert_eq!(dapp, "my-app");
     }
 
     #[test]
     fn test_fall_back_to_app_name_when_dynamic_app_name_is_missing() {
+        let key_name = "AwsLogs/folder1/folder2";
         let app_name = "$.app_name";
         let log_file_contents = r#"{
             "timestamp": "09-24 16:09:07.042",
             "message": "java.lang.NullPointerException",
         }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents);
+        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
         assert_eq!(dapp, "$.app_name");
     }
 
     #[test]
     fn test_simple_dynamic_app_name() {
+        let key_name = "AwsLogs/folder1/folder2";
         let app_name = "$.app_name";
         let log_file_contents = r#"{
             "timestamp": "09-24 16:09:07.042",
             "message": "java.lang.NullPointerException",
             "app_name": "my-awesome-app"
         }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents);
+        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
         assert_eq!(dapp, "my-awesome-app");
     }
 
     #[test]
     fn test_nested_dynamic_app_name() {
+        let key_name = "AwsLogs/folder1/folder2";
         let app_name = "$.metadata.app_name";
         let log_file_contents = r#"{
             "timestamp": "09-24 16:09:07.042",
@@ -243,7 +267,7 @@ mod test {
                 "app_name": "my-awesome-app2"
             }
         }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents);
+        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
         assert_eq!(dapp, "my-awesome-app2");
     }
 }

@@ -23,7 +23,7 @@ pub async fn s3(
     bucket: String,
     key: String,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
+    let mut metadata_instance = Metadata {
         stream_name: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
@@ -43,11 +43,15 @@ pub async fn s3(
     let batches = match config.integration_type {
         // VPC Flow Logs Needs Prefix and Sufix to be exact AWSLogs/ and .log.gz
         IntegrationType::VpcFlow => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
+            metadata_instance.key_name = key.clone();
+            metadata_instance.bucket_name = bucket;
             process_vpcflows(raw_data, config.sampling, &config.blocking_pattern, key).await?
         }
         IntegrationType::S3Csv => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
+            metadata_instance.key_name = key.clone();
+            metadata_instance.bucket_name = bucket;
             process_csv(
                 raw_data,
                 config.sampling,
@@ -59,7 +63,9 @@ pub async fn s3(
             .await?
         }
         IntegrationType::S3 => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
+            metadata_instance.key_name = key.clone();
+            metadata_instance.bucket_name = bucket;
             process_s3(
                 raw_data,
                 config.sampling,
@@ -71,7 +77,9 @@ pub async fn s3(
             .await?
         }
         IntegrationType::CloudTrail => {
-            let raw_data = get_bytes_from_s3(s3_client, bucket, key.clone()).await?;
+            let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
+            metadata_instance.key_name = key.clone();
+            metadata_instance.bucket_name = bucket;
             process_cloudtrail(raw_data, config.sampling, &config.blocking_pattern, key).await?
         }
         _ => {

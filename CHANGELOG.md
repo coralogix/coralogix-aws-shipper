@@ -4,9 +4,11 @@
 
 ## 💡 Enhancements 💡
 - Moved internal logic to lib.rs and Added Integration tests
+- Added s3_key variable for app and subsystem name
 
 ### 🧰 Bug fixes 🧰
 - Fixed readme badge link for version
+- Fixed readme Serverless link
 
 ## v0.0.2 Beta / 2023-13-15
 
