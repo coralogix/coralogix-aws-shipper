@@ -75,7 +75,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | S3KeySuffix | The AWS S3 path suffix to watch. This value is ignored when the SNSTopicArn parameter is provided. | CloudTrail '.json.gz',  VpcFlow '.log.gz' |   |
 | NewlinePattern | Regular expression to detect a new log line for multiline logs from S3 source, e.g., use expression \n(?=\d{2}\-\d{2}\s\d{2}\:\d{2}\:\d{2}\.\d{3}) |   |   |
 | SNSTopicArn | The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3 |   |   |
-| CSVDelimiter | Single Character for using as a Delimiter when ingesting CSV (This value is applied when the S3Csv integration type  is selected), e.g. "," or " " | , |   |
+| CSVDelimiter | Single Character for using as a Delimiter when ingesting CSV file with header line (This value is applied when the S3Csv integration type  is selected), e.g. "," or " " | , |   |
 
 ### Integration Cloudwatch configuration
 | Parameter | Description | Default Value | Required |
