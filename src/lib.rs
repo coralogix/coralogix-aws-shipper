@@ -72,19 +72,16 @@ pub async fn function_handler(
     // TODO will this always produce just one bucket/key? (check this)
     match evt.payload {
         CombinedEvent::S3(s3_event) => {
+            info!("S3 EVENT Detected");
             let (bucket, key) = handle_s3_event(s3_event).await?;
             crate::process::s3(s3_client, coralogix_exporter, config, bucket, key).await?;
         }
         CombinedEvent::Sns(sns_event) => {
-            debug!("SNS Event: {:?}", sns_event.records[0]);
+            debug!("SNS Event: {:?}", sns_event);
             let message = &sns_event.records[0].sns.message;
-            debug!("SNS Message: {:?}", message);
-            //let json: serde_json::Value = serde_json::from_str(message)?;
-            //let result = serde_json::from_str::<serde_json::Value>(message);
-
             if config.integration_type != IntegrationType::Sns {
                 let records = serde_json::from_str::<serde_json::Value>(message)?;
-                debug!("SNS S3 EVENT Detected");
+                info!("SNS S3 EVENT Detected");
                 let bucket = records["Records"][0]["s3"]["bucket"]["name"]
                     .as_str()
                     .ok_or("Bucket name not found")?
@@ -95,7 +92,7 @@ pub async fn function_handler(
                     .to_owned();
                 crate::process::s3(s3_client, coralogix_exporter, config, bucket, key).await?;
             } else {
-                debug!("SNS TEXT EVENT Detected");
+                info!("SNS TEXT EVENT Detected");
                 crate::process::sns_logs(
                     sns_event.records[0].sns.message.clone(),
                     coralogix_exporter,
@@ -105,6 +102,7 @@ pub async fn function_handler(
             }
         }
         CombinedEvent::CloudWatchLogs(awslogs) => {
+            info!("CLOUDWATCH EVENT Detected");
             let cloudwatch_event_log = handle_cloudwatch_logs_event(awslogs).await?;
             crate::process::cloudwatch_logs(cloudwatch_event_log, coralogix_exporter, config)
                 .await?;
@@ -119,6 +117,7 @@ pub async fn handle_cloudwatch_logs_event(awslogs: AwsLogs) -> Result<AwsLogs, E
     Ok(awslogs)
 }
 pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Error> {
+    debug!("S3 Event: {:?}", s3_event);
     let bucket = s3_event.records[0]
         .s3
         .bucket
@@ -141,19 +140,6 @@ pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Erro
     Ok((bucket, decoded_key))
 }
 
-// async fn handle_sns_event(sns_event: SnsEvent) -> Result<(String, String), Error> {
-//     let message = sns_event.records[0].sns.message.clone();
-//     let json: serde_json::Value = serde_json::from_str(&message)?;
-//     let bucket = json["Records"][0]["s3"]["bucket"]["name"]
-//         .as_str()
-//         .ok_or("Bucket name not found")?
-//         .to_owned();
-//     let key = json["Records"][0]["s3"]["object"]["key"]
-//         .as_str()
-//         .ok_or("Object key not found")?
-//         .to_owned();
-//     Ok((bucket, key))
-// }
 
 #[cfg(test)]
 mod test {
