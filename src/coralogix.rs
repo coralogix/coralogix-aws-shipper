@@ -270,4 +270,33 @@ mod test {
         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
         assert_eq!(dapp, "my-awesome-app2");
     }
+    #[test]
+    fn test_dynamic_folder_app_name() {
+        let key_name = "AwsLogs/folder1/folder2";
+        let app_name = "{{s3_key.2}}";
+        let log_file_contents = r#"{
+            "timestamp": "09-24 16:09:07.042",
+            "message": "java.lang.NullPointerException",
+            "metadata": {
+                "app_name": "my-awesome-app2"
+            }
+        }"#;
+        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
+        assert_eq!(dapp, "folder1");
+    }
+    #[test]
+    fn test_dynamic_folder_app_name_fails() {
+        let key_name = "AwsLogs/folder1/folder2";
+        let app_name = "{{s3_key.8}}";
+        let log_file_contents = r#"{
+            "timestamp": "09-24 16:09:07.042",
+            "message": "java.lang.NullPointerException",
+            "metadata": {
+                "app_name": "my-awesome-app2"
+            }
+        }"#;
+        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
+        assert_eq!(dapp, "default");
+    }
+    
 }
