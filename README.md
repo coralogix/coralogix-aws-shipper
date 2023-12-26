@@ -62,8 +62,8 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns' |  S3 | :heavy_check_mark: | 
 | CoralogixRegion | The Coralogix location region, possible options are [Custom, EU1, EU2, AP1, AP2, US, US2] If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter |  Custom | :heavy_check_mark: | 
 | CustomDomain | The Custom Domain. If set, will be the domain used to send telemetry (e.g. cx123.coralogix.com) |   |   |
-| ApplicationName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your application. for dynamically value from the log you should use *$.my_log.field* |   | :heavy_check_mark: | 
-| SubsystemName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your subsystem. For dynamic value from the log use *$.my_log.field*. For Cloudwatch leave empty to use the loggroup name. For cloudtrail use *$.eventSource* to use the trail source|   |   |
+| ApplicationName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your application. For dynamically value check [Advanced section](#advanced)|   | :heavy_check_mark: | 
+| SubsystemName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your subsystem. For dynamic value from the check [Advanced section](#advanced). For Cloudwatch leave empty to use the loggroup name.|   |   |
 | ApiKey | Your Coralogix Send Your Data - [API Key](https://coralogix.com/docs/send-your-data-api-key/) which is used to validate your authenticity, This value can be a Coralogix API Key or an AWS Secret Manager ARN that holds the API Key |   | :heavy_check_mark: |
 | StoreAPIKeyInSecretsManager | Store the API key in AWS Secrets Manager.  If this option is set to false, the ApiKey will apeear in plain text as an environment variable in the lambda function console. | True  | :heavy_check_mark: |
 
@@ -115,7 +115,9 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 To use privatelink please forllow the instruction in this [link](https://coralogix.com/docs/coralogix-amazon-web-services-aws-privatelink-endpoints/)
 
 ### Dynamic Application and Subsystem Name
-- Json support: for dynamically value from the log you should use *$.my_log.field* 
+- Json support: 
+-- for dynamically value from the log you should use *$.my_log.field*
+-- For cloudtrail use *$.eventSource* to use the trail source
 - s3 folder: Use the following tag: {{s3_key.*value*}} where value is the folder level, for example:
     if the file path that triggers the event is AWSLogs/112322232/ELB1/elb.log or AWSLogs/112322232/ELB2/elb.log and you
     want ELB1 and ELB2 to be the subsystem, you subsystemName shoudl be {{s3_key.3}}

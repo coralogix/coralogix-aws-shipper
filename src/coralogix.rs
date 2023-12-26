@@ -164,17 +164,17 @@ fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<Strin
     } else if app_name.starts_with("{{s3_key") {
         // Check if there is an index provided
         let maybe_index_str = app_name.trim_start_matches("{{s3_key").trim_end_matches('}');
-        info!("Getting s3 Key from {}", app_name);
+        debug!("Getting s3 Key from {}", app_name);
         if let Some('.') = maybe_index_str.chars().next() {
             // Parse the index
             let index_str = &maybe_index_str[1..]; // Remove the leading '.'
             if let Ok(index) = index_str.parse::<usize>() {
-                info!("Getting index {} from {}", index_str, key_name);
+                debug!("Getting index {} from {}", index_str, key_name);
                 let segments: Vec<&str> = key_name.split('/').collect();
-                info!("Segments: {:?}", segments);
+                debug!("Segments: {:?}", segments);
                 if index > 0 && index <= segments.len() {
                     // Return the directory at the specified index (1-based)
-                    info!("Returning {}", segments[index - 1]);
+                    debug!("Returning {}", segments[index - 1]);
                     return Some(segments[index - 1].to_string());
                 }
             }
