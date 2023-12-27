@@ -22,6 +22,7 @@ Metadata:
       - cloudwatch
       - cloudtrail
       - vpc
+      - sqs
     HomePageUrl: https://coralogix.com
     SemanticVersion: 0.0.3
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
@@ -47,6 +48,7 @@ Metadata:
           - S3KeySuffix
           - NewlinePattern
           - SNSTopicArn
+          - SQSTopicArn
           - CSVDelimiter
 
       - Label:
@@ -58,7 +60,10 @@ Metadata:
           default: SNS configuration
         Parameters:
           - SNSIntegrationTopicArn
-
+      - Label:
+          default: SQS configuration
+        Parameters:
+          - SQSIntegrationTopicArn
       - Label:
           default: Generic Config
         Parameters:
@@ -165,7 +170,7 @@ Parameters:
     Type: String
     Description: |
       The AWS S3 path prefix to watch. This value is ignored
-      when the SNSTopicArn parameter is provided.
+      when the SNSTopicArn / SQSTopicArn parameter is provided.
     MaxLength: 1024
     Default: ''
 
@@ -195,7 +200,15 @@ Parameters:
     Type: String
     Description: The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3
     Default: ''
+  SQSTopicArn:
+    Type: String
+    Description: The ARN for the SQS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3
+    Default: ''
 
+  SQSIntegrationTopicArn:
+    Type: String
+    Description: The ARN of SQS topic to subscribe to retrieving messages
+    Default: ''
   SNSIntegrationTopicArn:
     Type: String
     Description: The ARN of SNS topic to subscribe to retrieving messages
@@ -303,6 +316,16 @@ Conditions:
     - !Equals [ !Ref StoreAPIKeyInSecretsManager, 'true' ]
     - !Condition IsApiKeyNotArn
   IsPrivateLink: !Equals [ !Ref UsePrivateLink, 'true' ]
+  UseSQSTopicARN: 
+    Fn::Or: 
+    - !And 
+      - !Not [ !Equals [ !Ref SQSTopicArn, '' ] ]
+      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
+
+    - !And 
+      - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, '' ] ]
+      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
+
   UseSNSTopicARN: 
     Fn::Or: 
     - !And 
@@ -324,6 +347,7 @@ Conditions:
   UseDefault: !And 
     - !Not [ !Condition UseCloudwatchLogs ]
     - !Not [ !Condition UseSNSTopicARN  ]
+    - !Not [ !Condition UseSQSTopicARN  ]
 
   UseDefaultWithNotification: !And
     - !Condition UseDefault
@@ -332,7 +356,11 @@ Conditions:
   UseCloudwatchLogsWithNotification: !And
     - !Condition UseCloudwatchLogs
     - !Condition IsNotificationEnabled
- 
+
+  UseSQSTopicARNWithNotification: !And
+    - !Condition UseSQSTopicARN
+    - !Condition IsNotificationEnabled
+
   UseSNSTopicARNWithNotification: !And
     - !Condition UseSNSTopicARN
     - !Condition IsNotificationEnabled
@@ -343,6 +371,7 @@ Rules:
     RuleCondition: !And 
       - !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
       - !Equals [ !Ref SNSTopicArn, '' ]
+      - !Equals [ !Ref SQSTopicArn, '' ]
     Assertions:
       - Assert: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
         AssertDescription: CloudWatchLogGroupName must be set when IntegrationType is set to cloudwatch
@@ -354,6 +383,15 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref CustomDomain, '' ] ]
         AssertDescription: CustomDomain must be set when CoralogixRegion is set to Custom
+  ValidateSQSTopicArnParam:
+    RuleCondition: !And
+      - !Not [ !Equals [ !Ref SQSTopicArn, '' ] ]
+      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
+    Assertions:
+      - Assert: !And 
+          - !Equals [ !Ref S3KeyPrefix, '' ]
+          - !Equals [ !Ref S3KeySuffix, '' ]
+        AssertDescription: S3Prefix and S3Suffix must be empty when SQSTopicArn is set
 
   ValidateSNSTopicArnParam:
     RuleCondition: !And
@@ -740,6 +778,66 @@ Resources:
       Principal: logs.amazonaws.com
       SourceAccount: !Ref AWS::AccountId
       SourceArn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
+  
+  ################################
+  # ----- With SQS TopiC ------- #
+  ################################
+
+  LambdaFunctionWithSQSTopic:
+    Condition: UseSQSTopicARN
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Policies:
+        - !If 
+          - IsSQSIntegration
+          - !Ref AWS::NoValue
+          - S3ReadPolicy: 
+              BucketName: !Ref S3BucketName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'secretsmanager:GetSecretValue'
+              Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*'
+      EventInvokeConfig: 
+        DestinationConfig:
+          OnFailure:
+            Type: SNS
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !If
+              - IsSQSIntegration
+              - !Ref SQSIntegrationTopicArn
+              - !Ref SQSTopicArn
+
+  LambdaLogGroupWithSQSTopic:
+    Condition: UseSQSTopicARN
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${LambdaFunctionWithSQSTopic}'
+      RetentionInDays: !Ref LambdaLogRetention
+
+  LambdaFunctionInvokePermissionWithSQSTopic:
+    Type: AWS::Lambda::Permission
+    Condition: UseSQSTopicARN
+    Properties:
+      FunctionName: !GetAtt [ LambdaFunctionWithSQSTopic, Arn ]
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub "arn:aws:s3:::${S3BucketName}"
+
+  LambdaFunctionNotificationSubscriptionWithSQSTopic:
+    Type: AWS::SQS::Subscription
+    Condition: UseSQSTopicARNWithNotification
+    Properties:
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+      TopicArn: !Ref LambdaFunctionWithSQSTopic.DestinationTopic
 
   ################################
   # ----- Custom Resource -----  #
