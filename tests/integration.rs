@@ -156,10 +156,8 @@ async fn run_test_s3_event() {
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
-    let evt: S3Event = serde_json::from_str(
-        s3event_string(bucket, key).as_str(),
-    )
-    .expect("failed to parse s3_event");
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let combined_event = CombinedEvent::S3(evt);
@@ -538,6 +536,147 @@ async fn run_sns_event() {
     );
 }
 
+async fn run_test_s3_event_large() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/large.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/large.log",
+    );
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::S3(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+
+    println!("singles --> {}", singles.len());
+
+    assert!(singles.len() == 11);
+    assert!(singles[0].entries.len() == 4754);
+    assert!(singles[10].entries.len() == 2092);
+
+    let log_lines = vec![
+        "https 2023-09-05T05:35:00.264447Z app/eks-prod-white-ext-tv2-alb/acf1e236c71b3b9f 122.162.149.35:1438 10.1.136.193:32081 0.001 0.004 0.000 200 200 1839 229 \"POST https://lumberjack.razorpay.com:443/v1/track HTTP/1.1\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:ap-south-1:141592612890:targetgroup/eks-prod-white-ext-tv2-alb/c297b80d227b01fa \"Root=1-64f6be04-1556248a707c237b2ea45a98\" \"lumberjack.razorpay.com\" \"arn:aws:acm:ap-south-1:141592612890:certificate/7cc265c2-7abf-4aa1-a573-c30bcd4f4f80\" 0 2023-09-05T05:35:00.258000Z \"waf,forward\" \"-\" \"-\" \"10.1.136.193:32081\" \"200\" \"-\" \"-\"",
+        "https 2023-09-05T05:35:00.272291Z app/eks-prod-white-ext-tv2-alb/acf1e236c71b3b9f 52.66.76.63:60451 10.1.135.210:32081 0.001 0.008 0.000 200 200 19931 229 \"POST https://lumberjack.razorpay.com:443/v1/track HTTP/1.1\" \"lua-resty-http/0.17.1 (Lua) ngx_lua/10021\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:ap-south-1:141592612890:targetgroup/eks-prod-white-ext-tv2-alb/c297b80d227b01fa \"Root=1-64f6be04-7e72712808e598e26d2904b7\" \"lumberjack.razorpay.com\" \"arn:aws:acm:ap-south-1:141592612890:certificate/7cc265c2-7abf-4aa1-a573-c30bcd4f4f80\" 0 2023-09-05T05:35:00.263000Z \"waf,forward\" \"-\" \"-\" \"10.1.135.210:32081\" \"200\" \"-\" \"-\"",
+        "https 2023-09-05T05:35:17.297301Z app/eks-prod-white-ext-tv2-alb/acf1e236c71b3b9f 52.95.73.41:46938 10.1.130.135:32081 0.001 0.009 0.000 200 200 3542 197 \"POST https://stork-ext.razorpay.com:443/email/callback/ses HTTP/1.1\" \"Amazon Simple Notification Service Agent\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:ap-south-1:141592612890:targetgroup/eks-prod-white-ext-tv2-alb/c297b80d227b01fa \"Root=1-64f6be15-7819a44d3a13961c4cdf3353\" \"stork-ext.razorpay.com\" \"arn:aws:acm:ap-south-1:141592612890:certificate/7cc265c2-7abf-4aa1-a573-c30bcd4f4f80\" 0 2023-09-05T05:35:17.287000Z \"waf,forward\" \"-\" \"-\" \"10.1.130.135:32081\" \"200\" \"-\" \"-\"", // last log line
+    ];
+
+    // iterate first 2 log lines
+    for (i, log_line) in log_lines[0..1].iter().enumerate() {
+        assert!(singles[0].entries[i].body == *log_line);
+    }
+
+    // iterate last log line
+    for (i, log_line) in log_lines[2..].iter().enumerate() {
+        assert!(singles[10].entries[i].body == *log_line);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+#[tokio::test]
+async fn test_s3_event_large() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+        ],
+        run_test_s3_event_large(),
+    )
+    .await;
+}
+
+async fn run_test_s3_event_large_with_sampling() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/large.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/large.log",
+    );
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::S3(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+
+    assert!(singles.len() == 1);
+    assert!(singles[0].entries.len() == 500);
+
+    let log_lines = vec![
+        "https 2023-09-05T05:35:00.264447Z app/eks-prod-white-ext-tv2-alb/acf1e236c71b3b9f 122.162.149.35:1438 10.1.136.193:32081 0.001 0.004 0.000 200 200 1839 229 \"POST https://lumberjack.razorpay.com:443/v1/track HTTP/1.1\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:ap-south-1:141592612890:targetgroup/eks-prod-white-ext-tv2-alb/c297b80d227b01fa \"Root=1-64f6be04-1556248a707c237b2ea45a98\" \"lumberjack.razorpay.com\" \"arn:aws:acm:ap-south-1:141592612890:certificate/7cc265c2-7abf-4aa1-a573-c30bcd4f4f80\" 0 2023-09-05T05:35:00.258000Z \"waf,forward\" \"-\" \"-\" \"10.1.136.193:32081\" \"200\" \"-\" \"-\"",
+        "https 2023-09-05T05:35:00.258438Z app/eks-prod-white-ext-tv2-alb/acf1e236c71b3b9f 52.66.76.63:18102 10.1.136.193:32081 0.000 0.005 0.000 200 200 757 229 \"POST https://lumberjack.razorpay.com:443/v1/track HTTP/1.1\" \"Go-http-client/1.1\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:ap-south-1:141592612890:targetgroup/eks-prod-white-ext-tv2-alb/c297b80d227b01fa \"Root=1-64f6be04-1d977c737026bc8b7c4b78f9\" \"lumberjack.razorpay.com\" \"arn:aws:acm:ap-south-1:141592612890:certificate/7cc265c2-7abf-4aa1-a573-c30bcd4f4f80\" 0 2023-09-05T05:35:00.253000Z \"waf,forward\" \"-\" \"-\" \"10.1.136.193:32081\" \"200\" \"-\" \"-\"",
+    ];
+
+    // iterate first 2 log lines
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(singles[0].entries[i].body == *log_line);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+#[tokio::test]
+async fn test_s3_event_large_with_sampling() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("100")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+        ],
+        run_test_s3_event_large_with_sampling(),
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn test_sns_event() {
     temp_env::async_with_vars(
@@ -619,8 +758,8 @@ async fn test_cloudwatchlogs_event() {
 }
 
 async fn run_blocking_and_newline_pattern() {
-    let s3_client =
-        get_mock_s3client(Some("./tests/fixtures/multiline.log")).expect("failed to create s3 client");
+    let s3_client = get_mock_s3client(Some("./tests/fixtures/multiline.log"))
+        .expect("failed to create s3 client");
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = (
@@ -628,14 +767,8 @@ async fn run_blocking_and_newline_pattern() {
         "coralogix-aws-shipper/multiline.log",
     );
 
-    let evt: S3Event = serde_json::from_str(
-        s3event_string(
-            bucket,
-            key,
-        )
-        .as_str(),
-    )
-    .expect("failed to parse s3_event");
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let combined_event = CombinedEvent::S3(evt);
@@ -692,3 +825,43 @@ async fn test_blocking_and_newline_pattern() {
     .await;
 }
 
+async fn run_test_empty_s3_event() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/empty.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/empty.log");
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::S3(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert!(singles.is_empty());
+}
+
+#[tokio::test]
+async fn test_empty_s3_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+        ],
+        run_test_empty_s3_event(),
+    )
+    .await;
+}
