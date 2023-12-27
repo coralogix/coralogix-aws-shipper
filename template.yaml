@@ -321,11 +321,10 @@ Conditions:
     - !And 
       - !Not [ !Equals [ !Ref SQSTopicArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-
     - !And 
       - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-
+      
   UseSNSTopicARN: 
     Fn::Or: 
     - !And 
