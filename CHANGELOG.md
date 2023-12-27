@@ -1,5 +1,5 @@
 # Changelog
-## v0.0.4 Beta / 2023-12-26
+## v0.0.3 Beta / 2023-12-26
 
 ### 🛑 Breaking changes 🛑
 - Update the CoralogixRegion param list to be the same as the list in the [website](https://coralogix.com/docs/coralogix-domain/)
