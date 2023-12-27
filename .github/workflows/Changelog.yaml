@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: Get PR labels
         id: pr-labels
-        uses: joerick/pr-labels-action@v1.0.8
+        uses: joerick/pr-labels-action@v1.0.9
         
   check-changelog-updates:
     if: "${{ needs.get-label.outputs.labels != ' skip-changelog ' }}"
@@ -28,12 +28,12 @@ jobs:
     needs: get-label
     name: Check changelog update
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 0
     - name: Get changed files
       id: changed-files
-      uses: tj-actions/changed-files@v37
+      uses: tj-actions/changed-files@v41
 
     - name: Checking Files
       if: ${{ steps.changed-files.outputs.all_changed_files != '' }}
