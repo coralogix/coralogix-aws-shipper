@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
+
 Description: |
   Send logs to Coralogix from AWS, (S3, SNS, Cloudwatch and more)
   This is a beta release, please report any issues to:
