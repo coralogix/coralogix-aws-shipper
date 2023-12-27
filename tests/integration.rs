@@ -197,6 +197,7 @@ async fn run_test_s3_event() {
     );
 }
 
+
 #[tokio::test]
 async fn test_s3_event() {
     temp_env::async_with_vars(
@@ -209,6 +210,70 @@ async fn test_s3_event() {
             ("AWS_REGION", Some("eu-central-1")),
         ],
         run_test_s3_event(),
+    )
+    .await;
+}
+
+async fn run_test_folder_s3_event() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/elb1/s3.log");
+    let evt: S3Event = serde_json::from_str(
+        s3event_string(bucket, key).as_str(),
+    )
+    .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::S3(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 4);
+    let log_lines = vec![
+        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    ];
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(singles[0].entries[i].body == *log_line);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "elb1",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+
+#[tokio::test]
+async fn test_folder_s3_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("{{s3_key.2}}")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+        ],
+        run_test_folder_s3_event(),
     )
     .await;
 }
