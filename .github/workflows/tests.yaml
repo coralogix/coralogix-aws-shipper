@@ -3,6 +3,13 @@ on:
   pull_request: 
     branches:
       - master
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "template.yaml"
+      - "requirements.txt"
+      - "Makefile"
 
 jobs:
   test:

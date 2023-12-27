@@ -4,7 +4,7 @@
 ### 🛑 Breaking changes 🛑
 - Update the CoralogixRegion param list to be the same as the list in the [website](https://coralogix.com/docs/coralogix-domain/)
 
-## 💡 Enhancements 💡
+### 💡 Enhancements 💡
 - Moved internal logic to lib.rs and Added Integration tests
 - Added s3_key variable for app and subsystem name
 
