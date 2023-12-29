@@ -294,6 +294,7 @@ Conditions:
   CSVDelimiterUse: !Equals [!Ref IntegrationType, 'S3Csv']
   NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
+  IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
   IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
   IsCustomDomain: !Equals [ !Ref CoralogixRegion, Custom ]
   S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
@@ -324,7 +325,7 @@ Conditions:
     - !And 
       - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-      
+
   UseSNSTopicARN: 
     Fn::Or: 
     - !And 
