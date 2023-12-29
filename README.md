@@ -89,7 +89,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 |---|---|---|---|
 | SNSIntegrationTopicARN | The ARN of SNS topic to subscribe to retrieving messages |   | :heavy_check_mark: | 
 
-### Integration SNS configuration
+### Integration SQS configuration
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | SQSIntegrationTopicARN | The ARN of SQS queue to subscribe to retrieving messages |   | :heavy_check_mark: |

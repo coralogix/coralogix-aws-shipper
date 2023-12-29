@@ -1,6 +1,6 @@
 # Changelog
-## v0.0.4 Beta / 2024-01-02
-### 💡 Enhancements 💡
+## v0.0.4 Beta / 
+### ✅ New Feature ✅
 - Added support for sqs for s3 and sqs messages
 
 ## v0.0.3 Beta / 2023-12-26

@@ -202,7 +202,7 @@ Parameters:
     Default: ''
   SQSTopicArn:
     Type: String
-    Description: The ARN for the SQS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3
+    Description: The ARN for the SQS topic that contains the SQS subscription responsible for retrieving logs from Amazon S3
     Default: ''
 
   SQSIntegrationTopicArn:
