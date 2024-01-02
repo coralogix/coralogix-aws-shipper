@@ -109,28 +109,30 @@ pub async fn function_handler(
         }
         CombinedEvent::Sqs(sqs_event) => {
             debug!("SQS Event: {:?}", sqs_event.records[0]);
-            if let Some(message) = &sqs_event.records[0].body {
-                if config.integration_type != IntegrationType::Sqs  {
-                    let records = serde_json::from_str::<serde_json::Value>(message)?;               
-                    debug!("SQS S3 EVENT Detected");
-                    let bucket = records["Records"][0]["s3"]["bucket"]["name"]
-                        .as_str()
-                        .ok_or("Bucket name not found")?
-                        .to_owned();
-                    let key = records["Records"][0]["s3"]["object"]["key"]
-                        .as_str()
-                        .ok_or("Object key not found")?
-                        .to_owned();
-                    crate::process::s3(s3_client, coralogix_exporter, config, bucket, key).await?;
-                } else {
-                    debug!("SQS TEXT EVENT Detected");
-
-                    crate::process::sqs_logs(
-                        message.clone(),
-                        coralogix_exporter,
-                        config,
-                    )
-                    .await?;
+            for record in &sqs_event.records {
+                if let Some(message) = &record.body {
+                    if config.integration_type != IntegrationType::Sqs {
+                        let records = serde_json::from_str::<serde_json::Value>(message)?;
+                        debug!("SQS S3 EVENT Detected");
+                        let bucket = records["Records"][0]["s3"]["bucket"]["name"]
+                            .as_str()
+                            .ok_or("Bucket name not found")?
+                            .to_owned();
+                        let key = records["Records"][0]["s3"]["object"]["key"]
+                            .as_str()
+                            .ok_or("Object key not found")?
+                            .to_owned();
+            
+                        crate::process::s3(s3_client, coralogix_exporter.clone(), config, bucket, key).await?;
+                    } else {
+                        debug!("SQS TEXT EVENT Detected");
+                        crate::process::sqs_logs(
+                            message.clone(),
+                            coralogix_exporter.clone(),
+                            config,
+                        )
+                        .await?;
+                    }
                 }
             }
         }
