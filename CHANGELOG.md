@@ -1,5 +1,5 @@
 # Changelog
-## v0.0.4 Beta / 
+## v0.0.4 Beta / 2024-01-03
 
 ### 🚀 New components 🚀
 - Added support for sqs for s3 and sqs messages
