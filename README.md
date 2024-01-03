@@ -22,6 +22,7 @@ The `coralogix-aws-shipper` supports forwarding of logs for the following AWS Se
 * [Amazon VPC DNS query logs](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resolver-query-logs.html)
 * [AWS WAF](https://docs.aws.amazon.com/waf/latest/developerguide/logging-s3.html)
 * [AWS SNS](https://aws.amazon.com/sns/)
+* [AWS SQS](https://aws.amazon.com/sqs/)
 
 Additionally, you can ingest any generic text, JSON and csv logs stored in your S3 bucket
 
@@ -75,6 +76,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | S3KeySuffix | The AWS S3 path suffix to watch. This value is ignored when the SNSTopicArn parameter is provided. | CloudTrail '.json.gz',  VpcFlow '.log.gz' |   |
 | NewlinePattern | Regular expression to detect a new log line for multiline logs from S3 source, e.g., use expression \n(?=\d{2}\-\d{2}\s\d{2}\:\d{2}\:\d{2}\.\d{3}) |   |   |
 | SNSTopicArn | The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3 |   |   |
+| SQSTopicArn | The ARN for the SQS queue that contains the SQS subscription responsible for retrieving logs from Amazon S3 |   |   |
 | CSVDelimiter | Single Character for using as a Delimiter when ingesting CSV file with header line (This value is applied when the S3Csv integration type  is selected), e.g. "," or " " | , |   |
 
 ### Integration Cloudwatch configuration
@@ -86,6 +88,11 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | SNSIntegrationTopicARN | The ARN of SNS topic to subscribe to retrieving messages |   | :heavy_check_mark: | 
+
+### Integration SQS configuration
+| Parameter | Description | Default Value | Required |
+|---|---|---|---|
+| SQSIntegrationTopicARN | The ARN of SQS queue to subscribe to retrieving messages |   | :heavy_check_mark: |
 
 ### Integration Generic Config (Optional)
 | Parameter | Description | Default Value | Required |

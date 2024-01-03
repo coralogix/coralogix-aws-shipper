@@ -3,6 +3,7 @@ use aws_config::BehaviorVersion;
 use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
 use aws_lambda_events::sns::SnsEvent;
+use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_s3::Client;
 use coralogix_aws_shipper::combined_event::CombinedEvent;
 use coralogix_aws_shipper::config::Config;
@@ -862,6 +863,165 @@ async fn test_empty_s3_event() {
             ("INTEGRATION_TYPE", Some("S3")),
         ],
         run_test_empty_s3_event(),
+    )
+    .await;
+}
+
+async fn run_sqs_s3_event() {
+    let s3_client = get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().unwrap();
+
+    let evt: SqsEvent = serde_json::from_str(
+        r#"{
+            "Records": [
+              {
+                "attributes": {
+                  "ApproximateFirstReceiveTimestamp": "0",
+                  "ApproximateReceiveCount": "1",
+                  "SenderId": "SENDERID:EXAMPLE",
+                  "SentTimestamp": "0"
+                },
+                "awsRegion": "us-east-1",
+                "body": "{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"awsRegion\":\"us-east-1\",\"eventTime\":\"1970-01-01T00:00:00.000Z\",\"eventName\":\"ObjectCreated:Put\",\"userIdentity\":{\"principalId\":\"PRINCIPALID:EXAMPLE\"},\"requestParameters\":{\"sourceIPAddress\":\"192.0.2.1\"},\"responseElements\":{\"x-amz-request-id\":\"REQUESTIDEXAMPLE\",\"x-amz-id-2\":\"IDEXAMPLE\"},\"s3\":{\"s3SchemaVersion\":\"1.0\",\"configurationId\":\"CONFIGEXAMPLE\",\"bucket\":{\"name\":\"coralogix-serverless-repo\",\"ownerIdentity\":{\"principalId\":\"OWNERIDEXAMPLE\"},\"arn\":\"arn:aws:s3:::coralogix-serverless-repo\"},\"object\":{\"key\":\"coralogix-aws-shipper/s3.log\",\"size\":123,\"eTag\":\"ETAGEXAMPLE\",\"sequencer\":\"SEQUENCEREXAMPLE\"}}}]}",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:SQSDLQ",
+                "md5OfBody": "MD5EXAMPLE",
+                "messageAttributes": {},
+                "messageId": "00000000-0000-0000-0000-000000000000",
+                "receiptHandle": "RECEIPTHANDLEEXAMPLE"
+              }
+            ]
+          }"#
+        )
+    .expect("failed to parse sqs_s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::Sqs(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+        let bulks = exporter.take_bulks();
+        assert!(bulks.is_empty());
+    
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 4);
+    let log_lines = vec![
+        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    ];
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(singles[0].entries[i].body == *log_line);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+#[tokio::test]
+async fn test_sqs_s3_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+        ],
+        run_sqs_s3_event(),
+    )
+    .await;
+}
+
+async fn run_sqs_event() {
+    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
+    let config = Config::load_from_env().unwrap();
+
+    let evt: SqsEvent = serde_json::from_str(
+        r#"{
+            "Records": [
+              {
+                "attributes": {
+                  "ApproximateFirstReceiveTimestamp": "0",
+                  "ApproximateReceiveCount": "1",
+                  "SenderId": "SENDERID:EXAMPLE",
+                  "SentTimestamp": "0"
+                },
+                "awsRegion": "us-east-1",
+                "body": "[INFO] some test log line",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:SQSDLQ",
+                "md5OfBody": "MD5EXAMPLE",
+                "messageAttributes": {},
+                "messageId": "00000000-0000-0000-0000-000000000000",
+                "receiptHandle": "RECEIPTHANDLEEXAMPLE"
+              }
+            ]
+          }"#,
+    )
+    .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::Sqs(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 1);
+    let log_lines = vec!["[INFO] some test log line"];
+
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(
+            singles[0].entries[i].body == *log_line,
+            "log line: {}",
+            singles[0].entries[i].body
+        );
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "lambda",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+#[tokio::test]
+async fn test_sqs_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Sqs")),
+        ],
+        run_sqs_event(),
     )
     .await;
 }
