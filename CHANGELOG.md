@@ -1,4 +1,12 @@
 # Changelog
+## v0.0.4 Beta / 
+
+### 🚀 New components 🚀
+- Added support for sqs for s3 and sqs messages
+
+### 🧰 Bug fixes 🧰
+- Fix Sns and Sqs space in key bug
+
 ## v0.0.3 Beta / 2023-12-26
 
 ### 🛑 Breaking changes 🛑
