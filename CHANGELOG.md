@@ -1,4 +1,8 @@
 # Changelog
+## v0.0.5 Beta / 2024-01-03
+### 🧰 Bug fixes 🧰
+- Bug Fix in SNS email notification
+
 ## v0.0.4 Beta / 2024-01-03
 
 ### 🚀 New components 🚀

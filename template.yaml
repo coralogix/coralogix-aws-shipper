@@ -24,7 +24,7 @@ Metadata:
       - vpc
       - sqs
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 0.0.4
+    SemanticVersion: 0.0.5
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -832,7 +832,7 @@ Resources:
       SourceArn: !Sub "arn:aws:s3:::${S3BucketName}"
 
   LambdaFunctionNotificationSubscriptionWithSQSTopic:
-    Type: AWS::SQS::Subscription
+    Type: AWS::SNS::Subscription
     Condition: UseSQSTopicARNWithNotification
     Properties:
       Protocol: email
