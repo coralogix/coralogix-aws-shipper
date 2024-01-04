@@ -338,9 +338,7 @@ Conditions:
     - !And 
       - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-  UseKinesisStreamARN: 
-    Fn::Or: 
-    - !And 
+  UseKinesisStreamARN: !And 
       - !Not [ !Equals [ !Ref KinesisStreamArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
 
@@ -899,14 +897,14 @@ Resources:
     UpdateReplacePolicy: Retain
     Type: 'AWS::Logs::LogGroup'
     Properties:
-      LogGroupName: !Sub '/aws/lambda/${LambdaFunctionWithSQSTopic}'
+      LogGroupName: !Sub '/aws/lambda/${LambdaFunctionWithKinesisTopic}'
       RetentionInDays: !Ref LambdaLogRetention
 
   LambdaFunctionInvokePermissionWithSQSTopic:
     Type: AWS::Lambda::Permission
     Condition: UseSQSTopicARN
     Properties:
-      FunctionName: !GetAtt [ LambdaFunctionWithSQSTopic, Arn ]
+      FunctionName: !GetAtt [ LambdaFunctionWithKinesisTopic, Arn ]
       Action: lambda:InvokeFunction
       Principal: s3.amazonaws.com
       SourceAccount: !Ref AWS::AccountId
