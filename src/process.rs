@@ -1,4 +1,5 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
+use aws_lambda_events::encodings::Base64Data;
 use aws_sdk_s3::Client;
 use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
@@ -108,6 +109,42 @@ pub struct Metadata {
     pub bucket_name: String,
     pub key_name: String,
 }
+pub async fn kinesis_logs(
+    kinesis_message: Base64Data,
+    coralogix_exporter: DynLogExporter,
+    config: &Config,
+) -> Result<(), Error> {
+    let metadata_instance = Metadata {
+        stream_name: String::new(),
+        bucket_name: String::new(),
+        key_name: String::new(),
+    };
+    let defined_app_name = config
+        .app_name
+        .clone()
+        .unwrap_or_else(|| "NO APPLICATION NAME".to_string());
+    let defined_sub_name = config
+        .sub_name
+        .clone()
+        .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
+    let mut batches = Vec::new();
+    let v = kinesis_message.join();
+    //let s = String::from_utf8(v)?;
+    //let s = String::from_utf8(kinesis_message.into_by)?;
+    tracing::debug!("Kinesis Message: {:?}", s);
+    batches.push(s);
+    coralogix::process_batches(
+        batches,
+        &defined_app_name,
+        &defined_sub_name,
+        config,
+        &metadata_instance,
+        coralogix_exporter,
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn sqs_logs(
     sqs_message: String,
     coralogix_exporter: DynLogExporter,

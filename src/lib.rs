@@ -120,6 +120,18 @@ pub async fn function_handler(
                     }
                 }
             }
+        },
+        CombinedEvent::Kinesis(kinesis_event) => {
+            for record in &kinesis_event.records {
+                debug!("Kinesis event: {:?}", record);
+                let message = &record.kinesis.data;
+                debug!("Kinesis data: {:?}", message);
+                crate::process::kinesis_logs(
+                    message.clone(),
+                    coralogix_exporter.clone(),
+                    config,
+                ).await?;
+            }
         }
     };
 

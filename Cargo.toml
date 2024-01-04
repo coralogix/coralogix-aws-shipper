@@ -4,7 +4,7 @@ version = "0.0.5"
 edition = "2021"
 
 [dependencies]
-aws_lambda_events = { version = "0.12.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs"] }
+aws_lambda_events = { version = "0.12.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis"] }
 aws-config = "1.0.3"
 aws-sdk-s3 = "1.5.0"
 aws-sdk-secretsmanager = "1.4.0"
