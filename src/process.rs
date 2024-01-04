@@ -128,7 +128,18 @@ pub async fn kinesis_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let mut batches = Vec::new();
-    let v = kinesis_message.join();
+    let v = kinesis_message.0;
+    let result = ungzip(v.clone(), String::new());
+    let s = match result {
+        Ok(un_v) => {
+            // If ungzip is successful, convert bytes to string
+            String::from_utf8(un_v)?
+        },
+        Err(_) => {
+            // If ungzip fails, treat original message as UTF-8 string
+            String::from_utf8(v)?
+        }
+    };
     //let s = String::from_utf8(v)?;
     //let s = String::from_utf8(kinesis_message.into_by)?;
     tracing::debug!("Kinesis Message: {:?}", s);
