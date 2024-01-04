@@ -109,6 +109,10 @@ pub struct Metadata {
     pub bucket_name: String,
     pub key_name: String,
 }
+fn is_gzipped(data: &[u8]) -> bool {
+    // Check the first two bytes for gzip magic numbers
+    data.len() > 1 && data[0] == 0x1f && data[1] == 0x8b
+}
 pub async fn kinesis_logs(
     kinesis_message: Base64Data,
     coralogix_exporter: DynLogExporter,
@@ -129,16 +133,18 @@ pub async fn kinesis_logs(
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let mut batches = Vec::new();
     let v = kinesis_message.0;
-    let result = ungzip(v.clone(), String::new());
-    let s = match result {
-        Ok(un_v) => {
-            // If ungzip is successful, convert bytes to string
-            String::from_utf8(un_v)?
-        },
-        Err(_) => {
-            // If ungzip fails, treat original message as UTF-8 string
-            String::from_utf8(v)?
+    let s = if is_gzipped(&v) {
+        // It looks like gzip, attempt to ungzip
+        match ungzip(v.clone(), String::new()) {
+            Ok(un_v) => String::from_utf8(un_v).unwrap_or_else(|_| "Failed to decode ungzip data".to_string()),
+            Err(_) => {
+                tracing::info!("Data does not appear to be valid gzip format. Treating as UTF-8");
+                String::from_utf8(v).unwrap_or_else(|_| "Failed to decode UTF-8 data".to_string())
+            }
         }
+    } else {
+        // Not gzip, treat as UTF-8
+        String::from_utf8(v).unwrap_or_else(|_| "Failed to decode UTF-8 data".to_string())
     };
     //let s = String::from_utf8(v)?;
     //let s = String::from_utf8(kinesis_message.into_by)?;
