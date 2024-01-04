@@ -25,7 +25,7 @@ Metadata:
       - sqs
       - kinesis
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 0.0.5
+    SemanticVersion: 0.0.6
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -226,7 +226,7 @@ Parameters:
     Default: ''
   IntegrationType:
     Type: String
-    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns'
+    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs'
     AllowedValues:
       - S3
       - CloudTrail
