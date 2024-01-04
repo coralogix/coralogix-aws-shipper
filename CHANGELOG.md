@@ -1,4 +1,9 @@
 # Changelog
+
+## v0.0.6 Beta / 2024-01-04
+### 🧰 Bug fixes 🧰
+- Allow to choose Sqs as integrationType
+  
 ## v0.0.5 Beta / 2024-01-03
 ### 🧰 Bug fixes 🧰
 - Bug Fix in SNS email notification
