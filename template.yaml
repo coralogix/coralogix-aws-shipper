@@ -891,7 +891,7 @@ Resources:
             StartingPosition: LATEST
             Stream: !Ref KinesisStreamArn
 
-  LambdaLogGroupWithSQSTopic:
+  LambdaLogGroupWithKinesisTopic:
     Condition: UseKinesisStreamARN
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
@@ -900,9 +900,9 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${LambdaFunctionWithKinesisTopic}'
       RetentionInDays: !Ref LambdaLogRetention
 
-  LambdaFunctionInvokePermissionWithSQSTopic:
+  LambdaFunctionInvokePermissionWithKinesisTopic:
     Type: AWS::Lambda::Permission
-    Condition: UseSQSTopicARN
+    Condition: UseKinesisStreamARN
     Properties:
       FunctionName: !GetAtt [ LambdaFunctionWithKinesisTopic, Arn ]
       Action: lambda:InvokeFunction
