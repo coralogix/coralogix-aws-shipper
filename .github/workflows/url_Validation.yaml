@@ -1,0 +1,43 @@
+name: url Validation
+# the action will get all of the .md files and make sure that all of the https link are working 
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [master]
+    paths:
+      - "*.md"
+jobs:
+  check-docs:
+    runs-on: ubuntu-latest
+    name: Check Documentation formatting and links
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Validate Links
+      run: |
+        echo "Validating links in .md files"
+        md_files=$(find . -name "*.md")
+        pass_validation=true
+        # Loop through each Markdown file
+        for file in $md_files; do
+          # Extract and validate links
+          line_number=0
+          while IFS= read -r line; do
+            ((line_number++))
+            link=$(echo "$line" | grep -oP 'https:\/\/[^\s)\]]*')
+            if [ -n "$link" ]; then
+              # Validate the link using curl
+              http_code=$(curl -s -o /dev/null -I -w "%{http_code}" "$link")
+              if [[ "$http_code" != "200" ]] && [[ "$http_code" != "000" ]] && [[ "$http_code" != "302" ]]; then
+                echo "HTTP Status Code at line $line_number: $http_code"
+                echo "[ERROR] Invalid link in file: $file in line $line_number"
+                echo "The Line: $line"
+                pass_validation=false
+            fi
+          done < "$file"
+          done || true  # Continue even if there is an errors
+          if [ "$pass_validation" == false ]; then
+            exit 1
+          fi
+      shell: bash
