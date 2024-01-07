@@ -1,5 +1,5 @@
-name: url Validation
-# the action will get all of the .md files and make sure that all of the link are working 
+name: Documents Validation
+# the action will validate all of the .md files in the repo 
 on:
   pull_request:
     types: [opened, synchronize]
