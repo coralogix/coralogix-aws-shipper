@@ -33,6 +33,7 @@ pub enum IntegrationType {
     CloudWatch,
     Sns,
     Sqs,
+    Kinesis,
 }
 
 impl FromStr for IntegrationType {
@@ -47,6 +48,7 @@ impl FromStr for IntegrationType {
             "CloudWatch" => Ok(IntegrationType::CloudWatch),
             "Sns" => Ok(IntegrationType::Sns),
             "Sqs" => Ok(IntegrationType::Sqs),
+            "Kinesis" => Ok(IntegrationType::Kinesis),
             other => Err(format!("Incorrect integration type {}", other)),
         }
     }

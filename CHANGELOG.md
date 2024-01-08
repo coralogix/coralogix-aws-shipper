@@ -1,4 +1,7 @@
 # Changelog
+## v0.0.7 Beta / 
+### 🚀 New components 🚀
+- Added support for kinesis Text and Cloudwatch Logs
 
 ## v0.0.6 Beta / 2024-01-04
 ### 🧰 Bug fixes 🧰

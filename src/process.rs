@@ -1,4 +1,5 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
+use aws_lambda_events::encodings::Base64Data;
 use aws_sdk_s3::Client;
 use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
@@ -108,6 +109,65 @@ pub struct Metadata {
     pub bucket_name: String,
     pub key_name: String,
 }
+fn is_gzipped(data: &[u8]) -> bool {
+    // Check the first two bytes for gzip magic numbers
+    data.len() > 1 && data[0] == 0x1f && data[1] == 0x8b
+}
+pub async fn kinesis_logs(
+    kinesis_message: Base64Data,
+    coralogix_exporter: DynLogExporter,
+    config: &Config,
+) -> Result<(), Error> {
+    let metadata_instance = Metadata {
+        stream_name: String::new(),
+        bucket_name: String::new(),
+        key_name: String::new(),
+    };
+    let defined_app_name = config
+        .app_name
+        .clone()
+        .unwrap_or_else(|| "NO APPLICATION NAME".to_string());
+    let defined_sub_name = config
+        .sub_name
+        .clone()
+        .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
+    let v = &kinesis_message.0;
+    let string_data: Vec<u8> = if is_gzipped(&v) {
+        // It looks like gzip, attempt to ungzip
+        match ungzip(v.clone(), String::new()) {
+            Ok(un_v) => un_v,
+            Err(_) => {
+                tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
+                v.clone()
+            }
+        }
+    } else {
+        // Not gzip, treat as UTF-8
+        v.clone()
+    };
+
+    let batches = match String::from_utf8(string_data) {
+        Ok(s) => {
+            tracing::debug!("Kinesis Message: {:?}", s);
+            vec![s]
+        }
+        Err(error) => {
+            tracing::error!(?error ,"Failed to decode data");
+            Vec::new()
+        }
+    };
+    coralogix::process_batches(
+        batches,
+        &defined_app_name,
+        &defined_sub_name,
+        config,
+        &metadata_instance,
+        coralogix_exporter,
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn sqs_logs(
     sqs_message: String,
     coralogix_exporter: DynLogExporter,

@@ -23,6 +23,7 @@ The `coralogix-aws-shipper` supports forwarding of logs for the following AWS Se
 * [AWS WAF](https://docs.aws.amazon.com/waf/latest/developerguide/logging-s3.html)
 * [AWS SNS](https://aws.amazon.com/sns/)
 * [AWS SQS](https://aws.amazon.com/sqs/)
+* [AWS KINESIS](https://aws.amazon.com/kinesis/)
 
 Additionally, you can ingest any generic text, JSON and csv logs stored in your S3 bucket
 
@@ -93,6 +94,11 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | SQSIntegrationTopicARN | The ARN of SQS queue to subscribe to retrieving messages |   | :heavy_check_mark: |
+
+### Integration Kinesis configuration
+| Parameter | Description | Default Value | Required |
+|---|---|---|---|
+| KinesisStreamARN | The ARN of Kinesis Stream to subscribe to retrieving messages |   | :heavy_check_mark: |
 
 ### Integration Generic Config (Optional)
 | Parameter | Description | Default Value | Required |

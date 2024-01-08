@@ -4,6 +4,7 @@ use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
 use aws_lambda_events::sns::SnsEvent;
 use aws_lambda_events::sqs::SqsEvent;
+use aws_lambda_events::event::kinesis::KinesisEvent;
 use aws_sdk_s3::Client;
 use coralogix_aws_shipper::combined_event::CombinedEvent;
 use coralogix_aws_shipper::config::Config;
@@ -963,7 +964,7 @@ async fn run_sqs_event() {
                 "awsRegion": "us-east-1",
                 "body": "[INFO] some test log line",
                 "eventSource": "aws:sqs",
-                "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:SQSDLQ",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
                 "md5OfBody": "MD5EXAMPLE",
                 "messageAttributes": {},
                 "messageId": "00000000-0000-0000-0000-000000000000",
@@ -1022,6 +1023,86 @@ async fn test_sqs_event() {
             ("INTEGRATION_TYPE", Some("Sqs")),
         ],
         run_sqs_event(),
+    )
+    .await;
+}
+
+async fn run_kinesis_event() {
+    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
+    let config = Config::load_from_env().unwrap();
+
+    let evt: KinesisEvent = serde_json::from_str(
+        r#"{
+            "Records": [
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000000000000",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:0000000000:stream/mystream",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::0000000000:role/cargo-lambda-role-0000000-0000-0000-0000-00000000000",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.323,
+                        "data": "RHVtbXkgZGF0YQ==",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "partition_key",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808530"
+                    }
+                }
+            ]
+        }"#,
+    )
+    .expect("failed to parse kinesis_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::Kinesis(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 1);
+    let log_lines = vec!["Dummy data"];
+
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(
+            singles[0].entries[i].body == *log_line,
+            "log line: {}",
+            singles[0].entries[i].body
+        );
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "lambda",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+#[tokio::test]
+async fn test_kinesis_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Kinesis")),
+        ],
+        run_kinesis_event(),
     )
     .await;
 }
