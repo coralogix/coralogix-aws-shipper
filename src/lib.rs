@@ -120,6 +120,7 @@ pub async fn function_handler(
                     }
                 }
             }
+        }
         CombinedEvent::Kinesis(kinesis_event) => {
             for record in kinesis_event.records {
                 debug!("Kinesis event: {:?}", record);
@@ -132,7 +133,7 @@ pub async fn function_handler(
                 ).await?;
             }
         }
-        }
+            
     };
 
     Ok(())

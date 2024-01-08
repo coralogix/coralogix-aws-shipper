@@ -114,7 +114,7 @@ fn is_gzipped(data: &[u8]) -> bool {
     data.len() > 1 && data[0] == 0x1f && data[1] == 0x8b
 }
 pub async fn kinesis_logs(
-    kinesis_message: &Base64Data,
+    kinesis_message: Base64Data,
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
@@ -131,6 +131,7 @@ pub async fn kinesis_logs(
         .sub_name
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
+    let v = &kinesis_message.0;
     let string_data: Vec<u8> = if is_gzipped(&v) {
         // It looks like gzip, attempt to ungzip
         match ungzip(v.clone(), String::new()) {
