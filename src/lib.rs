@@ -127,7 +127,7 @@ pub async fn function_handler(
                 let message = &record.kinesis.data;
                 debug!("Kinesis data: {:?}", message);
                 crate::process::kinesis_logs(
-                    message.clone(),
+                    message,
                     coralogix_exporter.clone(),
                     config,
                 ).await?;
