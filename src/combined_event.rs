@@ -2,6 +2,7 @@ use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
 use aws_lambda_events::event::sns::SnsEvent;
 use aws_lambda_events::event::sqs::SqsEvent;
+use aws_lambda_events::event::kinesis::KinesisEvent;
 use serde::de::{self, Deserialize, Deserializer};
 use serde_json::Value;
 
@@ -10,6 +11,7 @@ pub enum CombinedEvent {
     Sns(SnsEvent),
     CloudWatchLogs(AwsLogs),
     Sqs(SqsEvent),
+    Kinesis(KinesisEvent),
 }
 
 impl<'de> Deserialize<'de> for CombinedEvent {
@@ -33,6 +35,10 @@ impl<'de> Deserialize<'de> for CombinedEvent {
             } else if records[0].get("eventSource").map_or(false, |v| v == "aws:sqs") {
                 Ok(CombinedEvent::Sqs(
                     SqsEvent::deserialize(raw_value).map_err(de::Error::custom)?,
+                ))
+            } else if records[0].get("eventSource").map_or(false, |v| v == "aws:kinesis") {
+                Ok(CombinedEvent::Kinesis(
+                KinesisEvent::deserialize(raw_value).map_err(de::Error::custom)?,
                 ))
             } else {
                 Err(de::Error::custom("Unknown Records event type"))
