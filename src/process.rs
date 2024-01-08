@@ -131,31 +131,30 @@ pub async fn kinesis_logs(
         .sub_name
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
-    let mut batches = Vec::new();
-    let v = &kinesis_message.0;
-    let s: Option<String> = if is_gzipped(&v) {
+    let string_data: Vec<u8> = if is_gzipped(&v) {
         // It looks like gzip, attempt to ungzip
         match ungzip(v.clone(), String::new()) {
-            Ok(un_v) => String::from_utf8(un_v).ok(),
+            Ok(un_v) => un_v,
             Err(_) => {
                 tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
-                String::from_utf8(v.clone()).ok()
+                v.clone()
             }
         }
     } else {
         // Not gzip, treat as UTF-8
-        String::from_utf8(v.clone()).ok()
+        v.clone()
     };
-    
-    if s.is_none() {
-        tracing::error!("Failed to decode data");
-    }
-    if let Some(s) = s {
-        tracing::debug!("Kinesis Message: {:?}", s);
-        batches.push(s);
-    } else {
-        tracing::error!("Failed to decode data");
-    }
+
+    let batches = match String::from_utf8(string_data) {
+        Ok(s) => {
+            tracing::debug!("Kinesis Message: {:?}", s);
+            vec![s]
+        }
+        Err(error) => {
+            tracing::error!(?error ,"Failed to decode data");
+            Vec::new()
+        }
+    };
     coralogix::process_batches(
         batches,
         &defined_app_name,
