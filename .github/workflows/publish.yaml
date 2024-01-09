@@ -19,6 +19,8 @@ jobs:
   check_version:
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      template_updated: ${{ env.updated }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,12 +51,6 @@ jobs:
 
           set +xv
 
-      - name: 
-        if: env.updated == 'false'
-        run: |
-          echo "The SemanticVersion value has not changed. Please update the SemanaticVersion value in the template.yaml file and try again."
-          exit 1
-
       - name: create tag
         if: env.updated == 'true'
         uses: actions/github-script@v7
@@ -70,7 +66,7 @@ jobs:
   build:
     name: build
     needs: check_version
-    if: ${{ github.event_name == 'workflow_dispatch' || success() }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || success()) && needs.check_version.outputs.template_updated == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -121,7 +117,7 @@ jobs:
   publish:
     name: publish
     needs: build
-    # if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true }}
+    if: ${{ needs.check_version.outputs.template_updated == 'true' }}
     runs-on: ubuntu-latest
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
