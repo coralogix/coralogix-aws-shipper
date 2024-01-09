@@ -22,6 +22,7 @@ pub struct Config {
     pub csv_delimiter: String,
     pub batches_max_size: usize,
     pub batches_max_concurrency: usize,
+    pub add_metadata: bool,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -94,10 +95,7 @@ impl Config {
                 .parse::<u64>()
                 .map_err(|e| format!("Error parsing MAX_ELAPSED_TIME to u64 - {}", e))?,
             csv_delimiter: env::var("CSV_DELIMITER")
-                .unwrap_or(",".to_string())
-                .parse::<char>()
-                .map_err(|e| format!("Error parsing CSV_DELIMITER to char - {}", e))?
-                .to_string(),
+                .unwrap_or(",".to_string()),
             batches_max_size: env::var("BATCHES_MAX_SIZE")
                 .unwrap_or("4".to_string())
                 .parse::<usize>()
@@ -106,6 +104,10 @@ impl Config {
                 .unwrap_or("10".to_string())
                 .parse::<usize>()
                 .map_err(|e| format!("Error parsing BATCHES_MAX_CONCURRENCY to usize - {}", e))?,
+            add_metadata: env::var("ADD_METADATA")
+                .unwrap_or("false".to_string())
+                .parse::<bool>()
+                .map_err(|e| format!("Error parsing ADD_METADATA to bool - {}", e))?,
         };
 
         Ok(conf)
