@@ -11,6 +11,7 @@ use std::time::Instant;
 use std::vec::Vec;
 use time::OffsetDateTime;
 use tracing::{error, info};
+use serde::{Serialize, Deserialize};
 
 pub async fn process_batches(
     logs: Vec<String>,
@@ -51,6 +52,7 @@ pub async fn process_batches(
                         configured_app_name,
                         configured_sub_name,
                         metadata_instance,
+                        config,
                     )
                 })
                 .collect_vec();
@@ -96,12 +98,20 @@ fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec
     }
     batches
 }
+#[derive(Serialize, Deserialize)]
+struct JsonMessage {
+    message: String,
+    stream_name: String,
+    bucket_name: String,
+    key_name: String,
+}
 
 fn convert_to_log_entry(
-    log: String,
+    mut log: String,
     configured_app_name: &str,
     configured_sub_name: &str,
     metadata_instance: &Metadata,
+    config: &Config,
 ) -> LogSinglesEntry<String> {
     let now = OffsetDateTime::now_utc();
     let application_name = dynamic_metadata_for_log(configured_app_name, &log, metadata_instance.key_name.clone());
@@ -111,18 +121,41 @@ fn convert_to_log_entry(
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
     tracing::debug!("Severity: {:?}", severity);
-    LogSinglesEntry {
-        application_name,
-        subsystem_name,
-        computer_name: None,
-        severity,
-        body: log,
-        timestamp: now,
-        class_name: None,
-        method_name: None,
-        thread_id: Some(stream_name),
-        category: None,
+    if config.add_metadata == true {
+        let message = JsonMessage {
+            message: log.clone(),
+            stream_name: metadata_instance.stream_name.clone(),
+            bucket_name: metadata_instance.bucket_name.clone(),
+            key_name: metadata_instance.key_name.clone(),
+        };
+        log = serde_json::to_string(&message).unwrap_or_else(|_| log);
+        LogSinglesEntry {
+            application_name,
+            subsystem_name,
+            computer_name: None,
+            severity,
+            body: log,
+            timestamp: now,
+            class_name: None,
+            method_name: None,
+            thread_id: Some(stream_name),
+            category: None,
+        }
+    } else {
+        LogSinglesEntry {
+            application_name,
+            subsystem_name,
+            computer_name: None,
+            severity,
+            body: log,
+            timestamp: now,
+            class_name: None,
+            method_name: None,
+            thread_id: Some(stream_name),
+            category: None,
+        }
     }
+    
 }
 
 async fn send_logs(

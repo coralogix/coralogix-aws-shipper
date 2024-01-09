@@ -17,6 +17,8 @@ use tracing::{debug, info, warn};
 use crate::config::{Config, IntegrationType};
 use crate::coralogix;
 
+
+
 pub async fn s3(
     s3_client: &Client,
     coralogix_exporter: DynLogExporter,
@@ -24,6 +26,8 @@ pub async fn s3(
     bucket: String,
     key: String,
 ) -> Result<(), Error> {
+    
+    
     let mut metadata_instance = Metadata {
         stream_name: String::new(),
         bucket_name: String::new(),
@@ -359,10 +363,13 @@ async fn process_csv(
     raw_data: Vec<u8>,
     sampling: usize,
     key_path: &Path,
-    csv_delimiter: &str,
+    mut csv_delimiter: &str,
     blocking_pattern: &str,
     key: String,
 ) -> Result<Vec<String>, Error> {
+    if csv_delimiter == "\\t" {
+        debug!("Replacing \\t with \t");
+        csv_delimiter = "\t";}
     let s = if key_path.extension() == Some(OsStr::new("gz")) {
         let v = ungzip(raw_data, key)?;
         let s = String::from_utf8(v)?;
@@ -373,15 +380,31 @@ async fn process_csv(
         debug!("NON-ZIP S3 object: {}", s);
         s
     };
+    let mut flow_header: Vec<&str>;
+    let mut records: Vec<&str> = Vec::new();
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
-    let flow_header = array_s[0].split(csv_delimiter).collect_vec();
-    tracing::debug!("Flow Header: {:?}", &flow_header);
-    let records: Vec<&str> = array_s
-        .iter()
-        .skip(1)
-        .filter(|&line| !line.trim().is_empty())
-        .copied()
-        .collect_vec();
+    if array_s[0].starts_with("#Version") {
+        debug!("Array 0: {:?}", &array_s[0]);
+        flow_header = array_s[1].split(' ').collect_vec();
+        flow_header.remove(0);
+        tracing::debug!("Flow Header: {:?}", &flow_header);
+        records = array_s
+            .iter()
+            .skip(2)
+            .filter(|&line| !line.trim().is_empty())
+            .copied()
+            .collect_vec();
+    } else {
+        flow_header = array_s[0].split(csv_delimiter).collect_vec();
+        tracing::debug!("Flow Header: {:?}", &flow_header);
+        records = array_s
+            .iter()
+            .skip(1)
+            .filter(|&line| !line.trim().is_empty())
+            .copied()
+            .collect_vec();
+        }
+    
     let re_block: Regex = Regex::new(blocking_pattern)?;
     let parsed_records = parse_records(&flow_header, &records, csv_delimiter)?;
     debug!("Parsed Records: {:?}", &parsed_records);
@@ -498,7 +521,7 @@ fn parse_records(
         .map(|record| {
             let values: Vec<&str> = record.split(csv_delimiter).collect();
             let mut parsed_log = serde_json::Map::new();
-
+            debug!("DELIMITER: {:?}", csv_delimiter);
             for (index, field) in flow_header.iter().enumerate() {
                 // Use a default empty string if the value is missing
                 let value = values.get(index).unwrap_or(&"");
@@ -508,13 +531,14 @@ fn parse_records(
                 } else {
                     serde_json::Value::String(value.to_string())
                 };
-
+                debug!("Parsed Value: {:?}", parsed_value);
                 parsed_log.insert(field.to_string(), parsed_value);
             }
 
             serde_json::to_string(&parsed_log).map_err(|e| e.to_string())
         })
         .collect()
+    
 }
 
 fn split(re: Regex, string: &str) -> Result<Vec<&str>, Error> {
@@ -533,6 +557,7 @@ fn split(re: Regex, string: &str) -> Result<Vec<&str>, Error> {
 
     Ok(logs)
 }
+
 fn block(re_block: Regex, v: Vec<String>, b: &str) -> Result<Vec<String>, Error> {
     if b.is_empty() {
         return Ok(v);
