@@ -381,29 +381,28 @@ async fn process_csv(
         s
     };
     let mut flow_header: Vec<&str>;
-    let mut records: Vec<&str> = Vec::new();
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
-    if array_s[0].starts_with("#Version") {
+    let records: Vec<&str> = if array_s[0].starts_with("#Version") {
         debug!("Array 0: {:?}", &array_s[0]);
         flow_header = array_s[1].split(' ').collect_vec();
         flow_header.remove(0);
         tracing::debug!("Flow Header: {:?}", &flow_header);
-        records = array_s
+        array_s
             .iter()
             .skip(2)
             .filter(|&line| !line.trim().is_empty())
             .copied()
-            .collect_vec();
+            .collect_vec()
     } else {
         flow_header = array_s[0].split(csv_delimiter).collect_vec();
         tracing::debug!("Flow Header: {:?}", &flow_header);
-        records = array_s
+        array_s
             .iter()
             .skip(1)
             .filter(|&line| !line.trim().is_empty())
             .copied()
-            .collect_vec();
-        }
+            .collect_vec()
+    };
     
     let re_block: Regex = Regex::new(blocking_pattern)?;
     let parsed_records = parse_records(&flow_header, &records, csv_delimiter)?;

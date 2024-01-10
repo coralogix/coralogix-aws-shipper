@@ -6,6 +6,7 @@ use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
 use cx_sdk_rest_logs::DynLogExporter;
 use futures::stream::{StreamExt, TryStreamExt};
 use itertools::Itertools;
+use serde_json::Value;
 use std::iter::IntoIterator;
 use std::time::Instant;
 use std::vec::Vec;
@@ -107,12 +108,12 @@ struct JsonMessage {
 }
 
 fn convert_to_log_entry(
-    mut log: String,
+    log: String,
     configured_app_name: &str,
     configured_sub_name: &str,
     metadata_instance: &Metadata,
     config: &Config,
-) -> LogSinglesEntry<String> {
+) -> LogSinglesEntry<Value> {
     let now = OffsetDateTime::now_utc();
     let application_name = dynamic_metadata_for_log(configured_app_name, &log, metadata_instance.key_name.clone());
     tracing::debug!("App Name: {}", &application_name);
@@ -128,13 +129,14 @@ fn convert_to_log_entry(
             bucket_name: metadata_instance.bucket_name.clone(),
             key_name: metadata_instance.key_name.clone(),
         };
-        log = serde_json::to_string(&message).unwrap_or_else(|_| log);
+        let body = serde_json::to_value(&message)
+            .unwrap_or_else(|_| Value::String(log));
         LogSinglesEntry {
             application_name,
             subsystem_name,
             computer_name: None,
             severity,
-            body: log,
+            body,
             timestamp: now,
             class_name: None,
             method_name: None,
@@ -147,7 +149,7 @@ fn convert_to_log_entry(
             subsystem_name,
             computer_name: None,
             severity,
-            body: log,
+            body: Value::String(log),
             timestamp: now,
             class_name: None,
             method_name: None,
@@ -160,7 +162,7 @@ fn convert_to_log_entry(
 
 async fn send_logs(
     exporter: DynLogExporter,
-    resource_logs: Vec<LogSinglesEntry<String>>,
+    resource_logs: Vec<LogSinglesEntry<Value>>,
     auth_data: &AuthData,
 ) -> Result<(), Error> {
     let number_of_logs = resource_logs.len();
@@ -170,7 +172,7 @@ async fn send_logs(
     };
     exporter
         .as_ref()
-        .export_singles_strings(request, auth_data)
+        .export_singles_jsons(request, auth_data)
         .await?;
     tracing::info!(
         "Delivered {} log records to Coralogix in {}ms.",
