@@ -67,6 +67,21 @@ pub async fn s3(
             )
             .await?
         }
+        IntegrationType::CloudFront => {
+            let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
+            metadata_instance.key_name = key.clone();
+            metadata_instance.bucket_name = bucket;
+            let cloudfront_delimiter: &str = "\t";
+            process_csv(
+                raw_data,
+                config.sampling,
+                key_path,
+                cloudfront_delimiter,
+                &config.blocking_pattern,
+                key,
+            )
+            .await?
+        }
         IntegrationType::S3 => {
             let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
             metadata_instance.key_name = key.clone();
