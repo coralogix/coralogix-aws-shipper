@@ -23,6 +23,7 @@ The `coralogix-aws-shipper` supports forwarding of logs for the following AWS Se
 * [AWS WAF](https://docs.aws.amazon.com/waf/latest/developerguide/logging-s3.html)
 * [AWS SNS](https://aws.amazon.com/sns/)
 * [AWS SQS](https://aws.amazon.com/sqs/)
+* [AWS KINESIS](https://aws.amazon.com/kinesis/)
 
 Additionally, you can ingest any generic text, JSON and csv logs stored in your S3 bucket
 
@@ -94,6 +95,11 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 |---|---|---|---|
 | SQSIntegrationTopicARN | The ARN of SQS queue to subscribe to retrieving messages |   | :heavy_check_mark: |
 
+### Integration Kinesis configuration
+| Parameter | Description | Default Value | Required |
+|---|---|---|---|
+| KinesisStreamARN | The ARN of Kinesis Stream to subscribe to retrieving messages |   | :heavy_check_mark: |
+
 ### Integration Generic Config (Optional)
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
@@ -117,7 +123,6 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | UsePrivateLink | Will you be using our PrivateLink? | false | :heavy_check_mark: | 
 
 ## Advanced
-
 
 ### AWS PrivateLink
 To use privatelink please forllow the instruction in this [link](https://coralogix.com/docs/coralogix-amazon-web-services-aws-privatelink-endpoints/)
