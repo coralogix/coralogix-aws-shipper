@@ -24,6 +24,7 @@ Metadata:
       - vpc
       - sqs
       - kinesis
+      - cloudfront
     HomePageUrl: https://coralogix.com
     SemanticVersion: 0.0.7
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
@@ -226,7 +227,7 @@ Parameters:
     Default: ''
   IntegrationType:
     Type: String
-    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs'
+    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront'
     AllowedValues:
       - S3
       - CloudTrail
@@ -236,6 +237,7 @@ Parameters:
       - Sns
       - Sqs
       - Kinesis
+      - CloudFront
     Default: S3
 
   CloudWatchLogGroupName:
@@ -308,6 +310,7 @@ Conditions:
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
   IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
+  IsCloudFrontIntegration: !Equals [ !Ref IntegrationType, 'CloudFront' ]
   IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
   IsCustomDomain: !Equals [ !Ref CoralogixRegion, Custom ]
   S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
