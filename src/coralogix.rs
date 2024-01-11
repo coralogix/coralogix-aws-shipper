@@ -99,11 +99,14 @@ fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec
     }
     batches
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 struct JsonMessage {
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     stream_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bucket_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     key_name: Option<String>,
 }
 
@@ -130,23 +133,31 @@ fn convert_to_log_entry(
         key_name: None,
     };
 
-    let add_metadata: Vec<&str> = config.add_metadata.split(',').collect();
+    let add_metadata: Vec<&str> = config.add_metadata.split(',').map(|s| s.trim()).collect();
 
-    // Iterating over add_metadata
+    tracing::debug!("add_metadata: {:?}", add_metadata);
+
     for metadata_field in &add_metadata {
+        tracing::debug!("Processing metadata field: {}", metadata_field);
         match *metadata_field {
-            "stream_name" if metadata_instance.stream_name.is_empty() => {
+            "stream_name"  => {
                 message.stream_name = Some(metadata_instance.stream_name.clone());
+                tracing::debug!("Assigned stream_name: {}", metadata_instance.stream_name);
             },
-            "bucket_name" if metadata_instance.bucket_name.is_empty() => {
+            "bucket_name" => {
                 message.bucket_name = Some(metadata_instance.bucket_name.clone());
+                tracing::debug!("Assigned bucket_name: {}", metadata_instance.bucket_name);
             },
-            "key_name" if metadata_instance.key_name.is_empty() => {
+            "key_name" => {
                 message.key_name = Some(metadata_instance.key_name.clone());
+                tracing::debug!("Assigned key_name: {}", metadata_instance.key_name);
             },
-            _ => {}
+            _ => {
+                tracing::debug!("No matching metadata field or condition not met for: {}", metadata_field);
+            }
         }
     }
+
 
     let body = if message.stream_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() {
         serde_json::to_value(&message).unwrap_or_else(|_| Value::String(log))
