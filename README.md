@@ -79,11 +79,14 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | SNSTopicArn | The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3 |   |   |
 | SQSTopicArn | The ARN for the SQS queue that contains the SQS subscription responsible for retrieving logs from Amazon S3 |   |   |
 | CSVDelimiter | Single Character for using as a Delimiter when ingesting CSV file with header line (This value is applied when the S3Csv integration type  is selected), e.g. "," or " " | , |   |
+| AddMetadata | Add metadata to the log message. Expects comma separated values. Options for S3 are bucket_name,key_name, |   |   |
 
 ### Integration Cloudwatch configuration
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
-| CloudWatchLogGroupName | A comma separated list of CloudWatch log groups names to watch  e.g, (log-group1,log-group2,log-group3) |   | :heavy_check_mark: | 
+| CloudWatchLogGroupName | A comma separated list of CloudWatch log groups names to watch  e.g, (log-group1,log-group2,log-group3) |   | :heavy_check_mark: |
+| AddMetadata | Add metadata to the log message. Expects comma separated values. Options for CloudWatch are stream_name |   |   |
+
 
 ### Integration SNS configuration
 | Parameter | Description | Default Value | Required |

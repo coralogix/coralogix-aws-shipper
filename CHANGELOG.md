@@ -3,6 +3,9 @@
 ### 🚀 New components 🚀
 - Added support for Cloudfront Access logs
 
+### 💡 Enhancements 💡
+- Support for adding metadata to logs (bucket_name, key_name, stream_name)
+
 ## v0.0.7 Beta / 2024-01-08
 ### 🚀 New components 🚀
 - Added support for kinesis Text and Cloudwatch Logs
