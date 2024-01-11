@@ -124,13 +124,13 @@ fn convert_to_log_entry(
     tracing::debug!("Severity: {:?}", severity);
     if config.add_metadata == true {
         let message = JsonMessage {
-            message: log.clone(),
+            message: log,
             stream_name: metadata_instance.stream_name.clone(),
             bucket_name: metadata_instance.bucket_name.clone(),
             key_name: metadata_instance.key_name.clone(),
         };
         let body = serde_json::to_value(&message)
-            .unwrap_or_else(|_| Value::String(log));
+            .unwrap_or_else(|_| Value::String(message.message));
         LogSinglesEntry {
             application_name,
             subsystem_name,
