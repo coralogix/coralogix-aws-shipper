@@ -22,7 +22,7 @@ pub struct Config {
     pub csv_delimiter: String,
     pub batches_max_size: usize,
     pub batches_max_concurrency: usize,
-    pub add_metadata: bool,
+    pub add_metadata: String,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -107,9 +107,7 @@ impl Config {
                 .parse::<usize>()
                 .map_err(|e| format!("Error parsing BATCHES_MAX_CONCURRENCY to usize - {}", e))?,
             add_metadata: env::var("ADD_METADATA")
-                .unwrap_or("false".to_string())
-                .parse::<bool>()
-                .map_err(|e| format!("Error parsing ADD_METADATA to bool - {}", e))?,
+            .unwrap_or(" ".to_string()),
         };
 
         Ok(conf)
