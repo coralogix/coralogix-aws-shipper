@@ -310,12 +310,10 @@ Conditions:
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
   IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
-  IsCloudFrontIntegration: !Equals [ !Ref IntegrationType, 'CloudFront' ]
   IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
   IsCustomDomain: !Equals [ !Ref CoralogixRegion, Custom ]
   S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
   S3SuffixIsSet: !Not [ !Equals [ !Ref S3KeySuffix, '' ] ]
-  # IsCloudTrailIntegration: !Equals [ !Ref IntegrationType, 'CloudTrail' ]
   IsApiKeyNotArn: !Equals [!Ref ApiKey , !Select [0,!Split [":" , !Ref ApiKey]]]
   ApiKeyIsArn: !Not [!Condition IsApiKeyNotArn]
   UseCloudwatchLogsWithSecretPolicy: !And
@@ -323,7 +321,6 @@ Conditions:
     - !Or
       - !Condition StoreAPIKeyInSecretsManager
       - !Condition ApiKeyIsArn
-  # IsVPCFlowLogsIntegration: !Equals [ !Ref IntegrationType, 'VpcFlow' ]
   UseAWSDefaultPrefix: !Or 
     - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
     - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
