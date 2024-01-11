@@ -79,13 +79,11 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | SNSTopicArn | The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3 |   |   |
 | SQSTopicArn | The ARN for the SQS queue that contains the SQS subscription responsible for retrieving logs from Amazon S3 |   |   |
 | CSVDelimiter | Single Character for using as a Delimiter when ingesting CSV file with header line (This value is applied when the S3Csv integration type  is selected), e.g. "," or " " | , |   |
-| AddMetadata | Add metadata to the log message. Expects comma separated values. Options for S3 are bucket_name,key_name, |   |   |
 
 ### Integration Cloudwatch configuration
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | CloudWatchLogGroupName | A comma separated list of CloudWatch log groups names to watch  e.g, (log-group1,log-group2,log-group3) |   | :heavy_check_mark: |
-| AddMetadata | Add metadata to the log message. Expects comma separated values. Options for CloudWatch are stream_name |   |   |
 
 
 ### Integration SNS configuration
@@ -108,7 +106,9 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 |---|---|---|---|
 | NotificationEmail | Failure notification email address |   |   | 
 | BlockingPattern | Regular expression to detect lines that should be excluded from sent to Coralogix, e.g., use expression MainActivity.java\:\d{3} to match all log that MainActivity ends with 3 digits, This will block a specific ipaddr in a json ' "srcaddr"\:"172\.31\.24\.253" '|  |   | 
-| SamplingRate | Send messages with specific rate (1 out of N) e.g., put the value 10 if you want to send every 10th log | 1 | :heavy_check_mark: | 
+| SamplingRate | Send messages with specific rate (1 out of N) e.g., put the value 10 if you want to send every 10th log | 1 | :heavy_check_mark: |
+| AddMetadata | Add metadata to the log message. Expects comma separated values. Options for S3 are bucket_name,key_name. For CloudWatch stream_name |   |   |
+
 
 ### Lambda configuration (Optional)
 | Parameter | Description | Default Value | Required |

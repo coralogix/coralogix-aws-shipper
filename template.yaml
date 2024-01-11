@@ -52,7 +52,7 @@ Metadata:
           - SNSTopicArn
           - SQSTopicArn
           - CSVDelimiter
-          - AddMetadata
+
 
       - Label:
           default: Cloudwatch configuration
@@ -80,6 +80,8 @@ Metadata:
           - NotificationEmail
           - BlockingPattern
           - SamplingRate
+          - AddMetadata
+
 
       - Label:
           default: Lambda configuration
@@ -144,7 +146,7 @@ Parameters:
     Description: |
       Add metadata to the log message. Expects comma separated values. Options are bucket_name,key_name,stream_name
     Default: ''
-    
+
   BlockingPattern:
     Type: String
     Description: Regular expression to detect lines that should be excluded from sent to Coralogix
