@@ -127,7 +127,7 @@ fn convert_to_log_entry(
     tracing::debug!("Severity: {:?}", severity);
 
     let mut message = JsonMessage {
-        message: log.clone(),
+        message: log,
         stream_name: None,
         bucket_name: None,
         key_name: None,
@@ -160,9 +160,9 @@ fn convert_to_log_entry(
 
 
     let body = if message.stream_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() {
-        serde_json::to_value(&message).unwrap_or_else(|_| Value::String(log))
+        serde_json::to_value(&message).unwrap_or_else(|_| Value::String(message.message))
     } else {
-        Value::String(log)
+        Value::String(message.message)
     };
 
     LogSinglesEntry {
