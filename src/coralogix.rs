@@ -102,9 +102,9 @@ fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec
 #[derive(Serialize, Deserialize)]
 struct JsonMessage {
     message: String,
-    stream_name: String,
-    bucket_name: String,
-    key_name: String,
+    stream_name: Option<String>,
+    bucket_name: Option<String>,
+    key_name: Option<String>,
 }
 
 fn convert_to_log_entry(
@@ -122,43 +122,52 @@ fn convert_to_log_entry(
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
     tracing::debug!("Severity: {:?}", severity);
-    if config.add_metadata == true {
-        let message = JsonMessage {
-            message: log.clone(),
-            stream_name: metadata_instance.stream_name.clone(),
-            bucket_name: metadata_instance.bucket_name.clone(),
-            key_name: metadata_instance.key_name.clone(),
-        };
-        let body = serde_json::to_value(&message)
-            .unwrap_or_else(|_| Value::String(log));
-        LogSinglesEntry {
-            application_name,
-            subsystem_name,
-            computer_name: None,
-            severity,
-            body,
-            timestamp: now,
-            class_name: None,
-            method_name: None,
-            thread_id: Some(stream_name),
-            category: None,
-        }
-    } else {
-        LogSinglesEntry {
-            application_name,
-            subsystem_name,
-            computer_name: None,
-            severity,
-            body: Value::String(log),
-            timestamp: now,
-            class_name: None,
-            method_name: None,
-            thread_id: Some(stream_name),
-            category: None,
+
+    let mut message = JsonMessage {
+        message: log.clone(),
+        stream_name: None,
+        bucket_name: None,
+        key_name: None,
+    };
+
+    let add_metadata: Vec<&str> = config.add_metadata.split(',').collect();
+
+    // Iterating over add_metadata
+    for metadata_field in &add_metadata {
+        match *metadata_field {
+            "stream_name" if metadata_instance.stream_name.is_empty() => {
+                message.stream_name = Some(metadata_instance.stream_name.clone());
+            },
+            "bucket_name" if metadata_instance.bucket_name.is_empty() => {
+                message.bucket_name = Some(metadata_instance.bucket_name.clone());
+            },
+            "key_name" if metadata_instance.key_name.is_empty() => {
+                message.key_name = Some(metadata_instance.key_name.clone());
+            },
+            _ => {}
         }
     }
-    
+
+    let body = if message.stream_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() {
+        serde_json::to_value(&message).unwrap_or_else(|_| Value::String(log))
+    } else {
+        Value::String(log)
+    };
+
+    LogSinglesEntry {
+        application_name,
+        subsystem_name,
+        computer_name: None,
+        severity,
+        body,
+        timestamp: now,
+        class_name: None,
+        method_name: None,
+        thread_id: Some(stream_name),
+        category: None,
+    }
 }
+
 
 async fn send_logs(
     exporter: DynLogExporter,
