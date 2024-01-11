@@ -52,6 +52,7 @@ Metadata:
           - SNSTopicArn
           - SQSTopicArn
           - CSVDelimiter
+          - AddMetadata
 
       - Label:
           default: Cloudwatch configuration
@@ -138,6 +139,12 @@ Parameters:
     Description: Regular expression to detect a new log line for multiline logs from S3 source, e.g., use expression \n(?=\d{2}\-\d{2}\s\d{2}\:\d{2}\:\d{2}\.\d{3})
     Default: ''
   
+  AddMetadata:
+    Type: String
+    Description: |
+      Add metadata to the log message. Expects comma separated values. Options are bucket_name,key_name,stream_name
+    Default: ''
+    
   BlockingPattern:
     Type: String
     Description: Regular expression to detect lines that should be excluded from sent to Coralogix
@@ -307,6 +314,7 @@ Conditions:
   BlockPatternNotSet: !Equals [ !Ref BlockingPattern, '' ]
   CSVDelimiterUse: !Equals [!Ref IntegrationType, 'S3Csv']
   NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
+  AddMetadataNotSet: !Equals [ !Ref AddMetadata, '']
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
   IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
@@ -485,6 +493,10 @@ Globals:
         SAMPLING: !Ref SamplingRate
         INTEGRATION_TYPE: !Ref IntegrationType
         RUST_LOG: !Ref LogLevel
+        ADD_METADATA: !If
+          - AddMetadataNotSet
+          - !Ref AWS::NoValue
+          - !Ref AddMetadata
         NEWLINE_PATTERN: !If
           - NewlinePatternNotSet
           - !Ref AWS::NoValue
