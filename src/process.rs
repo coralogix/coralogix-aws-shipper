@@ -151,7 +151,7 @@ pub async fn kinesis_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let v = &kinesis_message.0;
-    let string_data: Vec<u8> = if is_gzipped(&v) {
+    let string_data: Vec<u8> = if is_gzipped(v) {
         // It looks like gzip, attempt to ungzip
         match ungzip(v.clone(), String::new()) {
             Ok(un_v) => un_v,
