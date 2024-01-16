@@ -1,4 +1,10 @@
 # Changelog
+## v0.0.9 Beta / 2024-01-16
+### 🚀 New components 🚀
+- Added support for Cloudfront Access logs
+
+### 💡 Enhancements 💡
+- Support for adding metadata to logs (bucket_name, key_name, stream_name)
 
 ## v0.0.8 Beta / 2024-01-16
 ### 🧰 Bug fixes 🧰

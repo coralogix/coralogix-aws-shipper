@@ -22,6 +22,7 @@ pub struct Config {
     pub csv_delimiter: String,
     pub batches_max_size: usize,
     pub batches_max_concurrency: usize,
+    pub add_metadata: String,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -34,6 +35,7 @@ pub enum IntegrationType {
     Sns,
     Sqs,
     Kinesis,
+    CloudFront,
 }
 
 impl FromStr for IntegrationType {
@@ -49,6 +51,7 @@ impl FromStr for IntegrationType {
             "Sns" => Ok(IntegrationType::Sns),
             "Sqs" => Ok(IntegrationType::Sqs),
             "Kinesis" => Ok(IntegrationType::Kinesis),
+            "CloudFront" => Ok(IntegrationType::CloudFront),
             other => Err(format!("Incorrect integration type {}", other)),
         }
     }
@@ -94,10 +97,7 @@ impl Config {
                 .parse::<u64>()
                 .map_err(|e| format!("Error parsing MAX_ELAPSED_TIME to u64 - {}", e))?,
             csv_delimiter: env::var("CSV_DELIMITER")
-                .unwrap_or(",".to_string())
-                .parse::<char>()
-                .map_err(|e| format!("Error parsing CSV_DELIMITER to char - {}", e))?
-                .to_string(),
+                .unwrap_or(",".to_string()),
             batches_max_size: env::var("BATCHES_MAX_SIZE")
                 .unwrap_or("4".to_string())
                 .parse::<usize>()
@@ -106,6 +106,8 @@ impl Config {
                 .unwrap_or("10".to_string())
                 .parse::<usize>()
                 .map_err(|e| format!("Error parsing BATCHES_MAX_CONCURRENCY to usize - {}", e))?,
+            add_metadata: env::var("ADD_METADATA")
+            .unwrap_or(" ".to_string()),
         };
 
         Ok(conf)
