@@ -1,4 +1,24 @@
 # Changelog
+## v0.0.7 Beta / 2024-01-08
+### 🚀 New components 🚀
+- Added support for kinesis Text and Cloudwatch Logs
+
+## v0.0.6 Beta / 2024-01-04
+### 🧰 Bug fixes 🧰
+- Allow to choose Sqs as integrationType
+  
+## v0.0.5 Beta / 2024-01-03
+### 🧰 Bug fixes 🧰
+- Bug Fix in SNS email notification
+
+## v0.0.4 Beta / 2024-01-03
+
+### 🚀 New components 🚀
+- Added support for sqs for s3 and sqs messages
+
+### 🧰 Bug fixes 🧰
+- Fix Sns and Sqs space in key bug
+
 ## v0.0.3 Beta / 2023-12-26
 
 ### 🛑 Breaking changes 🛑
