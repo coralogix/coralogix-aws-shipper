@@ -66,7 +66,7 @@ jobs:
   build:
     name: build
     needs: check_version
-    if: ${{ (github.event_name == 'workflow_dispatch' || success()) && needs.check_version.outputs.template_updated == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (  success() && needs.check_version.outputs.template_updated == 'true' ) }}
     runs-on: ubuntu-latest
     steps:
       - name: checkout
