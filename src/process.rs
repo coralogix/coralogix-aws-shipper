@@ -3,7 +3,7 @@ use aws_lambda_events::encodings::Base64Data;
 use aws_sdk_s3::Client;
 use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
-use flate2::read::GzDecoder;
+use flate2::read::MultiGzDecoder;
 use itertools::Itertools;
 use lambda_runtime::Error;
 use std::ffi::OsStr;
@@ -473,7 +473,7 @@ fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
         tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
         return Ok(Vec::new());
     }
-    let mut d = GzDecoder::new(&compressed_data[..]);
+    let mut d = MultiGzDecoder::new(&compressed_data[..]);
     let mut v = Vec::new();
     match d.read_to_end(&mut v) {
         Ok(_) => Ok(v),
