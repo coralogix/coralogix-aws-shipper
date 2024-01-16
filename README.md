@@ -61,7 +61,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | Application name | The stack name of this application created via AWS CloudFormation. |   | :heavy_check_mark: |
-| IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns' |  S3 | :heavy_check_mark: | 
+| IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront' |  S3 | :heavy_check_mark: | 
 | CoralogixRegion | The Coralogix location region, possible options are [Custom, EU1, EU2, AP1, AP2, US, US2] If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter |  Custom | :heavy_check_mark: | 
 | CustomDomain | The Custom Domain. If set, will be the domain used to send telemetry (e.g. cx123.coralogix.com) |   |   |
 | ApplicationName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your application. For dynamically value check [Advanced section](#advanced)|   | :heavy_check_mark: | 
@@ -69,7 +69,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | ApiKey | Your Coralogix Send Your Data - [API Key](https://coralogix.com/docs/send-your-data-api-key/) which is used to validate your authenticity, This value can be a Coralogix API Key or an AWS Secret Manager ARN that holds the API Key |   | :heavy_check_mark: |
 | StoreAPIKeyInSecretsManager | Store the API key in AWS Secrets Manager.  If this option is set to false, the ApiKey will apeear in plain text as an environment variable in the lambda function console. | True  | :heavy_check_mark: |
 
-### Integration S3/CloudTrail/VpcFlow/S3Csv configuration
+### Integration S3/CloudTrail/VpcFlow/S3Csv/CloudFront configuration
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | S3BucketName | The name of the AWS S3 bucket to watch |   | :heavy_check_mark: |
@@ -83,7 +83,8 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 ### Integration Cloudwatch configuration
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
-| CloudWatchLogGroupName | A comma separated list of CloudWatch log groups names to watch  e.g, (log-group1,log-group2,log-group3) |   | :heavy_check_mark: | 
+| CloudWatchLogGroupName | A comma separated list of CloudWatch log groups names to watch  e.g, (log-group1,log-group2,log-group3) |   | :heavy_check_mark: |
+
 
 ### Integration SNS configuration
 | Parameter | Description | Default Value | Required |
@@ -105,7 +106,9 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 |---|---|---|---|
 | NotificationEmail | Failure notification email address |   |   | 
 | BlockingPattern | Regular expression to detect lines that should be excluded from sent to Coralogix, e.g., use expression MainActivity.java\:\d{3} to match all log that MainActivity ends with 3 digits, This will block a specific ipaddr in a json ' "srcaddr"\:"172\.31\.24\.253" '|  |   | 
-| SamplingRate | Send messages with specific rate (1 out of N) e.g., put the value 10 if you want to send every 10th log | 1 | :heavy_check_mark: | 
+| SamplingRate | Send messages with specific rate (1 out of N) e.g., put the value 10 if you want to send every 10th log | 1 | :heavy_check_mark: |
+| AddMetadata | Add metadata to the log message. Expects comma separated values. Options for S3 are bucket_name,key_name. For CloudWatch stream_name |   |   |
+
 
 ### Lambda configuration (Optional)
 | Parameter | Description | Default Value | Required |
