@@ -1,5 +1,5 @@
 # Changelog
-## v0.0.9 Beta / 
+## v0.0.9 Beta / 2024-01-16
 ### 🚀 New components 🚀
 - Added support for Cloudfront Access logs
 
