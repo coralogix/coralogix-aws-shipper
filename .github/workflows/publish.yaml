@@ -117,7 +117,7 @@ jobs:
   publish:
     name: publish
     needs: build
-    if: ${{ needs.check_version.outputs.template_updated == 'true' }}
+    if: success()
     runs-on: ubuntu-latest
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
