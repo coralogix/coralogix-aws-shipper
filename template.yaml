@@ -24,8 +24,9 @@ Metadata:
       - vpc
       - sqs
       - kinesis
+      - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 0.0.7
+    SemanticVersion: 0.0.9
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -51,6 +52,7 @@ Metadata:
           - SNSTopicArn
           - SQSTopicArn
           - CSVDelimiter
+
 
       - Label:
           default: Cloudwatch configuration
@@ -78,6 +80,8 @@ Metadata:
           - NotificationEmail
           - BlockingPattern
           - SamplingRate
+          - AddMetadata
+
 
       - Label:
           default: Lambda configuration
@@ -137,6 +141,12 @@ Parameters:
     Description: Regular expression to detect a new log line for multiline logs from S3 source, e.g., use expression \n(?=\d{2}\-\d{2}\s\d{2}\:\d{2}\:\d{2}\.\d{3})
     Default: ''
   
+  AddMetadata:
+    Type: String
+    Description: |
+      Add metadata to the log message. Expects comma separated values. Options are bucket_name,key_name,stream_name
+    Default: ''
+
   BlockingPattern:
     Type: String
     Description: Regular expression to detect lines that should be excluded from sent to Coralogix
@@ -226,7 +236,7 @@ Parameters:
     Default: ''
   IntegrationType:
     Type: String
-    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs'
+    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront'
     AllowedValues:
       - S3
       - CloudTrail
@@ -236,6 +246,7 @@ Parameters:
       - Sns
       - Sqs
       - Kinesis
+      - CloudFront
     Default: S3
 
   CloudWatchLogGroupName:
@@ -305,6 +316,7 @@ Conditions:
   BlockPatternNotSet: !Equals [ !Ref BlockingPattern, '' ]
   CSVDelimiterUse: !Equals [!Ref IntegrationType, 'S3Csv']
   NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
+  AddMetadataNotSet: !Equals [ !Ref AddMetadata, '']
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
   IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
@@ -312,7 +324,6 @@ Conditions:
   IsCustomDomain: !Equals [ !Ref CoralogixRegion, Custom ]
   S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
   S3SuffixIsSet: !Not [ !Equals [ !Ref S3KeySuffix, '' ] ]
-  # IsCloudTrailIntegration: !Equals [ !Ref IntegrationType, 'CloudTrail' ]
   IsApiKeyNotArn: !Equals [!Ref ApiKey , !Select [0,!Split [":" , !Ref ApiKey]]]
   ApiKeyIsArn: !Not [!Condition IsApiKeyNotArn]
   UseCloudwatchLogsWithSecretPolicy: !And
@@ -320,7 +331,6 @@ Conditions:
     - !Or
       - !Condition StoreAPIKeyInSecretsManager
       - !Condition ApiKeyIsArn
-  # IsVPCFlowLogsIntegration: !Equals [ !Ref IntegrationType, 'VpcFlow' ]
   UseAWSDefaultPrefix: !Or 
     - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
     - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
@@ -485,6 +495,10 @@ Globals:
         SAMPLING: !Ref SamplingRate
         INTEGRATION_TYPE: !Ref IntegrationType
         RUST_LOG: !Ref LogLevel
+        ADD_METADATA: !If
+          - AddMetadataNotSet
+          - !Ref AWS::NoValue
+          - !Ref AddMetadata
         NEWLINE_PATTERN: !If
           - NewlinePatternNotSet
           - !Ref AWS::NoValue

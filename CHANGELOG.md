@@ -1,4 +1,15 @@
 # Changelog
+## v0.0.9 Beta / 2024-01-16
+### 🚀 New components 🚀
+- Added support for Cloudfront Access logs
+
+### 💡 Enhancements 💡
+- Support for adding metadata to logs (bucket_name, key_name, stream_name)
+
+## v0.0.8 Beta / 2024-01-16
+### 🧰 Bug fixes 🧰
+- Fix issue with decompression of some gzip files
+
 ## v0.0.7 Beta / 2024-01-08
 ### 🚀 New components 🚀
 - Added support for kinesis Text and Cloudwatch Logs
