@@ -13,6 +13,7 @@ use cx_sdk_rest_logs::model::{LogBulkRequest, LogSinglesRequest};
 use cx_sdk_rest_logs::LogExporter;
 use lambda_runtime::{Context, LambdaEvent};
 use serde::Serialize;
+use serde_json::Value;
 
 use std::string::String;
 use std::sync::Arc;
@@ -313,7 +314,8 @@ async fn run_cloudtraillogs_s3_event() {
     ];
 
     for (i, log_line) in log_lines.iter().enumerate() {
-        assert!(singles[0].entries[i].body == *log_line);
+        let expected: Value = serde_json::from_str(log_line).unwrap();
+        assert_eq!(singles[0].entries[i].body, expected);
     }
 
     assert!(
@@ -376,7 +378,8 @@ async fn run_csv_s3_event() {
     ];
 
     for (i, log_line) in log_lines.iter().enumerate() {
-        assert!(singles[0].entries[i].body == *log_line);
+        let expected: Value = serde_json::from_str(log_line).unwrap();
+        assert_eq!(singles[0].entries[i].body, expected);
     }
 
     assert!(
@@ -441,7 +444,8 @@ async fn run_vpcflowlgos_s3_event() {
     ];
 
     for (i, log_line) in log_lines.iter().enumerate() {
-        assert!(singles[0].entries[i].body == *log_line);
+        let expected: Value = serde_json::from_str(log_line).unwrap();
+        assert_eq!(singles[0].entries[i].body, expected);
     }
 
     assert!(
@@ -1103,6 +1107,137 @@ async fn test_kinesis_event() {
             ("INTEGRATION_TYPE", Some("Kinesis")),
         ],
         run_kinesis_event(),
+    )
+    .await;
+}
+
+async fn run_cloudfront_s3_event() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/cloudfront.gz")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/cloudfront.gz",
+    );
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::S3(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 4);
+
+    let log_lines = vec![
+        "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49375,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"-\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 453,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 780,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:53\",\n  \"time-taken\": \"0.167\",\n  \"time-to-first-byte\": \"0.167\",\n  \"x-edge-detailed-result-type\": \"OriginDnsError\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"3vr84z1By73gt94sb9ctFnbgUb1EK6rqQpoCPMSwbwok7D49uf3cVw==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}",
+        "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49375,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"https://d2s17x7wkoojlc.cloudfront.net/\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 136,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/favicon.ico\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 781,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:54\",\n  \"time-taken\": \"0.163\",\n  \"time-to-first-byte\": \"0.163\",\n  \"x-edge-detailed-result-type\": \"OriginDnsError\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"bBnwFlTyBT0c29Ba_AuVD6ALSSu5nrUXzyW7XG74CwVMsbgpvdEF3Q==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}",
+        "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49391,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"-\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 462,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 785,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:59\",\n  \"time-taken\": \"0.001\",\n  \"time-to-first-byte\": \"0.001\",\n  \"x-edge-detailed-result-type\": \"Error\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"g9c8US-JEZ87C92_2dChfj-RiZ1aza8n0scq8XoXOESNqK94Yrpw9Q==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}",
+        "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49391,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"https://d2s17x7wkoojlc.cloudfront.net/\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 136,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/favicon.ico\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 785,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:59\",\n  \"time-taken\": \"0.000\",\n  \"time-to-first-byte\": \"0.000\",\n  \"x-edge-detailed-result-type\": \"Error\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"d9gtwwsExRoLvnTr319jrfihZOGY3PbRbWOZq-_pPx0bVO00TKyEkw==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}"
+    ];
+
+    for (i, log_line) in log_lines.iter().enumerate() {
+        let expected: Value = serde_json::from_str(log_line).unwrap();
+        assert_eq!(singles[0].entries[i].body, expected);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+#[tokio::test]
+async fn test_cloudfront_s3_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("CloudFront")),
+        ],
+        run_cloudfront_s3_event(),
+    )
+    .await;
+}
+
+async fn run_test_s3_event_with_metadata() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::S3(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 4);
+    let log_lines = vec![
+        "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+        "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+        "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+        "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+    ];
+    for (i, log_line) in log_lines.iter().enumerate() {
+        let expected: Value = serde_json::from_str(log_line).unwrap();
+        assert_eq!(singles[0].entries[i].body, expected);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+
+#[tokio::test]
+async fn test_s3_event_with_metadata() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("ADD_METADATA", Some("bucket_name,key_name")),
+        ],
+        run_test_s3_event_with_metadata(),
     )
     .await;
 }
