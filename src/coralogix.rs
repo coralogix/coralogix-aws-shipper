@@ -6,6 +6,8 @@ use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
 use cx_sdk_rest_logs::DynLogExporter;
 use futures::stream::{StreamExt, TryStreamExt};
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::iter::IntoIterator;
 use std::time::Instant;
 use std::vec::Vec;
@@ -51,6 +53,7 @@ pub async fn process_batches(
                         configured_app_name,
                         configured_sub_name,
                         metadata_instance,
+                        config,
                     )
                 })
                 .collect_vec();
@@ -96,27 +99,90 @@ fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec
     }
     batches
 }
+#[derive(Serialize, Deserialize, Default)]
+struct JsonMessage {
+    message: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bucket_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key_name: Option<String>,
+}
 
 fn convert_to_log_entry(
     log: String,
     configured_app_name: &str,
     configured_sub_name: &str,
     metadata_instance: &Metadata,
-) -> LogSinglesEntry<String> {
+    config: &Config,
+) -> LogSinglesEntry<Value> {
     let now = OffsetDateTime::now_utc();
-    let application_name = dynamic_metadata_for_log(configured_app_name, &log, metadata_instance.key_name.clone());
+    let application_name = dynamic_metadata_for_log(
+        configured_app_name,
+        &log,
+        metadata_instance.key_name.clone(),
+    );
     tracing::debug!("App Name: {}", &application_name);
-    let subsystem_name = dynamic_metadata_for_log(configured_sub_name, &log, metadata_instance.key_name.clone());
+    let subsystem_name = dynamic_metadata_for_log(
+        configured_sub_name,
+        &log,
+        metadata_instance.key_name.clone(),
+    );
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
     tracing::debug!("Severity: {:?}", severity);
+
+    let message = match serde_json::from_str(&log) {
+        Ok(value) => value,
+        Err(_) => Value::String(log),
+    };
+
+    let mut message = JsonMessage {
+        message,
+        stream_name: None,
+        bucket_name: None,
+        key_name: None,
+    };
+
+    let add_metadata: Vec<&str> = config.add_metadata.split(',').map(|s| s.trim()).collect();
+
+    tracing::debug!("add_metadata: {:?}", add_metadata);
+
+    for metadata_field in &add_metadata {
+        tracing::debug!("Processing metadata field: {}", metadata_field);
+        match *metadata_field {
+            "stream_name" => {
+                message.stream_name = Some(metadata_instance.stream_name.clone());
+                tracing::debug!("Assigned stream_name: {}", metadata_instance.stream_name);
+            }
+            "bucket_name" => {
+                message.bucket_name = Some(metadata_instance.bucket_name.clone());
+                tracing::debug!("Assigned bucket_name: {}", metadata_instance.bucket_name);
+            }
+            "key_name" => {
+                message.key_name = Some(metadata_instance.key_name.clone());
+                tracing::debug!("Assigned key_name: {}", metadata_instance.key_name);
+            }
+            _ => {
+                tracing::debug!("No matching metadata field or condition not met for: {}", metadata_field);
+            }
+        }
+    }
+
+    let body =  if message.stream_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() {
+        serde_json::to_value(&message).unwrap_or(message.message)
+    } else {
+        message.message
+    };
+
     LogSinglesEntry {
         application_name,
         subsystem_name,
         computer_name: None,
         severity,
-        body: log,
+        body,
         timestamp: now,
         class_name: None,
         method_name: None,
@@ -127,7 +193,7 @@ fn convert_to_log_entry(
 
 async fn send_logs(
     exporter: DynLogExporter,
-    resource_logs: Vec<LogSinglesEntry<String>>,
+    resource_logs: Vec<LogSinglesEntry<Value>>,
     auth_data: &AuthData,
 ) -> Result<(), Error> {
     let number_of_logs = resource_logs.len();
@@ -137,7 +203,7 @@ async fn send_logs(
     };
     exporter
         .as_ref()
-        .export_singles_strings(request, auth_data)
+        .export_singles_jsons(request, auth_data)
         .await?;
     tracing::info!(
         "Delivered {} log records to Coralogix in {}ms.",
@@ -150,7 +216,6 @@ async fn send_logs(
 fn dynamic_metadata_for_log(app_name: &str, log: &str, key_name: String) -> String {
     dynamic_metadata(app_name, log, key_name).unwrap_or_else(|| app_name.to_owned())
 }
-
 
 fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<String> {
     if app_name.starts_with("$.") {
@@ -298,5 +363,4 @@ mod test {
         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
         assert_eq!(dapp, "default");
     }
-    
 }
