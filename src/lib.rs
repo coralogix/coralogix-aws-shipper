@@ -80,16 +80,9 @@ pub async fn function_handler(
             debug!("SNS Event: {:?}", sns_event);
             let message = &sns_event.records[0].sns.message;
             if config.integration_type != IntegrationType::Sns {
-                let records = serde_json::from_str::<serde_json::Value>(message)?;
+                let s3_event = serde_json::from_str::<S3Event>(message)?;
+                let (bucket, key) = handle_s3_event(s3_event).await?;
                 info!("SNS S3 EVENT Detected");
-                let bucket = records["Records"][0]["s3"]["bucket"]["name"]
-                    .as_str()
-                    .ok_or("Bucket name not found")?
-                    .to_owned();
-                let key = records["Records"][0]["s3"]["object"]["key"]
-                    .as_str()
-                    .ok_or("Object key not found")?
-                    .to_owned();
                 crate::process::s3(s3_client, coralogix_exporter, config, bucket, key).await?;
             } else {
                 info!("SNS TEXT EVENT Detected");
@@ -107,6 +100,40 @@ pub async fn function_handler(
             crate::process::cloudwatch_logs(cloudwatch_event_log, coralogix_exporter, config)
                 .await?;
         }
+        CombinedEvent::Sqs(sqs_event) => {
+            debug!("SQS Event: {:?}", sqs_event.records[0]);
+            for record in &sqs_event.records {
+                if let Some(message) = &record.body {
+                    if config.integration_type != IntegrationType::Sqs {
+                        let s3_event = serde_json::from_str::<S3Event>(message)?;
+                        let (bucket, key) = handle_s3_event(s3_event).await?;
+                        debug!("SQS S3 EVENT Detected");
+                        crate::process::s3(s3_client, coralogix_exporter.clone(), config, bucket, key).await?;
+                    } else {
+                        debug!("SQS TEXT EVENT Detected");
+                        crate::process::sqs_logs(
+                            message.clone(),
+                            coralogix_exporter.clone(),
+                            config,
+                        )
+                        .await?;
+                    }
+                }
+            }
+        }
+        CombinedEvent::Kinesis(kinesis_event) => {
+            for record in kinesis_event.records {
+                debug!("Kinesis event: {:?}", record);
+                let message = record.kinesis.data;
+                debug!("Kinesis data: {:?}", &message);
+                crate::process::kinesis_logs(
+                    message,
+                    coralogix_exporter.clone(),
+                    config,
+                ).await?;
+            }
+        }
+            
     };
 
     Ok(())
