@@ -1241,3 +1241,67 @@ async fn test_s3_event_with_metadata() {
     )
     .await;
 }
+
+async fn run_test_s3_event_elb() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/elb.log.gz")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/elb.log.gz");
+    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::S3(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+
+    // print number of entries and singles
+    println!("singles: {:?}", singles.len());
+    println!("entries: {:?}", singles[0].entries.len());
+
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 576);
+
+    let first_line = r#"grpcs 2024-01-15T12:10:00.200705Z app/staging-load-balancer/900ec696b1d45ff6 10.69.80.245:36584 10.69.71.185:9002 0.000 0.023 0.000 200 200 588 429 "POST https://metrics.supert.sh:443/supertenant.superproto.metrics.v1.MetricsService/ReportMetrics HTTP/2.0" "grpc-go/1.46.2" TLS_AES_128_GCM_SHA256 TLSv1.3 arn:aws:elasticloadbalancing:us-east-1:850012249230:targetgroup/sputnik1-target/7bee47c166ccb48f "Root=1-65a52098-58b5bf0604a095737ba62e06" "metrics.supert.sh" "arn:aws:acm:us-east-1:850012249230:certificate/573ba1a4-763c-47cc-8a81-e98132fef479" 2 2024-01-15T12:10:00.176000Z "forward" "-" "-" "10.69.71.185:9002" "200" "-" "-""#;
+    let last_line = r#"grpcs 2024-01-15T12:15:00.094329Z app/staging-load-balancer/900ec696b1d45ff6 10.69.80.245:36584 10.69.71.185:9002 0.000 0.001 0.000 200 200 324 433 "POST https://metrics.supert.sh:443/supertenant.superproto.brain.hello.v1.HelloService/Hello HTTP/2.0" "grpc-go/1.46.2" TLS_AES_128_GCM_SHA256 TLSv1.3 arn:aws:elasticloadbalancing:us-east-1:850012249230:targetgroup/sputnik1-target/7bee47c166ccb48f "Root=1-65a521c4-0c1928a90d9e605111dd066a" "metrics.supert.sh" "arn:aws:acm:us-east-1:850012249230:certificate/573ba1a4-763c-47cc-8a81-e98132fef479" 2 2024-01-15T12:15:00.092000Z "forward" "-" "-" "10.69.71.185:9002" "200" "-" "-""#;
+
+    assert!(first_line == singles[0].entries[0].body, "got: {}", singles[0].entries[0].body);
+    assert!(last_line == singles[0].entries.last().unwrap().body, "got: {}", singles[0].entries.last().unwrap().body);
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+
+#[tokio::test]
+async fn test_s3_event_elb() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+        ],
+        run_test_s3_event_elb(),
+    )
+    .await;
+}

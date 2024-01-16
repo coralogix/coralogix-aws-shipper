@@ -447,7 +447,7 @@ async fn process_s3(
         s
     };
     let pattern = if newline_pattern.is_empty() {
-        warn!("Newline pattern not set, using default");
+        debug!("Newline pattern not set, using default");
         r"\n"
     } else {
         newline_pattern
