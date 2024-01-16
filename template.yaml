@@ -25,7 +25,7 @@ Metadata:
       - sqs
       - kinesis
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 0.0.7
+    SemanticVersion: 0.0.8
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
