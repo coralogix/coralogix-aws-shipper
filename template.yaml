@@ -26,7 +26,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 0.0.9
+    SemanticVersion: 0.0.10
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -102,14 +102,14 @@ Parameters:
   CoralogixRegion:
     Type: String
     Description: |
-      The Coralogix location region, possible options are [EU1, EU2, AP1, AP2, US, US2]
+      The Coralogix location region, possible options are [EU1, EU2, AP1, AP2, US1, US2, Custom]
       If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter.
     AllowedValues:
       - EU1
       - EU2
       - AP1
       - AP2
-      - US
+      - US1
       - US2
       - Custom
     Default: Custom
@@ -305,7 +305,7 @@ Mappings:
       Domain: coralogix.in
     AP2:
       Domain: coralogixsg.com
-    US:
+    US1:
       Domain: coralogix.us
     US2:
       Domain: cx498.coralogix.com

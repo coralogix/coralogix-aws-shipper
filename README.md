@@ -62,7 +62,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 |---|---|---|---|
 | Application name | The stack name of this application created via AWS CloudFormation. |   | :heavy_check_mark: |
 | IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront' |  S3 | :heavy_check_mark: | 
-| CoralogixRegion | The Coralogix location region, possible options are [Custom, EU1, EU2, AP1, AP2, US, US2] If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter |  Custom | :heavy_check_mark: | 
+| CoralogixRegion | The Coralogix location region, possible options are [Custom, EU1, EU2, AP1, AP2, US1, US2] If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter |  Custom | :heavy_check_mark: | 
 | CustomDomain | The Custom Domain. If set, will be the domain used to send telemetry (e.g. cx123.coralogix.com) |   |   |
 | ApplicationName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your application. For dynamically value check [Advanced section](#advanced)|   | :heavy_check_mark: | 
 | SubsystemName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your subsystem. For dynamic value from the check [Advanced section](#advanced). For Cloudwatch leave empty to use the loggroup name.|   |   |
@@ -73,8 +73,8 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | S3BucketName | The name of the AWS S3 bucket to watch |   | :heavy_check_mark: |
-| S3KeyPrefix | The AWS S3 path prefix to watch. This value is ignored when the SNSTopicArn parameter is provided. | CloudTrail/VpcFlow 'AWSLogs/' |   |
-| S3KeySuffix | The AWS S3 path suffix to watch. This value is ignored when the SNSTopicArn parameter is provided. | CloudTrail '.json.gz',  VpcFlow '.log.gz' |   |
+| S3KeyPrefix | The AWS S3 path prefix to watch. This value is ignored if you use the SQS/SNSTopicArn parameter. | CloudTrail/VpcFlow 'AWSLogs/' |   |
+| S3KeySuffix | The AWS S3 path suffix to watch. This value is ignored if you use the SQS/SNSTopicArn parameter. | CloudTrail '.json.gz',  VpcFlow '.log.gz' |   |
 | NewlinePattern | Regular expression to detect a new log line for multiline logs from S3 source, e.g., use expression \n(?=\d{2}\-\d{2}\s\d{2}\:\d{2}\:\d{2}\.\d{3}) |   |   |
 | SNSTopicArn | The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3 |   |   |
 | SQSTopicArn | The ARN for the SQS queue that contains the SQS subscription responsible for retrieving logs from Amazon S3 |   |   |
@@ -142,7 +142,7 @@ To use privatelink please forllow the instruction in this [link](https://coralog
 
 - Look out for TimeOut Errors "Task timed out after", if you see them, please increase lambda timeout from Configuration -> General Configuration
 - Look out for out of Memory logs "Task out of Memory" , if you see them, please increase lambda max memory from Configuration -> General Configuration
-- To add more verbosity to Lambda logs, you can set RUST_LOG to DEBUG. Remamber to change it back to INFO once troubleshooting is done.
+- To add more verbosity to Lambda logs, you can set RUST_LOG to DEBUG. Remamber to change it back to WARN once troubleshooting is done.
 - set MAX_ELAPSED_TIME variable for default change ( default = 250 )
 - Set BATCHES_MAX_SIZE (in MB) sets batch max size before sending to coralogix. This value is limited by the max payload accepted by Coralogix Endpoing. (default = 4)
 - Set BATCHES_MAX_CONCURRENCY sets max amount of concurrect batches can be sent. 
