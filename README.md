@@ -62,7 +62,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 |---|---|---|---|
 | Application name | The stack name of this application created via AWS CloudFormation. |   | :heavy_check_mark: |
 | IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront' |  S3 | :heavy_check_mark: | 
-| CoralogixRegion | The Coralogix location region, possible options are [Custom, EU1, EU2, AP1, AP2, US, US2] If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter |  Custom | :heavy_check_mark: | 
+| CoralogixRegion | The Coralogix location region, possible options are [Custom, EU1, EU2, AP1, AP2, US1, US2] If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter |  Custom | :heavy_check_mark: | 
 | CustomDomain | The Custom Domain. If set, will be the domain used to send telemetry (e.g. cx123.coralogix.com) |   |   |
 | ApplicationName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your application. For dynamically value check [Advanced section](#advanced)|   | :heavy_check_mark: | 
 | SubsystemName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your subsystem. For dynamic value from the check [Advanced section](#advanced). For Cloudwatch leave empty to use the loggroup name.|   |   |
