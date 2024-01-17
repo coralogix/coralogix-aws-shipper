@@ -40,6 +40,10 @@ jobs:
               and .Properties.CodeUri != null) | 
             .Properties.CodeUri) |= {"Bucket": "!Sub coralogix-serverless-repo-${AWS::Region}", "Key": "coralogix-aws-shipper.zip"}' ./template.yaml
           sed -i "s/'!Sub coralogix-serverless-repo-\${AWS::Region}/!Sub 'coralogix-serverless-repo-\${AWS::Region}/g" ./template.yaml
+          sed -i '3a\#Created automatically from coralogix\/coralogix-aws-shipper' ./template.yaml
+          sed -i '4a\#Link to the repo: https:\/\/github.com\/coralogix\/coralogix-aws-shipper\/tree\/master/' ./template.yaml 
+          sed -i '9a\ Created automatically from [coralogix-aws-shipper](https:\/\/github.com\/coralogix\/coralogix-aws-shipper) . To make a change to the template please go to the this [link](https:\/\/github.com\/coralogix\/coralogix-aws-shipper\/blob\/master\/template.yaml)' ./README.md          
+          sed -i '10a\  ' ./README.md
           cat ./template.yaml       
           set +xv
 
