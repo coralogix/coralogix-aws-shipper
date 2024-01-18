@@ -1,4 +1,5 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
+use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::encodings::Base64Data;
 use aws_sdk_s3::Client;
 use cx_sdk_rest_logs::DynLogExporter;
@@ -301,7 +302,38 @@ pub async fn cloudwatch_logs(
 
     Ok(())
 }
-
+pub async fn ecr_scan_logs(
+    ecr_scan_event: EcrScanEvent,
+    coralogix_exporter: DynLogExporter,
+    config: &Config,
+) -> Result<(), Error> {
+    let metadata_instance = Metadata {
+        stream_name: String::new(),
+        bucket_name: String::new(),
+        key_name: String::new(),
+    };
+    let defined_app_name = config
+        .app_name
+        .clone()
+        .unwrap_or_else(|| "NO APPLICATION NAME".to_string());
+    let defined_sub_name = config
+        .sub_name
+        .clone()
+        .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
+    //let mut batches = Vec::new();
+    tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
+    //batches.push(ecr_scan_event.clone());
+    //coralogix::process_batches(
+    //    batches,
+    //    &defined_app_name,
+    //    &defined_sub_name,
+    //    config,
+    //    &metadata_instance,
+    //    coralogix_exporter,
+    //)
+    //.await?;
+    Ok(())
+}
 pub async fn get_bytes_from_s3(
     s3_client: &Client,
     bucket: String,

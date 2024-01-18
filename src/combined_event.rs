@@ -3,6 +3,7 @@ use aws_lambda_events::event::s3::S3Event;
 use aws_lambda_events::event::sns::SnsEvent;
 use aws_lambda_events::event::sqs::SqsEvent;
 use aws_lambda_events::event::kinesis::KinesisEvent;
+use aws_lambda_events::ecr_scan::EcrScanEvent;
 use serde::de::{self, Deserialize, Deserializer};
 use serde_json::Value;
 
@@ -12,6 +13,7 @@ pub enum CombinedEvent {
     CloudWatchLogs(AwsLogs),
     Sqs(SqsEvent),
     Kinesis(KinesisEvent),
+    EcrScan(EcrScanEvent),
 }
 
 impl<'de> Deserialize<'de> for CombinedEvent {
@@ -40,7 +42,8 @@ impl<'de> Deserialize<'de> for CombinedEvent {
                 Ok(CombinedEvent::Kinesis(
                 KinesisEvent::deserialize(raw_value).map_err(de::Error::custom)?,
                 ))
-            } else {
+            }
+            else {
                 Err(de::Error::custom("Unknown Records event type"))
             }
         } else if let Some(records) = raw_value.get("awslogs") {
@@ -48,9 +51,19 @@ impl<'de> Deserialize<'de> for CombinedEvent {
             Ok(CombinedEvent::CloudWatchLogs(
                 AwsLogs::deserialize(records).map_err(de::Error::custom)?,
             ))
-            //Ok(CombinedEvent::CloudWatchLogs(
-            //    AwsLogs::deserialize(raw_value).map_err(de::Error::custom)?,
-        } else {
+        } else if let Some(record) = raw_value.get("detail-type") {
+            tracing::debug!("raw_value: {:?}", raw_value);
+            
+            tracing::debug!("record: {:?}", record);
+            if record == "ECR Image Scan" {
+                Ok(CombinedEvent::EcrScan(
+                    EcrScanEvent::deserialize(raw_value).map_err(de::Error::custom)?,
+                ))
+            } else {
+                Err(de::Error::custom("Unknown event type"))
+            }
+        }
+        else {
             Err(de::Error::custom("Unknown event type"))
         }
     }
