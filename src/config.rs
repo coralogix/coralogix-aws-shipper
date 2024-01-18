@@ -36,6 +36,7 @@ pub enum IntegrationType {
     Sqs,
     Kinesis,
     CloudFront,
+    EcrScan,
 }
 
 impl FromStr for IntegrationType {
@@ -52,6 +53,7 @@ impl FromStr for IntegrationType {
             "Sqs" => Ok(IntegrationType::Sqs),
             "Kinesis" => Ok(IntegrationType::Kinesis),
             "CloudFront" => Ok(IntegrationType::CloudFront),
+            "EcrScan" => Ok(IntegrationType::EcrScan),
             other => Err(format!("Incorrect integration type {}", other)),
         }
     }
