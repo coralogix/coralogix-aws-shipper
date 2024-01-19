@@ -1,7 +1,10 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
-use aws_lambda_events::ecr_scan::EcrScanEvent;
+use aws_lambda_events::ecr_scan::{EcrScanEvent, self};
 use aws_lambda_events::encodings::Base64Data;
+
+use aws_sdk_ecr::types::ImageIdentifier;
 use aws_sdk_s3::Client;
+use aws_sdk_ecr::Client as EcrClient;
 use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
 use flate2::read::MultiGzDecoder;
@@ -322,6 +325,65 @@ pub async fn ecr_scan_logs(
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     //let mut batches = Vec::new();
     tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
+    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::v2023_11_09()).await;
+    let ecr_client = EcrClient::new(&aws_config);
+    if let Some(repository_name) = ecr_scan_event.detail.repository_name.as_ref() {
+        if let Some(image_id) = ecr_scan_event.detail.image_digest.as_ref() {
+            let image_identifier = ImageIdentifier::builder()
+                .image_digest(image_id)
+                .image_tag(ecr_scan_event.detail.image_tags[0].clone())
+                .build();
+            let request = ecr_client.describe_image_scan_findings()
+                .repository_name(repository_name)
+                .image_id(image_identifier);
+            let response = request.send().await?;
+            // Handle the response
+            debug!("Response: {:?}", response);
+            let Some(repository_name) = response.repository_name;
+            let image_tags = ecr_scan_event.detail.image_tags;
+
+            if let Some(image_scan_findings) = response.image_scan_findings {
+                if let Some(findings) = image_scan_findings.findings {
+                    for finding in findings {
+                        let mut package_name = "NO_PACKAGE".to_string();
+                        let mut package_version = "NO_VERSION".to_string();
+
+                        if let Some(attributes) = finding.attributes {
+                            for attribute in attributes {
+                                if package_name == "NO_PACKAGE" && attribute.key == "package_name" {
+                                    package_name = attribute.value.unwrap_or("NO_PACKAGE".to_string());
+                                }
+                                if package_version == "NO_VERSION" && attribute.key == "package_version" {
+                                    package_version = attribute.value.unwrap_or("NO_VERSION".to_string());
+                                }
+
+                                if package_version != "NO_VERSION" && package_name != "NO_PACKAGE" {
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        let json_log = serde_json::json!({
+                            "package_name": package_name,
+                            "package_version": package_version,
+                            "repository_name": repository_name,
+                            "image_tags": image_tags,
+                            "finding": finding,
+                        });
+                        let log = json_log.to_string();
+
+                        // You can now use 'log' as needed (e.g., printing or storing)
+                        println!("Log: {}", log);
+                    }
+                } else {
+                    debug!("No findings in the response");
+                }
+            } else {
+                debug!("No image scan findings in the response");
+            }
+        }
+    }
+    //let ecr_client = EcrClient::new(Default::default());
     //batches.push(ecr_scan_event.clone());
     //coralogix::process_batches(
     //    batches,
