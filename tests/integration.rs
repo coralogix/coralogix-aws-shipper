@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
-use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
+use aws_lambda_events::event::cloudwatch_logs::LogsEvent;
 use aws_lambda_events::event::s3::S3Event;
+use aws_lambda_events::kafka::KafkaEvent;
 use aws_lambda_events::sns::SnsEvent;
 use aws_lambda_events::sqs::SqsEvent;
 use aws_lambda_events::event::kinesis::KinesisEvent;
@@ -704,10 +705,12 @@ async fn run_cloudwatchlogs_event() {
     let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: AwsLogs = serde_json::from_str(
+    let evt: LogsEvent = serde_json::from_str(
         r#"{
-            "data": "H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA=="
-        }"#)
+            "awslogs": {
+              "data": "H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA=="
+            }
+          }"#)
     .expect("failed to parse cloudwatchlogs event");
 
     let exporter = Arc::new(FakeLogExporter::new());
@@ -1302,6 +1305,97 @@ async fn test_s3_event_elb() {
             ("AWS_REGION", Some("eu-central-1")),
         ],
         run_test_s3_event_elb(),
+    )
+    .await;
+}
+
+async fn run_kafka_event() {
+    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
+    let config = Config::load_from_env().unwrap();
+
+    let evt: KafkaEvent = serde_json::from_str(
+        r#"{
+            "eventSource": "SelfManagedKafka",
+            "bootstrapServers":"b-2.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092,b-1.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092",
+            "records":{
+               "mytopic-0":[
+                  {
+                     "topic":"mytopic",
+                     "partition":0,
+                     "offset":15,
+                     "timestamp":1545084650987,
+                     "timestampType":"CREATE_TIME",
+                     "key":"abcDEFghiJKLmnoPQRstuVWXyz1234==",
+                     "value":"some log message",
+                     "headers":[
+                        {
+                           "headerKey":[
+                              104,
+                              101,
+                              97,
+                              100,
+                              101,
+                              114,
+                              86,
+                              97,
+                              108,
+                              117,
+                              101
+                           ]
+                        }
+                     ]
+                  }
+               ]
+            }
+         }"#,
+    )
+    .expect("failed to parse kinesis_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::Kafka(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 1);
+    let log_line = "some log message";
+    assert!(
+        singles[0].entries[0].body == *log_line,
+        "log line: {}",
+        singles[0].entries[0].body
+    );
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "lambda",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+#[tokio::test]
+async fn test_kafka_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Kinesis")),
+        ],
+        run_kafka_event(),
     )
     .await;
 }
