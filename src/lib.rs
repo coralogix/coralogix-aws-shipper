@@ -1,3 +1,4 @@
+use aws_lambda_events::cloudwatch_logs::LogsEvent;
 use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
 use aws_sdk_s3::Client;
@@ -94,9 +95,9 @@ pub async fn function_handler(
                 .await?;
             }
         }
-        CombinedEvent::CloudWatchLogs(awslogs) => {
+        CombinedEvent::CloudWatchLogs(logs_event) => {
             info!("CLOUDWATCH EVENT Detected");
-            let cloudwatch_event_log = handle_cloudwatch_logs_event(awslogs).await?;
+            let cloudwatch_event_log = handle_cloudwatch_logs_event(logs_event).await?;
             crate::process::cloudwatch_logs(cloudwatch_event_log, coralogix_exporter, config)
                 .await?;
         }
@@ -133,15 +134,26 @@ pub async fn function_handler(
                 ).await?;
             }
         }
+        CombinedEvent::Kafka(kafka_event) => {
+            for (topic, records) in kafka_event.records {
+                debug!("Kafka event: {topic:?} --> {records:?}");
+                crate::process::kafka_logs(
+                    topic,
+                    records,
+                    coralogix_exporter.clone(),
+                    config,
+                ).await?;
+            }
+        }
             
     };
 
     Ok(())
 }
 
-pub async fn handle_cloudwatch_logs_event(awslogs: AwsLogs) -> Result<AwsLogs, Error> {
-    debug!("Cloudwatch Event: {:?}", awslogs.data);
-    Ok(awslogs)
+pub async fn handle_cloudwatch_logs_event(logs_event: LogsEvent) -> Result<AwsLogs, Error> {
+    debug!("Cloudwatch Event: {:?}", logs_event.aws_logs.data);
+    Ok(logs_event.aws_logs)
 }
 pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Error> {
     debug!("S3 Event: {:?}", s3_event);
