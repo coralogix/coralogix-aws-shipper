@@ -36,6 +36,7 @@ pub enum IntegrationType {
     Sqs,
     Kinesis,
     CloudFront,
+    Kafka,
 }
 
 impl FromStr for IntegrationType {
@@ -52,7 +53,8 @@ impl FromStr for IntegrationType {
             "Sqs" => Ok(IntegrationType::Sqs),
             "Kinesis" => Ok(IntegrationType::Kinesis),
             "CloudFront" => Ok(IntegrationType::CloudFront),
-            other => Err(format!("Incorrect integration type {}", other)),
+            "MSK" => Ok(IntegrationType::Kafka),
+            other => Err(format!("Invalid or Unsupported integration type {}", other)),
         }
     }
 }

@@ -1393,7 +1393,7 @@ async fn test_kafka_event() {
             ("SAMPLING", Some("1")),
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
-            ("INTEGRATION_TYPE", Some("Kinesis")),
+            ("INTEGRATION_TYPE", Some("MSK")),
         ],
         run_kafka_event(),
     )
