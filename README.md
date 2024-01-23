@@ -8,11 +8,8 @@
 
 ## Overview
 
-Our newest AWS integration offers the most seamless way to link up with Coralogix. Using a predefined Lambda function, you can send your AWS logs and events to your Coralogix subscription for in-depth analysis, monitoring, and troubleshooting.
-
 This integration guide focuses on connecting your AWS environment and Coralogix using AWS Lambda functions. To complete this integration, you may either use the Coralogix platform UI, CloudFormation templates from AWS, AWS SAM applications, or a dedicated Terraform module from our [GitHub repository](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper).
 
-The `coralogix-aws-shipper` is written in Rust. It is designed with a focus on optimizing memory safety and runtime performance. Rust improves control over system resources without sacrificing safety. As a result, your integration is more resource-efficient.
 
 We will show you how to complete our predefined Lambda function template to simplify the integration. Your task will be to provide specific configuration parameters, based on the service that you wish to connect. The reference list for these parameters is provided below.
 
@@ -20,11 +17,17 @@ We will show you how to complete our predefined Lambda function template to simp
 
 ## Supported Services
 
+Although `coralogix-aws-shipper` handles all listed AWS product integrations, some of the parameters are product-specific. Consult the [Configuration Parameters](#configuration-parameters) for product-specific requirements.
+
 ### Amazon S3, CloudTrail, VPC Flow Logs and more
 
 This integration is based on S3. Your Amazon S3 bucket can receive log files from all kinds of services, such as [CloudTrail](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-examples.html), [VPC Flow Logs](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-s3.html), [Redshift](https://docs.aws.amazon.com/redshift/latest/mgmt/db-auditing.html#db-auditing-manage-log-files), [Network Firewall](https://docs.aws.amazon.com/network-firewall/latest/developerguide/logging-s3.html) or different types of load balancers ([ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-access-logs.html)/[NLB](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-access-logs.html)/[ELB](https://docs.aws.amazon.com/elasticloadbalancing/latest/classic/access-log-collection.html)). This data is then sent to Coralogix for analysis.
 
 You may also include SNS/SQS in the pipeline so that the integration triggers upon notification.
+
+### Amazon SNS/SQS
+
+A separate integration for SNS or SQS is available. In this case, the S3 is not used as an intermediary. You can receive messages directly from both services to your Coralogix subscription. You will need the ARN of the individual SNS/SQS topic.
 
 ### Amazon CloudWatch
 
@@ -33,8 +36,6 @@ Coralogix can be configured to directly receive data directly from your [CloudWa
 ### Amazon Kinesis
 
 Coralogix can receive stream data from your AWS account. This option does not use S3 and lets you connect two services directly.
-
-> **Note:** Although `coralogix-aws-shipper` handles all of the AWS product integrations, some of the parameters are product-specific. Consult the [Configuration Parameters](#configuration-parameters) for product-specific requirements.
 
 ## Deployment Options
 
@@ -89,7 +90,7 @@ This is the most flexible type of integration, as it is based on receiving log f
 
 > **Tip:** The S3 integration supports generic data. You can ingest any generic text, JSON, and CSV data stored in your S3 bucket.
 
-### Adding SNS/SQS
+**Maintain S3 notifications via SNS or SQS:**
 
 If you don’t want to send data directly as it enters S3, you can also use SNS/SQS to maintain notifications before any data is sent from your bucket to Coralogix. For this, you need to set the `SNSTopicArn` or `SQSTopicArn` parameters.
 
@@ -131,7 +132,7 @@ To receive SQS messages directly to Coralogix, use the `SQSIntegrationTopicARN` 
 
 ### Kinesis Configuration
 
-We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data from your AWS account to Coralogix. This option does not use S3. Your Kinesis stream ARN is a required parameter in this case.
+We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data from your AWS account to Coralogix. Your Kinesis stream ARN is a required parameter in this case.
 
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
@@ -139,7 +140,7 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 
 ### Generic Configuration (Optional)
 
-These are optional parameters if you wish to 1) receive notification emails, 2) exclude certain logs or 3) send messages to Coralogix at a particular rate.
+These are optional parameters if you wish to receive notification emails,  exclude certain logs or send messages to Coralogix at a particular rate.
 
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
