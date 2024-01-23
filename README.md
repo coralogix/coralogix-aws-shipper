@@ -27,11 +27,11 @@ You may also include SNS/SQS in the pipeline so that the integration triggers up
 
 ### Amazon SNS/SQS
 
-A separate integration for SNS or SQS is available. In this case, the S3 is not used as an intermediary. You can receive messages directly from both services to your Coralogix subscription. You will need the ARN of the individual SNS/SQS topic.
+A separate integration for SNS or SQS is available. You can receive messages directly from both services to your Coralogix subscription. You will need the ARN of the individual SNS/SQS topic.
 
 ### Amazon CloudWatch
 
-Coralogix can be configured to directly receive data directly from your [CloudWatch](https://docs.aws.amazon.com/cloudwatch/) log group. In this case, the S3 is not used as an intermediary.
+Coralogix can be configured to directly receive data directly from your [CloudWatch](https://docs.aws.amazon.com/cloudwatch/) log group. 
 
 ### Amazon Kinesis
 
