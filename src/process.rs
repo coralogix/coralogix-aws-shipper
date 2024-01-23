@@ -305,7 +305,22 @@ pub async fn cloudwatch_logs(
 
     Ok(())
 }
+trait ToStringExt {
+    fn to_string_ext(&self) -> String;
+}
 
+impl ToStringExt for ImageScanFinding {
+    fn to_string_ext(&self) -> String {
+        format!(
+            "Name: {:?}, Description: {:?}, URI: {:?}, Severity: {:?}, Attributes: {:?}",
+            self.name,
+            self.description,
+            self.uri,
+            self.severity,
+            self.attributes
+        )
+    }
+}
 pub async fn ecr_scan_logs(
     ecr_scan_event: EcrScanEvent,
     coralogix_exporter: DynLogExporter,
@@ -325,6 +340,7 @@ pub async fn ecr_scan_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     //let mut batches = Vec::new();
+    
     tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
     let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::v2023_11_09()).await;
     let ecr_client = EcrClient::new(&aws_config);
@@ -344,24 +360,14 @@ pub async fn ecr_scan_logs(
             let image_tags = ecr_scan_event.detail.image_tags;
 
             if let Some(image_scan_findings) = response.image_scan_findings {
-                let mut logs_vec: Vec<String> = Vec::new();
-                if let Some(findings) = image_scan_findings.findings {
-                    
-                    for finding in findings {                     
-                        let json_log = serde_json::json!({
-                            "repository_name": repository_name,
-                            "image_tags": image_tags,
-                            "finding": serialize_image_scan_finding(&finding),
-                        });
-                        //let log = json_log.to_string();
-                        logs_vec.push(json_log.to_string());
-                        // You can now use 'log' as needed (e.g., printing or storing)
-                    }
+                let mut findings_strings: Vec<String> = Vec::new();
+                if let Some(findings) = image_scan_findings.findings {      
+                    findings_strings = findings.iter().map(|f| f.to_string_ext()).collect();          
                 } else {
                     debug!("No findings in the response");
                 }
                 coralogix::process_batches(
-                    logs_vec,
+                    findings_strings,
                     &defined_app_name,
                     &defined_sub_name,
                     config,
