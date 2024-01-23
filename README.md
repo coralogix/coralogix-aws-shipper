@@ -35,7 +35,8 @@ Coralogix can be configured to receive data directly from your [CloudWatch](http
 
 ### Amazon Kinesis
 
-Coralogix can receive stream data from your AWS account. This option does not use S3 and lets you connect two services directly.
+Finally, Coralogix can also be configured to receive data directly from your [Kinesis Stream](https://docs.aws.amazon.com/cloudwatch/).
+
 
 ## Deployment Options
 
