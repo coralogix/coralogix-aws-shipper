@@ -1,7 +1,7 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::ecr_scan::{EcrScanEvent, self};
 use aws_lambda_events::encodings::Base64Data;
-
+use aws_sdk_ecr::types::ImageScanFinding;
 use aws_sdk_ecr::types::ImageIdentifier;
 use aws_sdk_s3::Client;
 use aws_sdk_ecr::Client as EcrClient;
@@ -305,6 +305,7 @@ pub async fn cloudwatch_logs(
 
     Ok(())
 }
+
 pub async fn ecr_scan_logs(
     ecr_scan_event: EcrScanEvent,
     coralogix_exporter: DynLogExporter,
@@ -339,45 +340,36 @@ pub async fn ecr_scan_logs(
             let response = request.send().await?;
             // Handle the response
             debug!("Response: {:?}", response);
-            let Some(repository_name) = response.repository_name;
+            let repository_name = ecr_scan_event.detail.repository_name;
             let image_tags = ecr_scan_event.detail.image_tags;
 
             if let Some(image_scan_findings) = response.image_scan_findings {
+                let mut logs_vec: Vec<String> = Vec::new();
                 if let Some(findings) = image_scan_findings.findings {
-                    for finding in findings {
-                        let mut package_name = "NO_PACKAGE".to_string();
-                        let mut package_version = "NO_VERSION".to_string();
-
-                        if let Some(attributes) = finding.attributes {
-                            for attribute in attributes {
-                                if package_name == "NO_PACKAGE" && attribute.key == "package_name" {
-                                    package_name = attribute.value.unwrap_or("NO_PACKAGE".to_string());
-                                }
-                                if package_version == "NO_VERSION" && attribute.key == "package_version" {
-                                    package_version = attribute.value.unwrap_or("NO_VERSION".to_string());
-                                }
-
-                                if package_version != "NO_VERSION" && package_name != "NO_PACKAGE" {
-                                    break;
-                                }
-                            }
-                        }
-                        
+                    
+                    for finding in findings {                     
                         let json_log = serde_json::json!({
-                            "package_name": package_name,
-                            "package_version": package_version,
                             "repository_name": repository_name,
                             "image_tags": image_tags,
-                            "finding": finding,
+                            "finding": serialize_image_scan_finding(&finding),
                         });
-                        let log = json_log.to_string();
-
+                        //let log = json_log.to_string();
+                        logs_vec.push(json_log.to_string());
                         // You can now use 'log' as needed (e.g., printing or storing)
-                        println!("Log: {}", log);
                     }
                 } else {
                     debug!("No findings in the response");
                 }
+                coralogix::process_batches(
+                    logs_vec,
+                    &defined_app_name,
+                    &defined_sub_name,
+                    config,
+                    &metadata_instance,
+                    coralogix_exporter,
+                )
+                .await?;
+
             } else {
                 debug!("No image scan findings in the response");
             }
@@ -396,6 +388,38 @@ pub async fn ecr_scan_logs(
     //.await?;
     Ok(())
 }
+
+fn serialize_image_scan_finding(finding: &ImageScanFinding) -> String {
+    
+    
+    
+    let mut result = String::from("{");
+
+    // Serialize each field
+    if let Some(name) = &finding.name {
+        result.push_str(&format!("\"name\": \"{}\", ", name));
+    }
+    if let Some(description) = &finding.description {
+        result.push_str(&format!("\"description\": \"{}\", ", description));
+    }
+    if let Some(uri) = &finding.uri {
+        result.push_str(&format!("\"uri\": \"{}\", ", uri));
+    }
+    if let Some(severity) = &finding.severity {
+        // Assuming `FindingSeverity` can be converted to a string representation
+        result.push_str(&format!("\"severity\": \"{:?}\", ", severity));
+    }
+    // Serialize `attributes` if it's not too complex, otherwise you might need a nested loop
+
+    // Remove the last comma and space
+    if result.ends_with(", ") {
+        result.truncate(result.len() - 2);
+    }
+
+    result.push('}');
+    result
+}
+
 pub async fn get_bytes_from_s3(
     s3_client: &Client,
     bucket: String,
