@@ -198,7 +198,7 @@ If you see “Task out of memory”, you should increase the Lambda maximum Memo
 
 To add more verbosity to your function logs, set RUST_LOG to DEBUG.
 
-> **Warning:** Remember to change it back to INFO after troubleshooting.
+> **Warning:** Remember to change it back to WARN after troubleshooting.
 
 **Changing defaults**
 
