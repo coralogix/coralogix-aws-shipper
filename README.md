@@ -75,7 +75,7 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | Application name | This will also be the name of the CloudFormation stack that creates your integration. It can include letters (A–Z and a–z), numbers (0–9) and dashes (-). |   | :heavy_check_mark: |
-| IntegrationType | Choose the AWS service that you wish to integrate with Coralogix. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, SNS, SQS, Kinesis, CloudFront. | :heavy_check_mark: | 
+| IntegrationType | Choose the AWS service that you wish to integrate with Coralogix. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, SNS, SQS, Kinesis, CloudFront. | S3 | :heavy_check_mark: | 
 | CoralogixRegion | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter. |  Custom | :heavy_check_mark: | 
 | CustomDomain | If you choose a custom domain name for your private cluster, Coralogix will send telemetry from the specified address (e.g. custom.coralogix.com). |   |   |
 | ApplicationName | The name of the application for which the integration is configured. [Advanced Configuration](#advanced-configuration) specifies dynamic value retrieval options.|   | :heavy_check_mark: | 
