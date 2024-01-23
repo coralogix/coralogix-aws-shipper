@@ -311,14 +311,22 @@ trait ToStringExt {
 
 impl ToStringExt for ImageScanFinding {
     fn to_string_ext(&self) -> String {
-        format!(
-            "Name: {:?}, Description: {:?}, URI: {:?}, Severity: {:?}, Attributes: {:?}",
-            self.name,
-            self.description,
-            self.uri,
-            self.severity,
-            self.attributes
-        )
+        let name = self.name.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+        let description = self.description.as_ref().map(|s| s.as_str()).unwrap_or("No description");
+        let uri = self.uri.as_ref().map(|s| s.as_str()).unwrap_or("No URI");
+        let severity = self.severity.as_ref().map(|s| format!("{:?}", s)).unwrap_or("Unknown severity".to_string());
+
+        let attributes = match &self.attributes {
+            Some(attrs) => attrs.iter().map(|attr| {
+                let key = &attr.key;
+                let value = attr.value.as_deref().unwrap_or("N/A");
+                format!("{}: {}", key, &value)
+            }).collect::<Vec<String>>().join(", "),
+            None => "No attributes".to_string(),
+        };
+
+        format!("Name: {}, Description: {}, URI: {}, Severity: {}, Attributes: [{}]",
+                name, description, uri, severity, attributes)
     }
 }
 pub async fn ecr_scan_logs(
@@ -361,7 +369,12 @@ pub async fn ecr_scan_logs(
 
             if let Some(image_scan_findings) = response.image_scan_findings {
                 let mut findings_strings: Vec<String> = Vec::new();
-                if let Some(findings) = image_scan_findings.findings {      
+                if let Some(findings) = image_scan_findings.findings {    
+                    debug!("Findings: {:?}", findings);
+                    let json_strings: Vec<String> = findings.iter()
+                        .map(|f| serde_json::to_string(f).unwrap_or_else(|_| "{}".to_string()))
+                        .collect();
+  
                     findings_strings = findings.iter().map(|f| f.to_string_ext()).collect();          
                 } else {
                     debug!("No findings in the response");
