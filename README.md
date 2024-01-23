@@ -31,7 +31,7 @@ A separate integration for SNS or SQS is available. You can receive messages dir
 
 ### Amazon CloudWatch
 
-Coralogix can be configured to directly receive data directly from your [CloudWatch](https://docs.aws.amazon.com/cloudwatch/) log group. 
+Coralogix can be configured to receive data directly from your [CloudWatch](https://docs.aws.amazon.com/cloudwatch/) log group. 
 
 ### Amazon Kinesis
 
@@ -80,7 +80,7 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | CoralogixRegion | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter. |  Custom | :heavy_check_mark: | 
 | CustomDomain | If you choose a custom domain name for your private cluster, Coralogix will send telemetry from the specified address (e.g. custom.coralogix.com). |   |   |
 | ApplicationName | The name of the application for which the integration is configured. [Advanced Configuration](#advanced-configuration) specifies dynamic value retrieval options.|   | :heavy_check_mark: | 
-| SubsystemName | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.|   |   |
+| SubsystemName | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.|   | :heavy_check_mark:  |
 | ApiKey | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key. |   | :heavy_check_mark: |
 | StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console. | True  | :heavy_check_mark: |
 
