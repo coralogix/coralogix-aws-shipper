@@ -80,7 +80,7 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | CustomDomain | If you choose a custom domain name for your private cluster, Coralogix will send telemetry from the specified address (e.g. custom.coralogix.com). |   |   |
 | ApplicationName | The name of the application for which the integration is configured. [Advanced Configuration](#advanced-configuration) specifies dynamic value retrieval options.|   | :heavy_check_mark: | 
 | SubsystemName | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.|   |   |
-| ApiKey | The Send-Your-Data API Key validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key. |   | :heavy_check_mark: |
+| ApiKey | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key. |   | :heavy_check_mark: |
 | StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console. | True  | :heavy_check_mark: |
 
 ### S3/CloudTrail/VpcFlow/S3Csv Configuration
