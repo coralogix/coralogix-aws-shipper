@@ -44,7 +44,7 @@ Coralogix can be configured to receive data directly from your [Kinesis Stream](
 
 ### Integrate using the Coralogix Platform (Recommended)
 
-The fastest way to deploy your predefined Lambda function is from within the Coralogix platform. Fill out an integration form and confirm the integration from your AWS account. Product integrations can be by navigating to **Data Flow** > **Integrations** in your Coralogix toolbar. For detailed UI instructions, please read the [Integration Packages(https://coralogix.com/docs/integration-packages/)] tutorial.
+The fastest way to deploy your predefined Lambda function is from within the Coralogix platform. Fill out an integration form and confirm the integration from your AWS account. Product integrations can be by navigating to **Data Flow** > **Integrations** in your Coralogix toolbar. For detailed UI instructions, please read the [Integration Packages](https://coralogix.com/docs/integration-packages/) tutorial.
 
 ### Quick Create a CloudFormation Stack
 
