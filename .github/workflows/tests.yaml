@@ -38,6 +38,7 @@ jobs:
       - name: start ssh agent for rust private dependencies
         uses: webfactory/ssh-agent@v0.8.0
         with:
+          ref: ${{ github.event.pull_request.head.sha }} 
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: run tests
