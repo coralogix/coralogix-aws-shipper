@@ -190,7 +190,7 @@ If you wish to use dynamic values for the Application and Subsystem Name paramet
 
 **Timeout errors**
 
-If you see “Task timed out after”, you need to increase the Lambda Timeout value. You can do this from the AWS Lambda function settings under Configuration > General Configuration.
+If you see “Task timed out after”, you need to increase the Lambda Timeout value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
 
 **Not enough memory**
 
