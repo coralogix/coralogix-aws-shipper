@@ -56,7 +56,7 @@ If you are using AWS CLI, you can use a [CloudFormation template](https://github
 
 ### Deploy the AWS Serverless Application
 
-Alternatively, you may use the [SAM deployment link](https://serverlessrepo.aws.amazon.com/applications/eu-central-1/597078901540/coralogix-aws-shipper). The procedure is very similar to filling out the above Quick Create template.
+Alternatively, you may use the [SAM deployment link](https://serverlessrepo.aws.amazon.com/applications/eu-central-1/597078901540/coralogix-aws-shipper). The procedure is very similar to filling out the Quick Create template.
 
 ### Terraform Module
 
