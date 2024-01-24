@@ -35,7 +35,7 @@ Coralogix can be configured to receive data directly from your [CloudWatch](http
 
 ### Amazon Kinesis
 
-Finally, Coralogix can also be configured to receive data directly from your [Kinesis Stream](https://docs.aws.amazon.com/cloudwatch/).
+Coralogix can be configured to receive data directly from your [Kinesis Stream](https://docs.aws.amazon.com/cloudwatch/).
 
 
 ## Deployment Options
