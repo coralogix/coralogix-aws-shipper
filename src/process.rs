@@ -344,6 +344,12 @@ async fn process_cloudwatch_logs(cw_event: AwsLogs, sampling: usize) -> Result<V
         .into_iter()
         .map(|entry| entry.message)
         .collect();
+    debug!("stream_name: {}", cw_event.data.log_stream);
+    debug!("log_group: {}", cw_event.data.log_group);
+    debug!("owner: {}", cw_event.data.owner);
+    debug!("subscription_filters: {:?}", cw_event.data.subscription_filters);
+    debug!("message_type: {}", cw_event.data.message_type);
+    
     info!("Received {} CloudWatch logs", log_entries.len());
     debug!("Cloudwatch Logs: {:?}", log_entries);
     Ok(sample(sampling, log_entries))
