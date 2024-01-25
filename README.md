@@ -24,6 +24,7 @@ The `coralogix-aws-shipper` supports forwarding of logs for the following AWS Se
 * [AWS SNS](https://aws.amazon.com/sns/)
 * [AWS SQS](https://aws.amazon.com/sqs/)
 * [AWS KINESIS](https://aws.amazon.com/kinesis/)
+* [AWS MSK & Kafka (_self-hosted_)](https://aws.amazon.com/msk/)
 
 Additionally, you can ingest any generic text, JSON and csv logs stored in your S3 bucket
 
@@ -61,7 +62,7 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | Application name | The stack name of this application created via AWS CloudFormation. |   | :heavy_check_mark: |
-| IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront' |  S3 | :heavy_check_mark: | 
+| IntegrationType | The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront, Kafka, MSK' |  S3 | :heavy_check_mark: | 
 | CoralogixRegion | The Coralogix location region, possible options are [Custom, EU1, EU2, AP1, AP2, US1, US2] If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter |  Custom | :heavy_check_mark: | 
 | CustomDomain | The Custom Domain. If set, will be the domain used to send telemetry (e.g. cx123.coralogix.com) |   |   |
 | ApplicationName | The [name](https://coralogix.com/docs/application-and-subsystem-names/) of your application. For dynamically value check [Advanced section](#advanced)|   | :heavy_check_mark: | 
@@ -100,6 +101,24 @@ https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralog
 | Parameter | Description | Default Value | Required |
 |---|---|---|---|
 | KinesisStreamARN | The ARN of Kinesis Stream to subscribe to retrieving messages |   | :heavy_check_mark: |
+
+### Integration Kafka configuration
+| Parameter | Description | Default Value | Required |
+|---|---|---|---|
+| KafkaBrokers | Comma Delimited List of Kafka broker to connect to |   | :heavy_check_mark: |
+| KafkaTopic | The Kafka topic to subscribe to |   | :heavy_check_mark: |
+| KafkaBatchSize | The Kafka batch size to use when reading from Kafka | 100 |   |
+| KafkaSecurityGroups | Comma Delimited List of Kafka security groups to use when connecting to Kafka |   |  :heavy_check_mark: |
+| KafkaSubnets | Comma Delimited List of Kafka subnets to use when connecting to Kafka |   |  :heavy_check_mark: |
+
+### Integration MSK configuration
+
+When using the AWS MSK Integration, your Lambda must be in a VPC with access to the MSK cluster. You can do this by setting the relevant parameters for [vpc configuration](#vpc-configuration-optional).
+
+| Parameter | Description | Default Value | Required |
+|---|---|---|---|
+| MSKBrokers | Comma Delimited List of MSK broker to connect to |   | :heavy_check_mark: |
+| KafkaTopic | The Kafka topic to subscribe to |   | :heavy_check_mark: |
 
 ### Integration Generic Config (Optional)
 | Parameter | Description | Default Value | Required |
