@@ -313,13 +313,17 @@ Parameters:
   KafkaBrokers:
     Type: CommaDelimitedList
     Description: Comma-delimited list of host and port pair addresses of your Kafka brokers
+    Default: ''
   
   KafkaSubnets:
     Type: List<AWS::EC2::Subnet::Id>
     Description: The subnets associated with your VPC for each Kafka broker
-  
+    Default: ""
+
   KafkaSecurityGroups:
     Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: The security groups associated with your VPC for each Kafka broker
+    Default: ""
 
 Mappings:
   CoralogixRegionMap:
@@ -403,6 +407,7 @@ Conditions:
     - !Not [ !Condition UseSQSTopicARN  ]
     - !Not [ !Condition UseKinesisStreamARN  ]
     - !Not [ !Condition UseMSK ]
+    - !Not [ !Condition UseKafka ]
 
   UseDefaultWithNotification: !And
     - !Condition UseDefault
@@ -430,7 +435,7 @@ Conditions:
 
   UseKafka: !And
     - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
-    - !Equals [ !Ref MSKClusterArn, '' ] 
+    - !Equals [ !Ref MSKClusterArn, '' ]
     - !Equals [ !Ref IntegrationType, 'Kafka' ]
 
   UseMSKWithNotification: !And
@@ -440,6 +445,7 @@ Conditions:
   UseKatkaTopicARNWithNotification: !And
     - !Condition IsKafkaIntegration
     - !Condition IsNotificationEnabled
+    - !Condition UseKafka
 
 Rules:
   ValidateCloudWatchLogs:
@@ -487,7 +493,25 @@ Rules:
         - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
         AssertDescription: Subnet ID and Security Group ID must be set when UsePrivateLink is set to true
 
-  # ValidateKafkaIntegrationParams:
+  ValidateKafkaIntegrationParams:
+    RuleCondition: !Condition IsKafkaIntegration
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
+        AssertDescription: KafkaTopic must be set when IntegrationType is set to Kafka
+      - Assert: !Not [ !Equals [ !Ref KafkaBrokers, '' ] ]
+        AssertDescription: KafkaBrokers must be set when IntegrationType is set to Kafka
+      - Assert: !Not [ !Equals [ !Ref KafkaSubnets, '' ] ]
+        AssertDescription: KafkaSubnets must be set when IntegrationType is set to Kafka
+      - Assert: !Not [ !Equals [ !Ref KafkaSecurityGroups, '' ] ]
+        AssertDescription: KafkaSecurityGroups must be set when IntegrationType is set to Kafka
+
+  ValidateMSKIntegrationParams:
+    RuleCondition: !Condition IsMSKIntegration
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref MSKClusterArn, '' ] ]
+        AssertDescription: MSKClusterArn must be set when IntegrationType is set to MSK
+      - Assert: !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
+        AssertDescription: KafkaTopic must be set when IntegrationType is set to MSK
 
 Globals:
   Function:
@@ -1003,9 +1027,9 @@ Resources:
         MSKEvent:
           Type: MSK
           Properties:
-            Stream:
-              Ref: MSKClusterArn
+            Stream: !Ref MSKClusterArn
             StartingPosition: LATEST
+            
             Topics: 
               - !Ref KafkaTopic
 
@@ -1075,6 +1099,14 @@ Resources:
       SecurityGroupIds: !Ref KafkaSecurityGroups
       SubnetIds: !Ref KafkaSubnets
 
+  LambdaFunctionNotificationSubscriptionWithKafkaTopic:
+    Type: AWS::SNS::Subscription
+    Condition: UseKatkaTopicARNWithNotification
+    Properties:
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+      TopicArn: !Ref LambdaFunctionWithKafka.DestinationTopic
+
   ################################  PPPVp
   # ----- Custom Resource -----  #
   ################################
@@ -1095,6 +1127,12 @@ Resources:
       Runtime: python3.11
       Timeout: 50
       Policies:
+        - Statement:
+            - Sid: LambdaAccess
+              Effect: Allow
+              Action:
+                - lambda:*
+              Resource: "*"
         - Statement:
             - Sid: S3NotificationPolicy
               Effect: Allow
@@ -1155,31 +1193,83 @@ Resources:
               #!/usr/bin/python
               # -*- coding: utf-8 -*-
 
-              import json
-              import time
-              import boto3
-              import cfnresponse
+              import json, time, boto3
+              from urllib import request, parse, error
+
+              class CFNResponse:
+                  '''
+                  CFNResponse class, temporary class used to handle cloudformation responses
+                  as currently lambda has an issue importing cfnresponse module.
+                  '''
+                  SUCCESS = "SUCCESS"
+                  FAILED = "FAILED"
+
+                  def __init__(self, event, context):
+                      self.event = event
+                      self.context = context
+                      self.response_url = event['ResponseURL']
+
+                  def send(self, status, response_data, physical_resource_id=None, no_echo=False, reason=None):
+                      response_body = {
+                          'Status': status,
+                          'Reason': reason or "See the details in CloudWatch Log Stream: {}".format(self.context.log_stream_name),
+                          'PhysicalResourceId': physical_resource_id or self.context.log_stream_name,
+                          'StackId': self.event['StackId'],
+                          'RequestId': self.event['RequestId'],
+                          'LogicalResourceId': self.event['LogicalResourceId'],
+                          'NoEcho': no_echo,
+                          'Data': response_data
+                      }
+
+                      json_response_body = json.dumps(response_body).encode('utf-8')
+
+                      headers = {
+                          'content-type': '',
+                          'content-length': str(len(json_response_body))
+                      }
+
+                      try:
+                          req = request.Request(self.response_url, data=json_response_body, headers=headers, method='PUT')
+                          with request.urlopen(req) as response:
+                              print("Status code:", response.getcode())
+                              print("Response:", response.read().decode('utf-8'))
+                      except error.HTTPError as e:
+                          print("HTTPError:", e.reason)
+                          print("Status code:", e.code)
+                      except error.URLError as e:
+                          print("URLError:", e.reason)
 
               client = boto3.client("lambda")
 
+              def delete_event_source_mappings(function_name):
+                  mappings = client.list_event_source_mappings(
+                      FunctionName=function_name,
+                  )["EventSourceMappings"]
+
+                  for mapping in mappings:
+                      # disable mapping
+                      if mapping["State"] == "Enabled":
+                          client.update_event_source_mapping(
+                              UUID=mapping["UUID"],
+                              FunctionName=function_name,
+                              Enabled=False
+                          )
+                      time.sleep(10) # wait for mapping to be disabled
+                      client.delete_event_source_mapping(UUID=mapping["UUID"])
+
               def lambda_handler(event, context):
                   print("Received event:", json.dumps(event, indent=2))
-
-                  responseStatus = "SUCCESS"
+                  cfn = CFNResponse(event, context)
+                  responseStatus = CFNResponse.SUCCESS
                   physicalResourceId = event.get("PhysicalResourceId")
+                  function_name = event["ResourceProperties"]["Function"]
 
                   try:
                       print("Request Type:", event["RequestType"])
                       if event["RequestType"] in ["Create", "Update"]:
                           if event["RequestType"] == "Update":
-                              try:
-                                  print("EventSourceMapping recreation")
-                                  client.delete_event_source_mapping(UUID=physicalResourceId)
-                                  while True:
-                                      client.get_event_source_mapping(UUID=physicalResourceId)
-                                      time.sleep(10)
-                              except client.exceptions.ResourceNotFoundException:
-                                  pass
+                              print('Update event detected, deleting previous mapping(s)')
+                              delete_event_source_mappings(function_name)
 
                           response = client.create_event_source_mapping(
                               FunctionName=event["ResourceProperties"]["Function"],
@@ -1207,26 +1297,18 @@ Resources:
                           )
 
                           physicalResourceId = response["UUID"]
-
-                          while True:
-                              response = client.get_event_source_mapping(UUID=physicalResourceId)
-                              if response["State"] in ["Enabled", "Disabled"]:
-                                  break
-                              time.sleep(10)
-
-                          print("EventSourceMapping successfully created")
+                          print(f"EventSourceMapping successfully created: {physicalResourceId}")
                       elif event["RequestType"] == "Delete":
-                          try:
-                              client.delete_event_source_mapping(UUID=physicalResourceId)
-                          except client.exceptions.ResourceNotFoundException:
-                              pass
+                          delete_event_source_mappings(function_name)
                           print("EventSourceMapping successfully deleted")
 
                   except Exception as exc:
                       print("Failed to process:", exc)
-                      responseStatus = "FAILED"
+                      responseStatus = CFNResponse.FAILED
                   finally:
-                      cfnresponse.send(event, context, responseStatus, {}, physicalResourceId)
+                      cfn.send(responseStatus, {}, physical_resource_id=physicalResourceId)
+
+
           - |
               #!/usr/bin/python
               # -*- coding: utf-8 -*-
