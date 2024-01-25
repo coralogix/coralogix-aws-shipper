@@ -1383,6 +1383,82 @@ async fn run_kafka_event() {
         singles[0].entries[0].subsystem_name
     );
 }
+
+async fn run_kafka_event_with_base64() {
+    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
+    let config = Config::load_from_env().unwrap();
+
+    let evt: KafkaEvent = serde_json::from_str(
+        r#"{
+            "eventSource": "SelfManagedKafka",
+            "bootstrapServers":"b-2.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092,b-1.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092",
+            "records":{
+               "mytopic-0":[
+                  {
+                     "topic":"mytopic",
+                     "partition":0,
+                     "offset":15,
+                     "timestamp":1545084650987,
+                     "timestampType":"CREATE_TIME",
+                     "key":"abcDEFghiJKLmnoPQRstuVWXyz1234==",
+                     "value":"c29tZSBsb2cgbWVzc2FnZQ==",
+                     "headers":[
+                        {
+                           "headerKey":[
+                              104,
+                              101,
+                              97,
+                              100,
+                              101,
+                              114,
+                              86,
+                              97,
+                              108,
+                              117,
+                              101
+                           ]
+                        }
+                     ]
+                  }
+               ]
+            }
+         }"#,
+    )
+    .expect("failed to parse kinesis_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let combined_event = CombinedEvent::Kafka(evt);
+    let event = LambdaEvent::new(combined_event, Context::default());
+
+    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 1);
+    let log_line = "some log message";
+    assert!(
+        singles[0].entries[0].body == *log_line,
+        "log line: {}",
+        singles[0].entries[0].body
+    );
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "lambda",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
 #[tokio::test]
 async fn test_kafka_event() {
     temp_env::async_with_vars(
@@ -1410,6 +1486,20 @@ async fn test_kafka_event() {
             ("INTEGRATION_TYPE", Some("Kafka")),
         ],
         run_kafka_event(),
+    )
+    .await;
+
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Kafka")),
+        ],
+        run_kafka_event_with_base64(),
     )
     .await;
 }
