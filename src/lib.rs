@@ -20,6 +20,7 @@ pub mod combined_event;
 pub mod config;
 pub mod coralogix;
 pub mod process;
+pub mod ecr;
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()

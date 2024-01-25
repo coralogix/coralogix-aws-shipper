@@ -20,6 +20,7 @@ use tracing::{debug, info, warn};
 
 use crate::config::{Config, IntegrationType};
 use crate::coralogix;
+use crate::ecr;
 
 
 
@@ -329,6 +330,7 @@ impl ToStringExt for ImageScanFinding {
                 name, description, uri, severity, attributes)
     }
 }
+
 pub async fn ecr_scan_logs(
     ecr_scan_event: EcrScanEvent,
     coralogix_exporter: DynLogExporter,
@@ -352,48 +354,57 @@ pub async fn ecr_scan_logs(
     tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
     let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::v2023_11_09()).await;
     let ecr_client = EcrClient::new(&aws_config);
-    if let Some(repository_name) = ecr_scan_event.detail.repository_name.as_ref() {
-        if let Some(image_id) = ecr_scan_event.detail.image_digest.as_ref() {
-            let image_identifier = ImageIdentifier::builder()
-                .image_digest(image_id)
-                .image_tag(ecr_scan_event.detail.image_tags[0].clone())
-                .build();
-            let request = ecr_client.describe_image_scan_findings()
-                .repository_name(repository_name)
-                .image_id(image_identifier);
-            let response = request.send().await?;
-            // Handle the response
-            debug!("Response: {:?}", response);
-            let repository_name = ecr_scan_event.detail.repository_name;
-            let image_tags = ecr_scan_event.detail.image_tags;
+    let payload = ecr::process_ecr_scan_event(ecr_scan_event, config, &ecr_client).await?;
+    coralogix::process_batches(
+        payload,
+        &defined_app_name,
+        &defined_sub_name,
+        config,
+        &metadata_instance,
+        coralogix_exporter,
+    ).await?;
+    // if let Some(repository_name) = ecr_scan_event.detail.repository_name.as_ref() {
+    //     if let Some(image_id) = ecr_scan_event.detail.image_digest.as_ref() {
+    //         let image_identifier = ImageIdentifier::builder()
+    //             .image_digest(image_id)
+    //             .image_tag(ecr_scan_event.detail.image_tags[0].clone())
+    //             .build();
+    //         let request = ecr_client.describe_image_scan_findings()
+    //             .repository_name(repository_name)
+    //             .image_id(image_identifier);
+    //         let response = request.send().await?;
+    //         // Handle the response
+    //         debug!("Response: {:?}", response);
+    //         let repository_name = ecr_scan_event.detail.repository_name;
+    //         let image_tags = ecr_scan_event.detail.image_tags;
 
-            if let Some(image_scan_findings) = response.image_scan_findings {
-                let mut findings_strings: Vec<String> = Vec::new();
-                if let Some(findings) = image_scan_findings.findings {    
-                    debug!("Findings: {:?}", findings);
-                    let json_strings: Vec<String> = findings.iter()
-                        .map(|f| serde_json::to_string(f).unwrap_or_else(|_| "{}".to_string()))
-                        .collect();
+    //         if let Some(image_scan_findings) = response.image_scan_findings {
+    //             let mut findings_strings: Vec<String> = Vec::new();
+    //             if let Some(findings) = image_scan_findings.findings {    
+    //                 debug!("Findings: {:?}", findings);
+    //                 let json_strings: Vec<String> = findings.iter()
+    //                     .map(|f| serde_json::to_string(f).unwrap_or_else(|_| "{}".to_string()))
+    //                     .collect();
   
-                    findings_strings = findings.iter().map(|f| f.to_string_ext()).collect();          
-                } else {
-                    debug!("No findings in the response");
-                }
-                coralogix::process_batches(
-                    findings_strings,
-                    &defined_app_name,
-                    &defined_sub_name,
-                    config,
-                    &metadata_instance,
-                    coralogix_exporter,
-                )
-                .await?;
+    //                 findings_strings = findings.iter().map(|f| f.to_string_ext()).collect();          
+    //             } else {
+    //                 debug!("No findings in the response");
+    //             }
+    //             coralogix::process_batches(
+    //                 findings_strings,
+    //                 &defined_app_name,
+    //                 &defined_sub_name,
+    //                 config,
+    //                 &metadata_instance,
+    //                 coralogix_exporter,
+    //             )
+    //             .await?;
 
-            } else {
-                debug!("No image scan findings in the response");
-            }
-        }
-    }
+    //         } else {
+    //             debug!("No image scan findings in the response");
+    //         }
+    //     }
+    // }
     //let ecr_client = EcrClient::new(Default::default());
     //batches.push(ecr_scan_event.clone());
     //coralogix::process_batches(
