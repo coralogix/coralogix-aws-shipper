@@ -1398,4 +1398,18 @@ async fn test_kafka_event() {
         run_kafka_event(),
     )
     .await;
+
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Kafka")),
+        ],
+        run_kafka_event(),
+    )
+    .await;
 }
