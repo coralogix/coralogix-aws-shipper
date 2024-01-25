@@ -54,6 +54,7 @@ impl FromStr for IntegrationType {
             "Kinesis" => Ok(IntegrationType::Kinesis),
             "CloudFront" => Ok(IntegrationType::CloudFront),
             "MSK" => Ok(IntegrationType::Kafka),
+            "Kafka" => Ok(IntegrationType::Kafka),
             other => Err(format!("Invalid or Unsupported integration type {}", other)),
         }
     }
