@@ -29,6 +29,7 @@ async-trait = "0.1.74"
 temp-env = { version = "0.3.6", features = ["async_closure"] }
 aws-smithy-runtime = { version = "1.1.1", features = ["test-util"] }
 aws-smithy-types = "1.1.1"
+base64 = "0.21.7"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
