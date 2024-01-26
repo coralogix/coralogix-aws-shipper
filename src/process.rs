@@ -544,17 +544,14 @@ pub async fn kafka_logs(
 
     let mut batch = Vec::new();
     for record in records {
-        if record.value.is_none() {
-            continue
+        if let Some(value) = record.value {
+            // check if value is base64 encoded
+            if let Ok(message) = BASE64_STANDARD.decode(&value) {
+                batch.push(String::from_utf8(message)?);
+            } else {
+                batch.push(value);
+            }
         }
-
-        // check if value is base64 encoded
-        if let Ok(message) = BASE64_STANDARD.decode(record.value.clone().unwrap()) {
-            batch.push(String::from_utf8(message)?);
-            continue
-        }
-
-        batch.push(record.value.unwrap());
     }
 
     let metadata_instance = Metadata::default();    
