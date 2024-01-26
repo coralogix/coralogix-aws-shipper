@@ -32,6 +32,10 @@ Coralogix can be configured to receive data directly from your [CloudWatch](http
 
 Coralogix can be configured to receive data directly from your [Kinesis Stream](https://docs.aws.amazon.com/cloudwatch/).
 
+### Amazon MSK & Kafka
+
+Coralogix can be configured to receive data directly from your [MSK](https://docs.aws.amazon.com/msk/) or [Kafka](https://docs.aws.amazon.com/lambda/latest/dg/with-kafka.html) cluster.
+
 ## Deployment Options
 
 > **Important:** Before you get started, ensure that your AWS user has the permissions to create Lambda functions and IAM roles.
@@ -133,7 +137,9 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 |------------------|-----------------------------------------------------------------------------------------------|---------------|--------------------|
 | KinesisStreamARN | Provide the ARN of the Kinesis Stream to which you want to subscribe for retrieving messages. |               | :heavy_check_mark: |
 
-### Kafka Configuration
+### MSK & Kafka Configuration
+
+*Kafka*:
 
 | Parameter           | Description                                                                   | Default Value | Required           |
 |---------------------|-------------------------------------------------------------------------------|---------------|--------------------|
@@ -143,7 +149,7 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 | KafkaSecurityGroups | Comma Delimited List of Kafka security groups to use when connecting to Kafka |               | :heavy_check_mark: |
 | KafkaSubnets        | Comma Delimited List of Kafka subnets to use when connecting to Kafka         |               | :heavy_check_mark: |
 
-### MSK Configuration
+*MSK*:
 
 When using the AWS MSK Integration, your Lambda must be in a VPC with access to the MSK cluster. You can do this by setting the relevant parameters for [vpc configuration](#vpc-configuration-optional).
 
