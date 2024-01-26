@@ -53,6 +53,19 @@ Metadata:
           - SQSTopicArn
           - CSVDelimiter
 
+      - Label:
+          default: Kafka configuration
+        Parameters:
+          - KafkaTopic
+          - KafkaBrokers
+          - KafkaSubnets
+          - KafkaSecurityGroups
+
+      - Label:
+          default: MSK configuration
+        Parameters:
+          - KafkaTopic
+          - MSKClusterArn
 
       - Label:
           default: Cloudwatch configuration
