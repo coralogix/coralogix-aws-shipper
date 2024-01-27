@@ -1,5 +1,6 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::encodings::Base64Data;
+use aws_lambda_events::kafka::KafkaRecord;
 use aws_sdk_s3::Client;
 use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
@@ -12,7 +13,9 @@ use std::ops::Range;
 use std::path::Path;
 use std::string::String;
 use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
+use base64::prelude::*;
+
 
 use crate::config::{Config, IntegrationType};
 use crate::coralogix;
@@ -123,11 +126,29 @@ pub async fn s3(
 
     Ok(())
 }
+
+trait MetadataTrait {
+    fn get_stream_name(&self) -> String;
+    fn get_bucket_name(&self) -> String;
+    fn get_key_name(&self) -> String;
+}
+
 pub struct Metadata {
     pub stream_name: String,
     pub bucket_name: String,
     pub key_name: String,
 }
+
+impl Default for Metadata {
+    fn default() -> Self {
+        Self {
+            stream_name: String::new(),
+            bucket_name: String::new(),
+            key_name: String::new(),
+        }
+    }
+}
+
 fn is_gzipped(data: &[u8]) -> bool {
     // Check the first two bytes for gzip magic numbers
     data.len() > 1 && data[0] == 0x1f && data[1] == 0x8b
@@ -503,6 +524,49 @@ async fn process_cloudtrail(
         tracing::warn!("Non Cloudtrail Log Ingested - Skipping - {}", s);
         Ok(Vec::new())
     }
+}
+
+pub async fn kafka_logs(
+    topic: String,
+    records:  Vec<KafkaRecord>,
+    coralogix_exporter: DynLogExporter,
+    config: &Config,
+) -> Result<(), Error> {
+    let defined_app_name = config
+        .app_name
+        .clone()
+        .unwrap_or_else(|| "NO APPLICATION NAME".to_string());
+
+    let defined_sub_name = config
+        .sub_name
+        .clone()
+        .unwrap_or(topic);
+
+    let mut batch = Vec::new();
+    for record in records {
+        if let Some(value) = record.value {
+            // check if value is base64 encoded
+            if let Ok(message) = BASE64_STANDARD.decode(&value) {
+                batch.push(String::from_utf8(message)?);
+            } else {
+                batch.push(value);
+            }
+        }
+    }
+
+    let metadata_instance = Metadata::default();    
+
+    coralogix::process_batches(
+        batch,
+        &defined_app_name,
+        &defined_sub_name,
+        config,
+        &metadata_instance,
+        coralogix_exporter,
+    )
+    .await?;
+
+    Ok(())
 }
 
 fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
