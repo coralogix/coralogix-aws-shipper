@@ -4,6 +4,7 @@ use aws_lambda_events::event::sns::SnsEvent;
 use aws_lambda_events::event::sqs::SqsEvent;
 use aws_lambda_events::event::kinesis::KinesisEvent;
 use aws_lambda_events::event::kafka::KafkaEvent;
+use aws_lambda_events::ecr_scan::EcrScanEvent;
 use serde::de::{self, Deserialize, Deserializer};
 use serde_json::Value;
 
@@ -14,6 +15,7 @@ pub enum CombinedEvent {
     Sqs(SqsEvent),
     Kinesis(KinesisEvent),
     Kafka(KafkaEvent),
+    EcrScan(EcrScanEvent),
 }
 
 impl<'de> Deserialize<'de> for CombinedEvent {
@@ -46,6 +48,10 @@ impl<'de> Deserialize<'de> for CombinedEvent {
         if let Ok(event) = SqsEvent::deserialize(&raw_value) {
             tracing::debug!("sqs event detected");
             return Ok(CombinedEvent::Sqs(event));
+        }
+        if let Ok(event) = EcrScanEvent::deserialize(&raw_value) {
+            tracing::debug!("ecr scan event detected");
+            return Ok(CombinedEvent::EcrScan(event));
         }
 
         Err(de::Error::custom(format!(
