@@ -21,6 +21,7 @@ pub mod combined_event;
 pub mod config;
 pub mod coralogix;
 pub mod process;
+pub mod ecr;
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()
@@ -145,7 +146,14 @@ pub async fn function_handler(
                 ).await?;
             }
         }
-            
+        CombinedEvent::EcrScan(ecr_scan_event) => {
+            debug!("ECR Scan event: {:?}", ecr_scan_event);
+            crate::process::ecr_scan_logs(
+                ecr_scan_event,
+                coralogix_exporter.clone(),
+                config,
+            ).await?;
+        }     
     };
 
     Ok(())

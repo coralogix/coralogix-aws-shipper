@@ -1,7 +1,11 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
+use aws_lambda_events::ecr_scan::{EcrScanEvent, self};
 use aws_lambda_events::encodings::Base64Data;
 use aws_lambda_events::kafka::KafkaRecord;
+use aws_sdk_ecr::types::ImageScanFinding;
+use aws_sdk_ecr::types::ImageIdentifier;
 use aws_sdk_s3::Client;
+use aws_sdk_ecr::Client as EcrClient;
 use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
 use flate2::read::MultiGzDecoder;
@@ -19,6 +23,7 @@ use base64::prelude::*;
 
 use crate::config::{Config, IntegrationType};
 use crate::coralogix;
+use crate::ecr;
 
 
 
@@ -321,6 +326,149 @@ pub async fn cloudwatch_logs(
     .await?;
 
     Ok(())
+}
+trait ToStringExt {
+    fn to_string_ext(&self) -> String;
+}
+
+impl ToStringExt for ImageScanFinding {
+    fn to_string_ext(&self) -> String {
+        let name = self.name.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+        let description = self.description.as_ref().map(|s| s.as_str()).unwrap_or("No description");
+        let uri = self.uri.as_ref().map(|s| s.as_str()).unwrap_or("No URI");
+        let severity = self.severity.as_ref().map(|s| format!("{:?}", s)).unwrap_or("Unknown severity".to_string());
+
+        let attributes = match &self.attributes {
+            Some(attrs) => attrs.iter().map(|attr| {
+                let key = &attr.key;
+                let value = attr.value.as_deref().unwrap_or("N/A");
+                format!("{}: {}", key, &value)
+            }).collect::<Vec<String>>().join(", "),
+            None => "No attributes".to_string(),
+        };
+
+        format!("Name: {}, Description: {}, URI: {}, Severity: {}, Attributes: [{}]",
+                name, description, uri, severity, attributes)
+    }
+}
+
+pub async fn ecr_scan_logs(
+    ecr_scan_event: EcrScanEvent,
+    coralogix_exporter: DynLogExporter,
+    config: &Config,
+) -> Result<(), Error> {
+    let metadata_instance = Metadata {
+        stream_name: String::new(),
+        bucket_name: String::new(),
+        key_name: String::new(),
+    };
+    let defined_app_name = config
+        .app_name
+        .clone()
+        .unwrap_or_else(|| "NO APPLICATION NAME".to_string());
+    let defined_sub_name = config
+        .sub_name
+        .clone()
+        .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
+    //let mut batches = Vec::new();
+    
+    tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
+    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::v2023_11_09()).await;
+    let ecr_client = EcrClient::new(&aws_config);
+    let payload = ecr::process_ecr_scan_event(ecr_scan_event, config, &ecr_client).await?;
+    coralogix::process_batches(
+        payload,
+        &defined_app_name,
+        &defined_sub_name,
+        config,
+        &metadata_instance,
+        coralogix_exporter,
+    ).await?;
+    // if let Some(repository_name) = ecr_scan_event.detail.repository_name.as_ref() {
+    //     if let Some(image_id) = ecr_scan_event.detail.image_digest.as_ref() {
+    //         let image_identifier = ImageIdentifier::builder()
+    //             .image_digest(image_id)
+    //             .image_tag(ecr_scan_event.detail.image_tags[0].clone())
+    //             .build();
+    //         let request = ecr_client.describe_image_scan_findings()
+    //             .repository_name(repository_name)
+    //             .image_id(image_identifier);
+    //         let response = request.send().await?;
+    //         // Handle the response
+    //         debug!("Response: {:?}", response);
+    //         let repository_name = ecr_scan_event.detail.repository_name;
+    //         let image_tags = ecr_scan_event.detail.image_tags;
+
+    //         if let Some(image_scan_findings) = response.image_scan_findings {
+    //             let mut findings_strings: Vec<String> = Vec::new();
+    //             if let Some(findings) = image_scan_findings.findings {    
+    //                 debug!("Findings: {:?}", findings);
+    //                 let json_strings: Vec<String> = findings.iter()
+    //                     .map(|f| serde_json::to_string(f).unwrap_or_else(|_| "{}".to_string()))
+    //                     .collect();
+  
+    //                 findings_strings = findings.iter().map(|f| f.to_string_ext()).collect();          
+    //             } else {
+    //                 debug!("No findings in the response");
+    //             }
+    //             coralogix::process_batches(
+    //                 findings_strings,
+    //                 &defined_app_name,
+    //                 &defined_sub_name,
+    //                 config,
+    //                 &metadata_instance,
+    //                 coralogix_exporter,
+    //             )
+    //             .await?;
+
+    //         } else {
+    //             debug!("No image scan findings in the response");
+    //         }
+    //     }
+    // }
+    //let ecr_client = EcrClient::new(Default::default());
+    //batches.push(ecr_scan_event.clone());
+    //coralogix::process_batches(
+    //    batches,
+    //    &defined_app_name,
+    //    &defined_sub_name,
+    //    config,
+    //    &metadata_instance,
+    //    coralogix_exporter,
+    //)
+    //.await?;
+    Ok(())
+}
+
+fn serialize_image_scan_finding(finding: &ImageScanFinding) -> String {
+    
+    
+    
+    let mut result = String::from("{");
+
+    // Serialize each field
+    if let Some(name) = &finding.name {
+        result.push_str(&format!("\"name\": \"{}\", ", name));
+    }
+    if let Some(description) = &finding.description {
+        result.push_str(&format!("\"description\": \"{}\", ", description));
+    }
+    if let Some(uri) = &finding.uri {
+        result.push_str(&format!("\"uri\": \"{}\", ", uri));
+    }
+    if let Some(severity) = &finding.severity {
+        // Assuming `FindingSeverity` can be converted to a string representation
+        result.push_str(&format!("\"severity\": \"{:?}\", ", severity));
+    }
+    // Serialize `attributes` if it's not too complex, otherwise you might need a nested loop
+
+    // Remove the last comma and space
+    if result.ends_with(", ") {
+        result.truncate(result.len() - 2);
+    }
+
+    result.push('}');
+    result
 }
 
 pub async fn get_bytes_from_s3(
