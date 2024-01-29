@@ -4,7 +4,7 @@ version = "0.0.10"
 edition = "2021"
 
 [dependencies]
-aws_lambda_events = { git = "ssh://git@github.com/coralogix/aws-lambda-rust-runtime.git", branch = "fix-ecr-event-parsing", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "ecr_scan"] }
+aws_lambda_events = { version = "0.12.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan"] }
 aws-config = "1.0.3"
 aws-sdk-s3 = "1.5.0"
 aws-sdk-ecr = "1.10.0"
@@ -16,8 +16,8 @@ fancy-regex ="0.12.0"
 flate2 = "1.0"
 futures = "0.3.17"
 http = "0.2.11"
-itertools = "0.11.0"
-lambda_runtime = "0.8.1"
+itertools = "0.12.0"
+lambda_runtime = "0.9.1"
 thiserror = "1.0.40"
 time = "0.3.30"
 tokio = { version = "1.34.0", features = ["full"] }
@@ -30,6 +30,7 @@ async-trait = "0.1.74"
 temp-env = { version = "0.3.6", features = ["async_closure"] }
 aws-smithy-runtime = { version = "1.1.1", features = ["test-util"] }
 aws-smithy-types = "1.1.1"
+base64 = "0.21.7"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
