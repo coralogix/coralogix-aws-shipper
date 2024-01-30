@@ -72,6 +72,8 @@ pub async fn function_handler(
 
     // TODO this may need to be moved process
     // TODO will this always produce just one bucket/key? (check this)
+    debug!("Handling event: {:?}", evt);
+    debug!("Handling event payload: {:?}", evt.payload);
     match evt.payload {
         CombinedEvent::S3(s3_event) => {
             info!("S3 EVENT Detected");
