@@ -26,7 +26,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 0.0.10
+    SemanticVersion: 0.0.11
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -54,17 +54,12 @@ Metadata:
           - CSVDelimiter
 
       - Label:
-          default: Kafka configuration
+          default: Kafka & MSK configuration
         Parameters:
           - KafkaTopic
           - KafkaBrokers
           - KafkaSubnets
           - KafkaSecurityGroups
-
-      - Label:
-          default: MSK configuration
-        Parameters:
-          - KafkaTopic
           - MSKClusterArn
 
       - Label:
@@ -325,17 +320,23 @@ Parameters:
 
   KafkaBrokers:
     Type: CommaDelimitedList
-    Description: Comma-delimited list of host and port pair addresses of your Kafka brokers
+    Description: |
+      Comma-delimited list of host and port pair addresses of your Kafka brokers
+      [Not Required when using MSK]
     Default: ''
   
   KafkaSubnets:
     Type: List<AWS::EC2::Subnet::Id>
-    Description: The subnets associated with your VPC for each Kafka broker
+    Description: |
+      The subnets associated with your VPC for each Kafka broker
+      [Not Required when using MSK]
     Default: ""
 
   KafkaSecurityGroups:
     Type: List<AWS::EC2::SecurityGroup::Id>
-    Description: The security groups associated with your VPC for each Kafka broker
+    Description: |
+      The security groups associated with your VPC for each Kafka broker
+      [Not Required when using MSK]
     Default: ""
 
 Mappings:
