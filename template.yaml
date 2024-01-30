@@ -512,12 +512,6 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
         AssertDescription: KafkaTopic must be set when IntegrationType is set to Kafka
-      - Assert: !Not [ !Equals [ !Ref KafkaBrokers, '' ] ]
-        AssertDescription: KafkaBrokers must be set when IntegrationType is set to Kafka
-      - Assert: !Not [ !Equals [ !Ref KafkaSubnets, '' ] ]
-        AssertDescription: KafkaSubnets must be set when IntegrationType is set to Kafka
-      - Assert: !Not [ !Equals [ !Ref KafkaSecurityGroups, '' ] ]
-        AssertDescription: KafkaSecurityGroups must be set when IntegrationType is set to Kafka
 
   ValidateMSKIntegrationParams:
     RuleCondition: !Equals [ !Ref IntegrationType, 'MSK' ]
