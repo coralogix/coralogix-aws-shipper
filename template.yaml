@@ -516,7 +516,7 @@ Rules:
         AssertDescription: Subnet ID and Security Group ID must be set when UsePrivateLink is set to true
 
   ValidateKafkaIntegrationParams:
-    RuleCondition: !Condition IsKafkaIntegration
+    RuleCondition: !Equals [ !Ref IntegrationType, 'Kafka' ]
     Assertions:
       - Assert: !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
         AssertDescription: KafkaTopic must be set when IntegrationType is set to Kafka
@@ -528,7 +528,7 @@ Rules:
         AssertDescription: KafkaSecurityGroups must be set when IntegrationType is set to Kafka
 
   ValidateMSKIntegrationParams:
-    RuleCondition: !Condition IsMSKIntegration
+    RuleCondition: !Equals [ !Ref IntegrationType, 'MSK' ]
     Assertions:
       - Assert: !Not [ !Equals [ !Ref MSKClusterArn, '' ] ]
         AssertDescription: MSKClusterArn must be set when IntegrationType is set to MSK
