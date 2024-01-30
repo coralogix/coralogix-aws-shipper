@@ -1,10 +1,9 @@
 version = 0.1
 [default.deploy.parameters]
-stack_name = "cloudfront"
+stack_name = "ecrnew"
 resolve_s3 = true
-s3_prefix = "cloudfront"
+s3_prefix = "ecrnew"
 region = "us-east-1"
-confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "CoralogixRegion=\"EU1\" CustomDomain=\"\" ApplicationName=\"cf\" SubsystemName=\"cf2\" NewlinePattern=\"\" AddMetadata=\" \" BlockingPattern=\"\" SamplingRate=\"1\" LogLevel=\"DEBUG\" S3BucketName=\"testwithguy\" CSVDelimiter=\",\" S3KeyPrefix=\"\" S3KeySuffix=\"\" FunctionMemorySize=\"1024\" FunctionTimeout=\"300\" SNSTopicArn=\"\" SQSTopicArn=\"\" SQSIntegrationTopicArn=\"\" SNSIntegrationTopicArn=\"\" KinesisStreamArn=\"\" IntegrationType=\"CloudFront\" CloudWatchLogGroupName=\"\" LambdaLogRetention=\"5\" NotificationEmail=\"\" StoreAPIKeyInSecretsManager=\"true\" LambdaSubnetID=\"\" LambdaSecurityGroupID=\"\" UsePrivateLink=\"false\""
+parameter_overrides = "CoralogixRegion=\"EU1\" CustomDomain=\"\" ApplicationName=\"ecrnew\" SubsystemName=\"ecrnew\" NewlinePattern=\"\" AddMetadata=\"\" BlockingPattern=\"\" SamplingRate=\"1\" LogLevel=\"WARN\" S3BucketName=\"\" CSVDelimiter=\",\" S3KeyPrefix=\"\" S3KeySuffix=\"\" FunctionMemorySize=\"1024\" FunctionTimeout=\"300\" SNSTopicArn=\"\" SQSTopicArn=\"\" SQSIntegrationTopicArn=\"\" SNSIntegrationTopicArn=\"\" KinesisStreamArn=\"\" IntegrationType=\"S3\" CloudWatchLogGroupName=\"\" LambdaLogRetention=\"5\" NotificationEmail=\"\" StoreAPIKeyInSecretsManager=\"true\" LambdaSubnetID=\"\" LambdaSecurityGroupID=\"\" UsePrivateLink=\"false\" MSKClusterArn=\"\" KafkaTopic=\"\" KafkaBatchSize=\"100\" KafkaBrokers=\"\" KafkaSubnets=\"\" KafkaSecurityGroups=\"\""
 image_repositories = []

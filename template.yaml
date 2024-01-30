@@ -240,7 +240,7 @@ Parameters:
     Default: ''
   IntegrationType:
     Type: String
-    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront'
+    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront, Kafka, MSK, EcrScan'
     AllowedValues:
       - S3
       - CloudTrail
@@ -253,6 +253,7 @@ Parameters:
       - CloudFront
       - Kafka
       - MSK
+      - EcrScan
     Default: S3
 
   CloudWatchLogGroupName:
@@ -363,6 +364,7 @@ Conditions:
   NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
   AddMetadataNotSet: !Equals [ !Ref AddMetadata, '']
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
+  #UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
   IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
   IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
@@ -422,6 +424,7 @@ Conditions:
     - !Not [ !Condition UseKinesisStreamARN  ]
     - !Not [ !Condition UseMSK ]
     - !Not [ !Condition UseKafka ]
+    - !Not [ !Condition UseECRScan]
 
   UseDefaultWithNotification: !And
     - !Condition UseDefault
@@ -451,6 +454,7 @@ Conditions:
     - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
     - !Equals [ !Ref MSKClusterArn, '' ]
     - !Equals [ !Ref IntegrationType, 'Kafka' ]
+  
 
   UseMSKWithNotification: !And
     - !Condition UseMSK
@@ -460,6 +464,10 @@ Conditions:
     - !Condition IsKafkaIntegration
     - !Condition IsNotificationEnabled
     - !Condition UseKafka
+
+  # UseECRScanWithNotification: !And
+  #   - !Condition UseECRScan
+  #   - !Condition IsNotificationEnabled
 
 Rules:
   ValidateCloudWatchLogs:
@@ -1121,6 +1129,53 @@ Resources:
       Endpoint: !Ref NotificationEmail
       TopicArn: !Ref LambdaFunctionWithKafka.DestinationTopic
 
+
+##################################
+# ----- With ECR Scan Image -----#
+##################################
+
+  # LambdaFunctionWithECRScan:
+  #   Condition: UseECRScan
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: .
+  #     Policies:
+  #       - AWSLambdaBasicExecutionRole
+  #       - Statement:
+  #           - Effect: Allow
+  #             Action:
+  #               - 'ecr:GetImageScanFindings'
+  #             Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*'
+  #       - Statement:
+  #           - Effect: Allow
+  #             Action:
+  #               - events:PutEvents
+  #             Resource: "*"
+  # ECRScanTrigger:
+  #   Condition: UseECRScan
+  #   Type: AWS::Events::Rule
+  #   Properties:
+  #     Description: "Trigger for ECR image scan completion"
+  #     EventPattern:
+  #       source:
+  #         - "aws.ecr"
+  #       detail-type:
+  #         - "ECR Image Scan"
+  #       detail:
+  #         scan-status:
+  #           - "COMPLETE"
+  #     Targets:
+  #       - Arn: !GetAtt LambdaFunctionWithECRScan.Arn
+  #         Id: "TargetFunctionV1"
+  # LambdaFunctionNotificationSubscriptionWithECRScanTopic:
+  #   Condition: UseECRScanWithNotification
+  #   Type: AWS::SNS::Subscription
+  #   Properties:
+  #     Protocol: email
+  #     Endpoint: !Ref NotificationEmail
+  #     TopicArn: !GetAtt LambdaFunctionWithECRScan.DestinationTopic
+
+  
   ################################  PPPVp
   # ----- Custom Resource -----  #
   ################################
