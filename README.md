@@ -36,6 +36,10 @@ Coralogix can be configured to receive data directly from your [Kinesis Stream](
 
 Coralogix can be configured to receive data directly from your [MSK](https://docs.aws.amazon.com/msk/) or [Kafka](https://docs.aws.amazon.com/lambda/latest/dg/with-kafka.html) cluster.
 
+### Amazon ECR Image Security Scan
+
+Coralogix can be configured to recieve ECR [Image Scanning](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-scanning.html)
+
 ## Deployment Options
 
 > **Important:** Before you get started, ensure that your AWS user has the permissions to create Lambda functions and IAM roles.
