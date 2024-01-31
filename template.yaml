@@ -326,14 +326,14 @@ Parameters:
     Default: ''
   
   KafkaSubnets:
-    Type: List<AWS::EC2::Subnet::Id>
+    Type: CommaDelimitedList
     Description: |
       The subnets associated with your VPC for each Kafka broker
       [Not Required when using MSK]
     Default: ""
 
   KafkaSecurityGroups:
-    Type: List<AWS::EC2::SecurityGroup::Id>
+    Type: CommaDelimitedList
     Description: |
       The security groups associated with your VPC for each Kafka broker
       [Not Required when using MSK]
