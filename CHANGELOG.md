@@ -1,4 +1,10 @@
 # Changelog
+
+## v0.0.12 Beta / 2024-01-31
+
+### 🧰 Bug fixes 🧰
+- Update aws_lambda_events 
+
 ## v0.0.11 Beta / 2024-01-25
 ### 🚀 New components 🚀
 - Added support for AWS MSK and Kafka Integration type
