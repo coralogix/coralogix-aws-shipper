@@ -3,25 +3,25 @@ use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_sdk_ecr::Client as EcrClient;
 use lambda_runtime::Error;
 use std::string::String;
-use tracing::{debug, info};
+use tracing::info;
 use aws_sdk_ecr::types::ImageIdentifier;
 
 use crate::config::Config;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct CurrentCountRoot {
-    metadata: Ecrmetadata,
+    metadata: EcrMetadata,
     ecr_scan_summary: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Root {
-    metadata: Ecrmetadata,
+    metadata: EcrMetadata,
     findings: Findings,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Ecrmetadata {
+struct EcrMetadata {
     repository: String,
     image_id: ImageId,
     image_tags: Vec<String>,
@@ -79,9 +79,9 @@ pub async fn process_ecr_scan_event(
     config: &Config,
     ecr_client: &EcrClient,
 ) -> Result<Vec<String>, Error> {
-    let current_severity_count = event.detail.finding_severity_counts.clone();
+    let current_severity_count = event.detail.finding_severity_counts;
     info!("current_severity_count: {:?}", current_severity_count);
-    let current_ecr_metadata = Ecrmetadata {
+    let current_ecr_metadata = EcrMetadata {
         repository: event.detail.repository_name.unwrap_or("".to_string()),
         image_id: ImageId {
             image_digest: event.detail.image_digest.unwrap_or("".to_string()),
@@ -114,10 +114,10 @@ pub async fn process_ecr_scan_event(
                 for attribute in attributes {
                     let attribute_value = attribute.value; 
                     if current_name == "NO_PACKAGE" && attribute.key == "package_name" {
-                        current_name = attribute_value.clone().unwrap_or("NO_PACKAGE".to_string());
+                        current_name = attribute_value.clone().unwrap_or_else(|| "NO_PACKAGE".to_string());
                     }
                     if current_version == "NO_VERSION" && attribute.key == "package_version"{
-                        current_version = attribute_value.clone().unwrap_or("NO_VERSION".to_string());
+                        current_version = attribute_value.clone().unwrap_or_else(|| "NO_VERSION".to_string());
                     }
                     
                     current_attributes.push(Attribute {
@@ -126,16 +126,16 @@ pub async fn process_ecr_scan_event(
                     });
                 }
             let package = Package {
-                package: format!("{}:{}", current_name.clone(), current_version),
-                name: current_name.clone(),
-                version: current_version.clone(),
+                package: format!("{}:{}", current_name, current_version),
+                name: current_name,
+                version: current_version,
             };
                    
             let current_details = Details {
-                name: finding.name.clone().unwrap_or("".to_string()),
-                uri: finding.uri.clone().unwrap_or("".to_string()),
-                severity: finding.severity.clone().map_or("".to_string(), |v| v.as_str().to_string()),
-                attributes: current_attributes.clone(),
+                name: finding.name.unwrap_or_default(),
+                uri: finding.uri.unwrap_or_default(),
+                severity: finding.severity.map_or_else(|| "".to_string(), |v| v.as_str().to_string()),
+                attributes: current_attributes,
             };
             let findings = Findings {
                 package: package,
