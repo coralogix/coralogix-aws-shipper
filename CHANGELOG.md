@@ -1,4 +1,13 @@
 # Changelog
+## v0.0.11 Beta / 2024-01-25
+### 🚀 New components 🚀
+- Added support for AWS MSK and Kafka Integration type
+- Updated Cloudformation template with resources for MSK and Kafka
+
+## v0.0.10 Beta / 2024-01-17
+### 🧰 Bug fixes 🧰
+- Fix typo in Coralogix region selection US --> US1
+
 ## v0.0.9 Beta / 2024-01-16
 ### 🚀 New components 🚀
 - Added support for Cloudfront Access logs
