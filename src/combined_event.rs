@@ -37,17 +37,23 @@ impl<'de> Deserialize<'de> for CombinedEvent {
             tracing::debug!("cloudwatch event detected");
             return Ok(CombinedEvent::CloudWatchLogs(event));
         }
-
-        if let Ok(event) = KafkaEvent::deserialize(&raw_value) {
-            tracing::debug!("kafka event detected");
-            return Ok(CombinedEvent::Kafka(event));
+        if let Ok(event) = KinesisEvent::deserialize(&raw_value) {
+            tracing::debug!("kinesis event detected");
+            return Ok(CombinedEvent::Kinesis(event));
         }
-
         if let Ok(event) = SqsEvent::deserialize(&raw_value) {
             tracing::debug!("sqs event detected");
             return Ok(CombinedEvent::Sqs(event));
         }
-
+        
+        
+        if let Ok(event) = KafkaEvent::deserialize(&raw_value) {
+            tracing::debug!("raw_value: {:?}", raw_value);
+            tracing::debug!("kafka event detected");
+            tracing::debug!("event: {:?}", event);
+            return Ok(CombinedEvent::Kafka(event));
+        }
+        
         Err(de::Error::custom(format!(
             "unsupported event type: {raw_value}"
         )))
