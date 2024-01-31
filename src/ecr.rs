@@ -6,8 +6,7 @@ use std::string::String;
 use tracing::{debug, info};
 use aws_sdk_ecr::types::ImageIdentifier;
 
-use crate::config::{Config, IntegrationType};
-use crate::coralogix;
+use crate::config::Config;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct CurrentCountRoot {
@@ -99,7 +98,10 @@ pub async fn process_ecr_scan_event(
         .image_id(image_identifier)
         .send();
     let response = request.await?;
-    let image_scan_findings = response.image_scan_findings.unwrap();
+    let image_scan_findings = match response.image_scan_findings {
+        Some(findings) => findings,
+        None => return Err(Error::from("No image scan findings available")),
+    };
 
     let mut logs: Vec<String> = Vec::new(); // Initialize logs outside of the loop
 
@@ -143,7 +145,7 @@ pub async fn process_ecr_scan_event(
                 metadata: current_ecr_metadata.clone(),
                 findings: findings,
             };
-            logs.push(serde_json::to_string(&root).unwrap());
+            logs.push(serde_json::to_string(&root).unwrap_or_else(|_| "Failed to serialize root".to_string()));
             }  
         }   
         if let Some(finding_severity_counts) = image_scan_findings.finding_severity_counts {
@@ -155,7 +157,7 @@ pub async fn process_ecr_scan_event(
                 metadata: current_ecr_metadata,
                 ecr_scan_summary: ecr_scan_summary,
             };
-        logs.push(serde_json::to_string(&current_count_root).unwrap());
+        logs.push(serde_json::to_string(&current_count_root).unwrap_or_else(|_| "Failed to serialize current_count_root".to_string()));
         }
     }
     
