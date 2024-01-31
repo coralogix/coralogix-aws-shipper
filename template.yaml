@@ -364,7 +364,7 @@ Conditions:
   NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
   AddMetadataNotSet: !Equals [ !Ref AddMetadata, '']
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
-  #UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
+  UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
   IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
   IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
@@ -465,9 +465,9 @@ Conditions:
     - !Condition IsNotificationEnabled
     - !Condition UseKafka
 
-  # UseECRScanWithNotification: !And
-  #   - !Condition UseECRScan
-  #   - !Condition IsNotificationEnabled
+  UseECRScanWithNotification: !And
+    - !Condition UseECRScan
+    - !Condition IsNotificationEnabled
 
 Rules:
   ValidateCloudWatchLogs:
@@ -1128,49 +1128,49 @@ Resources:
 # ----- With ECR Scan Image -----#
 ##################################
 
-  # LambdaFunctionWithECRScan:
-  #   Condition: UseECRScan
-  #   Type: AWS::Serverless::Function
-  #   Properties:
-  #     CodeUri: .
-  #     Policies:
-  #       - AWSLambdaBasicExecutionRole
-  #       - Statement:
-  #           - Effect: Allow
-  #             Action:
-  #               - 'ecr:GetImageScanFindings'
-  #             Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*'
-  #       - Statement:
-  #           - Effect: Allow
-  #             Action:
-  #               - events:PutEvents
-  #             Resource: "*"
-  # ECRScanTrigger:
-  #   Condition: UseECRScan
-  #   Type: AWS::Events::Rule
-  #   Properties:
-  #     Description: "Trigger for ECR image scan completion"
-  #     EventPattern:
-  #       source:
-  #         - "aws.ecr"
-  #       detail-type:
-  #         - "ECR Image Scan"
-  #       detail:
-  #         scan-status:
-  #           - "COMPLETE"
-  #     Targets:
-  #       - Arn: !GetAtt LambdaFunctionWithECRScan.Arn
-  #         Id: "TargetFunctionV1"
-  # LambdaFunctionNotificationSubscriptionWithECRScanTopic:
-  #   Condition: UseECRScanWithNotification
-  #   Type: AWS::SNS::Subscription
-  #   Properties:
-  #     Protocol: email
-  #     Endpoint: !Ref NotificationEmail
-  #     TopicArn: !GetAtt LambdaFunctionWithECRScan.DestinationTopic
+  LambdaFunctionWithECRScan:
+    Condition: UseECRScan
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'ecr:GetImageScanFindings'
+              Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*'
+        - Statement:
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: "*"
+  ECRScanTrigger:
+    Condition: UseECRScan
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Trigger for ECR image scan completion"
+      EventPattern:
+        source:
+          - "aws.ecr"
+        detail-type:
+          - "ECR Image Scan"
+        detail:
+          scan-status:
+            - "COMPLETE"
+      Targets:
+        - Arn: !GetAtt LambdaFunctionWithECRScan.Arn
+          Id: "TargetFunctionV1"
+  LambdaFunctionNotificationSubscriptionWithECRScanTopic:
+    Condition: UseECRScanWithNotification
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+      TopicArn: !GetAtt LambdaFunctionWithECRScan.DestinationTopic
 
   
-  ################################  PPPVp
+  ################################ 
   # ----- Custom Resource -----  #
   ################################
 
