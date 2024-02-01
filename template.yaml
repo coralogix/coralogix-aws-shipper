@@ -446,6 +446,7 @@ Conditions:
   UseMSKWithNotification: !And
     - !Condition UseMSK
     - !Condition IsNotificationEnabled
+
   UseKatkaTopicARNWithNotification: !And
     - !Condition IsKafkaIntegration
     - !Condition IsNotificationEnabled
@@ -1128,6 +1129,10 @@ Resources:
               Action:
                 - events:PutEvents
               Resource: "*"
+      EventInvokeConfig: 
+        DestinationConfig:
+          OnFailure:
+            Type: SNS
   ECRScanTrigger:
     Condition: UseECRScan
     Type: AWS::Events::Rule
