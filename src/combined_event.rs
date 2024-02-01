@@ -48,8 +48,9 @@ impl<'de> Deserialize<'de> for CombinedEvent {
             return Ok(CombinedEvent::Sqs(event));
         }
 
-        // IMPORTANT: kinesis must be evaluated last as it uses an arbitrary map to evaluate records
-        // . Since all other fields are optional, this map could potentially match any event type with a Record field.
+        // IMPORTANT: kafka must be evaluated last as it uses an arbitrary map to evaluate records.
+        // Since all other fields are optional, this map could potentially match any arbitrary JSON
+        // and result in empty values.
         if let Ok(event) = KafkaEvent::deserialize(&raw_value) {
             tracing::debug!("kafka event detected");
 
