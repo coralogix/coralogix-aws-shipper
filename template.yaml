@@ -1133,6 +1133,7 @@ Resources:
         DestinationConfig:
           OnFailure:
             Type: SNS
+  
   ECRScanTrigger:
     Condition: UseECRScan
     Type: AWS::Events::Rule
@@ -1149,13 +1150,14 @@ Resources:
       Targets:
         - Arn: !GetAtt LambdaFunctionWithECRScan.Arn
           Id: "TargetFunctionV1"
+  
   LambdaFunctionNotificationSubscriptionWithECRScanTopic:
-    Condition: UseECRScanWithNotification
     Type: AWS::SNS::Subscription
+    Condition: UseECRScanWithNotification
     Properties:
       Protocol: email
       Endpoint: !Ref NotificationEmail
-      TopicArn: !GetAtt LambdaFunctionWithECRScan.DestinationTopic
+      TopicArn: !Ref LambdaFunctionWithECRScan.DestinationTopic
 
   
   ################################ 
