@@ -26,7 +26,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 0.0.11
+    SemanticVersion: 0.0.13
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -41,7 +41,6 @@ Metadata:
           - SubsystemName
           - ApiKey
           - StoreAPIKeyInSecretsManager
-
       - Label:
           default: S3/CloudTrail/VpcFlow/S3Csv configuration
         Parameters:
@@ -52,7 +51,6 @@ Metadata:
           - SNSTopicArn
           - SQSTopicArn
           - CSVDelimiter
-
       - Label:
           default: Kafka & MSK configuration
         Parameters:
@@ -61,7 +59,6 @@ Metadata:
           - KafkaSubnets
           - KafkaSecurityGroups
           - MSKClusterArn
-
       - Label:
           default: Cloudwatch configuration
         Parameters:
@@ -85,8 +82,6 @@ Metadata:
           - BlockingPattern
           - SamplingRate
           - AddMetadata
-
-
       - Label:
           default: Lambda configuration
         Parameters:
@@ -94,7 +89,6 @@ Metadata:
           - FunctionTimeout
           - LogLevel
           - LambdaLogRetention
-
       - Label:
           default: VPC configuration Optional
         Parameters:
@@ -139,6 +133,7 @@ Parameters:
   SubsystemName:
     Type: String
     Description: The subsystem name of your application (https://coralogix.com/docs/application-and-subsystem-names/)
+    Default: ''
 
   NewlinePattern:
     Type: String
@@ -327,14 +322,14 @@ Parameters:
     Default: ''
   
   KafkaSubnets:
-    Type: List<AWS::EC2::Subnet::Id>
+    Type: CommaDelimitedList
     Description: |
       The subnets associated with your VPC for each Kafka broker
       [Not Required when using MSK]
     Default: ""
 
   KafkaSecurityGroups:
-    Type: List<AWS::EC2::SecurityGroup::Id>
+    Type: CommaDelimitedList
     Description: |
       The security groups associated with your VPC for each Kafka broker
       [Not Required when using MSK]
@@ -398,7 +393,6 @@ Conditions:
   UseKinesisStreamARN: !And 
       - !Not [ !Equals [ !Ref KinesisStreamArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-
   UseSNSTopicARN: 
     Fn::Or: 
     - !And 
@@ -408,15 +402,12 @@ Conditions:
     - !And 
       - !Not [ !Equals [ !Ref SNSIntegrationTopicArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-
   UseVpcConfig: !And 
     - !Not [ !Equals [ !Ref LambdaSubnetID, '' ] ]
     - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
-
   UseCloudwatchLogs: !And
     - !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
     - !Not [ !Condition UseSNSTopicARN ] 
-  
   UseDefault: !And 
     - !Not [ !Condition UseCloudwatchLogs ]
     - !Not [ !Condition UseSNSTopicARN  ]
@@ -429,27 +420,22 @@ Conditions:
   UseDefaultWithNotification: !And
     - !Condition UseDefault
     - !Condition IsNotificationEnabled
-
   UseCloudwatchLogsWithNotification: !And
     - !Condition UseCloudwatchLogs
     - !Condition IsNotificationEnabled
-
   UseKinesisTopicARNWithNotification: !And
     - !Condition UseKinesisStreamARN
     - !Condition IsNotificationEnabled
   UseSQSTopicARNWithNotification: !And
     - !Condition UseSQSTopicARN
     - !Condition IsNotificationEnabled
-
   UseSNSTopicARNWithNotification: !And
     - !Condition UseSNSTopicARN
     - !Condition IsNotificationEnabled
-  
   UseMSK: !And
     - !Not [ !Equals [ !Ref MSKClusterArn, '' ] ]
     - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
     - !Equals [ !Ref IntegrationType, 'MSK' ]
-
   UseKafka: !And
     - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
     - !Equals [ !Ref MSKClusterArn, '' ]
@@ -459,7 +445,6 @@ Conditions:
   UseMSKWithNotification: !And
     - !Condition UseMSK
     - !Condition IsNotificationEnabled
-
   UseKatkaTopicARNWithNotification: !And
     - !Condition IsKafkaIntegration
     - !Condition IsNotificationEnabled
@@ -661,7 +646,6 @@ Resources:
                     - 'secretsmanager:GetSecretValue'
                   Resource: '*'
 
-
   LambdaLogGroupDefault:
     Condition: UseDefault
     DeletionPolicy: Retain
@@ -764,7 +748,6 @@ Resources:
               - IsSNSIntegration
               - !Ref SNSIntegrationTopicArn
               - !Ref SNSTopicArn
-
 
   LambdaLogGroupWithSNSTopic:
     Condition: UseSNSTopicARN
@@ -1098,7 +1081,6 @@ Resources:
           OnFailure:
             Type: SNS
 
-
   LambdaTrigger:
     Type: Custom::KafkaTrigger
     Condition: UseKafka
@@ -1224,7 +1206,6 @@ Resources:
                 try:        
                     lambda_arn = event['ResourceProperties']['LambdaArn']
                     lambda_client = boto3.client('lambda')
-
                     if event['RequestType'] in ['Create', 'Update']:
                         StringlogGroupName = event['ResourceProperties']['CloudwatchGroup']
                         logGroupName = StringlogGroupName.split(',')
@@ -1255,7 +1236,6 @@ Resources:
           - |
               #!/usr/bin/python
               # -*- coding: utf-8 -*-
-
               import json, time, boto3
               from urllib import request, parse, error
 
@@ -1283,14 +1263,11 @@ Resources:
                           'NoEcho': no_echo,
                           'Data': response_data
                       }
-
                       json_response_body = json.dumps(response_body).encode('utf-8')
-
                       headers = {
                           'content-type': '',
                           'content-length': str(len(json_response_body))
                       }
-
                       try:
                           req = request.Request(self.response_url, data=json_response_body, headers=headers, method='PUT')
                           with request.urlopen(req) as response:
@@ -1308,7 +1285,6 @@ Resources:
                   mappings = client.list_event_source_mappings(
                       FunctionName=function_name,
                   )["EventSourceMappings"]
-
                   for mapping in mappings:
                       # disable mapping
                       if mapping["State"] == "Enabled":
@@ -1326,14 +1302,12 @@ Resources:
                   responseStatus = CFNResponse.SUCCESS
                   physicalResourceId = event.get("PhysicalResourceId")
                   function_name = event["ResourceProperties"]["Function"]
-
                   try:
                       print("Request Type:", event["RequestType"])
                       if event["RequestType"] in ["Create", "Update"]:
                           if event["RequestType"] == "Update":
                               print('Update event detected, deleting previous mapping(s)')
                               delete_event_source_mappings(function_name)
-
                           response = client.create_event_source_mapping(
                               FunctionName=event["ResourceProperties"]["Function"],
                               BatchSize=int(event["ResourceProperties"]["BatchSize"]),
@@ -1358,20 +1332,16 @@ Resources:
                                   } for securityGroupId in event["ResourceProperties"]["SecurityGroupIds"]
                               ])
                           )
-
                           physicalResourceId = response["UUID"]
                           print(f"EventSourceMapping successfully created: {physicalResourceId}")
                       elif event["RequestType"] == "Delete":
                           delete_event_source_mappings(function_name)
                           print("EventSourceMapping successfully deleted")
-
                   except Exception as exc:
                       print("Failed to process:", exc)
                       responseStatus = CFNResponse.FAILED
                   finally:
                       cfn.send(responseStatus, {}, physical_resource_id=physicalResourceId)
-
-
           - |
               #!/usr/bin/python
               # -*- coding: utf-8 -*-
@@ -1380,10 +1350,8 @@ Resources:
               import boto3
               import cfnresponse
 
-
               print("Loading function")
               s3 = boto3.client('s3')
-
 
               def lambda_handler(event, context):
                   print("Received event:", json.dumps(event, indent=2))
@@ -1404,7 +1372,6 @@ Resources:
                                   BucketNotificationConfiguration['LambdaFunctionConfigurations']
                               )
                           )
-
                       if event['RequestType'] in ['Create', 'Update']:
                           BucketNotificationConfiguration['LambdaFunctionConfigurations'].append({
                               'Id': event.get('PhysicalResourceId', context.aws_request_id),
@@ -1427,10 +1394,8 @@ Resources:
                                   's3:ObjectCreated:*'
                               ]
                           })
-
                       if len(BucketNotificationConfiguration['LambdaFunctionConfigurations']) == 0:
                           BucketNotificationConfiguration.pop('LambdaFunctionConfigurations')
-
                       print(f'nofication configuration: {BucketNotificationConfiguration}')
                       s3.put_bucket_notification_configuration(
                           Bucket=bucket,

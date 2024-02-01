@@ -1,4 +1,15 @@
 # Changelog
+
+## v0.0.13 Beta / 2024-02-01
+
+### 🧰 Bug fixes 🧰
+- Fix bug causing non-kafka events to show up as kafka event
+
+## v0.0.12 Beta / 2024-01-31
+
+### 🧰 Bug fixes 🧰
+- Update aws_lambda_events 
+
 ## v0.0.11 Beta / 2024-01-25
 ### 🚀 New components 🚀
 - Added support for AWS MSK and Kafka Integration type
