@@ -38,14 +38,29 @@ impl<'de> Deserialize<'de> for CombinedEvent {
             return Ok(CombinedEvent::CloudWatchLogs(event));
         }
 
-        if let Ok(event) = KafkaEvent::deserialize(&raw_value) {
-            tracing::debug!("kafka event detected");
-            return Ok(CombinedEvent::Kafka(event));
+        if let Ok(event) = KinesisEvent::deserialize(&raw_value) {
+            tracing::debug!("kinesis event detected");
+            return Ok(CombinedEvent::Kinesis(event));
         }
 
         if let Ok(event) = SqsEvent::deserialize(&raw_value) {
             tracing::debug!("sqs event detected");
             return Ok(CombinedEvent::Sqs(event));
+        }
+
+        // IMPORTANT: kinesis must be evaluated last as it uses an arbitrary map to evaluate records
+        // . Since all other fields are optional, this map could potentially match any event type with a Record field.
+        if let Ok(event) = KafkaEvent::deserialize(&raw_value) {
+            tracing::debug!("kafka event detected");
+
+            // kafka events triggering a lambda function should always have at least one record
+            // if not, it is likely an unsupport or bad event
+            if event.records.is_empty() {
+                return Err(de::Error::custom(format!(
+                    "unsupported or bad event type: {raw_value}"
+                )));
+            }
+            return Ok(CombinedEvent::Kafka(event));
         }
 
         Err(de::Error::custom(format!(
