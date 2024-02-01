@@ -1,11 +1,5 @@
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
-use aws_lambda_events::event::cloudwatch_logs::LogsEvent;
-use aws_lambda_events::event::s3::S3Event;
-use aws_lambda_events::kafka::KafkaEvent;
-use aws_lambda_events::sns::SnsEvent;
-use aws_lambda_events::sqs::SqsEvent;
-use aws_lambda_events::event::kinesis::KinesisEvent;
 use aws_sdk_s3::Client;
 use coralogix_aws_shipper::combined_event::CombinedEvent;
 use coralogix_aws_shipper::config::Config;
@@ -160,12 +154,11 @@ async fn run_test_s3_event() {
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -222,15 +215,14 @@ async fn run_test_folder_s3_event() {
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/elb1/s3.log");
-    let evt: S3Event = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         s3event_string(bucket, key).as_str(),
     )
     .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
-
+    let event = LambdaEvent::new(evt, Context::default());
+    
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
@@ -285,7 +277,7 @@ async fn run_cloudtraillogs_s3_event() {
         .expect("failed to create s3 client");
     let config = Config::load_from_env().expect("failed to load config from env");
 
-    let evt: S3Event = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         s3event_string(
             "coralogix-serverless-repo",
             "coralogix-aws-shipper/cloudtrail.log.gz",
@@ -295,8 +287,7 @@ async fn run_cloudtraillogs_s3_event() {
     .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -356,12 +347,11 @@ async fn run_csv_s3_event() {
         "coralogix-serverless-repo",
         "coralogix-aws-shipper/s3csv.log",
     );
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -416,7 +406,7 @@ async fn run_vpcflowlgos_s3_event() {
         .expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: S3Event = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         s3event_string(
             "coralogix-serverless-repo",
             "coralogix-aws-shipper/vpcflow.log.gz",
@@ -426,8 +416,7 @@ async fn run_vpcflowlgos_s3_event() {
     .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -481,7 +470,7 @@ async fn run_sns_event() {
     let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: SnsEvent = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "Records": [
             {
@@ -508,8 +497,7 @@ async fn run_sns_event() {
     .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::Sns(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -552,12 +540,11 @@ async fn run_test_s3_event_large() {
         "coralogix-serverless-repo",
         "coralogix-aws-shipper/large.log",
     );
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -627,12 +614,11 @@ async fn run_test_s3_event_large_with_sampling() {
         "coralogix-serverless-repo",
         "coralogix-aws-shipper/large.log",
     );
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -705,7 +691,7 @@ async fn run_cloudwatchlogs_event() {
     let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: LogsEvent = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "awslogs": {
               "data": "H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA=="
@@ -714,8 +700,7 @@ async fn run_cloudwatchlogs_event() {
     .expect("failed to parse cloudwatchlogs event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::CloudWatchLogs(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -776,12 +761,11 @@ async fn run_blocking_and_newline_pattern() {
         "coralogix-aws-shipper/multiline.log",
     );
 
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -840,12 +824,11 @@ async fn run_test_empty_s3_event() {
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/empty.log");
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -879,7 +862,7 @@ async fn run_sqs_s3_event() {
     let s3_client = get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: SqsEvent = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "Records": [
               {
@@ -904,8 +887,7 @@ async fn run_sqs_s3_event() {
     .expect("failed to parse sqs_s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::Sqs(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -958,7 +940,7 @@ async fn run_sqs_event() {
     let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: SqsEvent = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "Records": [
               {
@@ -983,8 +965,7 @@ async fn run_sqs_event() {
     .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::Sqs(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -1038,7 +1019,7 @@ async fn run_kinesis_event() {
     let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: KinesisEvent = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "Records": [
                 {
@@ -1063,8 +1044,7 @@ async fn run_kinesis_event() {
     .expect("failed to parse kinesis_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::Kinesis(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -1123,12 +1103,11 @@ async fn run_cloudfront_s3_event() {
         "coralogix-serverless-repo",
         "coralogix-aws-shipper/cloudfront.gz",
     );
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -1187,12 +1166,11 @@ async fn run_test_s3_event_with_metadata() {
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -1251,12 +1229,11 @@ async fn run_test_s3_event_elb() {
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/elb.log.gz");
-    let evt: S3Event = serde_json::from_str(s3event_string(bucket, key).as_str())
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::S3(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -1313,7 +1290,7 @@ async fn run_kafka_event() {
     let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: KafkaEvent = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "eventSource": "SelfManagedKafka",
             "bootstrapServers":"b-2.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092,b-1.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092",
@@ -1352,8 +1329,7 @@ async fn run_kafka_event() {
     .expect("failed to parse kinesis_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::Kafka(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -1388,7 +1364,7 @@ async fn run_kafka_event_with_base64() {
     let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
-    let evt: KafkaEvent = serde_json::from_str(
+    let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "eventSource": "SelfManagedKafka",
             "bootstrapServers":"b-2.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092,b-1.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092",
@@ -1427,8 +1403,7 @@ async fn run_kafka_event_with_base64() {
     .expect("failed to parse kinesis_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
-    let combined_event = CombinedEvent::Kafka(evt);
-    let event = LambdaEvent::new(combined_event, Context::default());
+    let event = LambdaEvent::new(evt, Context::default());
 
     coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
         .await
@@ -1502,4 +1477,16 @@ async fn test_kafka_event() {
         run_kafka_event_with_base64(),
     )
     .await;
+}
+
+
+#[tokio::test]
+async fn test_invalid_event() {
+    let r = serde_json::from_str::<CombinedEvent>(r#"{
+        "test": "unsupported event",
+        "type": "invalid"
+    }"#).map_err(|e| e.to_string());
+
+    assert!(r.is_err() == true);
+    assert!(r.err() == Some("unsupported or bad event type: {\"test\":\"unsupported event\",\"type\":\"invalid\"}".to_string()));
 }
