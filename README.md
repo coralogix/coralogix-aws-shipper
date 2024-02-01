@@ -87,7 +87,7 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | ApiKey                      | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.                                                                                                                    |               | :heavy_check_mark: |
 | StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          | :heavy_check_mark: |
 
-> **Note:** EcrScan doesnt need any extra configuration.
+> **Note:** EcrScan doesn't need any extra configuration.
 
 ### S3/CloudTrail/VpcFlow/S3Csv Configuration
 
