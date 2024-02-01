@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.13 Beta / 2024-02-01
+
+### 🧰 Bug fixes 🧰
+- Fix bug causing non-kafka events to show up as kafka event
+
 ## v0.0.12 Beta / 2024-01-31
 
 ### 🧰 Bug fixes 🧰
