@@ -59,6 +59,7 @@ Metadata:
           - KafkaSubnets
           - KafkaSecurityGroups
           - MSKClusterArn
+          - KafkaBatchSize
       - Label:
           default: Cloudwatch configuration
         Parameters:
