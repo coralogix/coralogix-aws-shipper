@@ -1,9 +1,7 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
-use aws_lambda_events::ecr_scan::{EcrScanEvent, self};
+use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::encodings::Base64Data;
 use aws_lambda_events::kafka::KafkaRecord;
-use aws_sdk_ecr::types::ImageScanFinding;
-use aws_sdk_ecr::types::ImageIdentifier;
 use aws_sdk_s3::Client;
 use aws_sdk_ecr::Client as EcrClient;
 use cx_sdk_rest_logs::DynLogExporter;
@@ -327,30 +325,6 @@ pub async fn cloudwatch_logs(
 
     Ok(())
 }
-trait ToStringExt {
-    fn to_string_ext(&self) -> String;
-}
-
-impl ToStringExt for ImageScanFinding {
-    fn to_string_ext(&self) -> String {
-        let name = self.name.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
-        let description = self.description.as_ref().map(|s| s.as_str()).unwrap_or("No description");
-        let uri = self.uri.as_ref().map(|s| s.as_str()).unwrap_or("No URI");
-        let severity = self.severity.as_ref().map(|s| format!("{:?}", s)).unwrap_or("Unknown severity".to_string());
-
-        let attributes = match &self.attributes {
-            Some(attrs) => attrs.iter().map(|attr| {
-                let key = &attr.key;
-                let value = attr.value.as_deref().unwrap_or("N/A");
-                format!("{}: {}", key, &value)
-            }).collect::<Vec<String>>().join(", "),
-            None => "No attributes".to_string(),
-        };
-
-        format!("Name: {}, Description: {}, URI: {}, Severity: {}, Attributes: [{}]",
-                name, description, uri, severity, attributes)
-    }
-}
 
 pub async fn ecr_scan_logs(
     ecr_scan_event: EcrScanEvent,
@@ -384,92 +358,9 @@ pub async fn ecr_scan_logs(
         &metadata_instance,
         coralogix_exporter,
     ).await?;
-    // if let Some(repository_name) = ecr_scan_event.detail.repository_name.as_ref() {
-    //     if let Some(image_id) = ecr_scan_event.detail.image_digest.as_ref() {
-    //         let image_identifier = ImageIdentifier::builder()
-    //             .image_digest(image_id)
-    //             .image_tag(ecr_scan_event.detail.image_tags[0].clone())
-    //             .build();
-    //         let request = ecr_client.describe_image_scan_findings()
-    //             .repository_name(repository_name)
-    //             .image_id(image_identifier);
-    //         let response = request.send().await?;
-    //         // Handle the response
-    //         debug!("Response: {:?}", response);
-    //         let repository_name = ecr_scan_event.detail.repository_name;
-    //         let image_tags = ecr_scan_event.detail.image_tags;
-
-    //         if let Some(image_scan_findings) = response.image_scan_findings {
-    //             let mut findings_strings: Vec<String> = Vec::new();
-    //             if let Some(findings) = image_scan_findings.findings {    
-    //                 debug!("Findings: {:?}", findings);
-    //                 let json_strings: Vec<String> = findings.iter()
-    //                     .map(|f| serde_json::to_string(f).unwrap_or_else(|_| "{}".to_string()))
-    //                     .collect();
-  
-    //                 findings_strings = findings.iter().map(|f| f.to_string_ext()).collect();          
-    //             } else {
-    //                 debug!("No findings in the response");
-    //             }
-    //             coralogix::process_batches(
-    //                 findings_strings,
-    //                 &defined_app_name,
-    //                 &defined_sub_name,
-    //                 config,
-    //                 &metadata_instance,
-    //                 coralogix_exporter,
-    //             )
-    //             .await?;
-
-    //         } else {
-    //             debug!("No image scan findings in the response");
-    //         }
-    //     }
-    // }
-    //let ecr_client = EcrClient::new(Default::default());
-    //batches.push(ecr_scan_event.clone());
-    //coralogix::process_batches(
-    //    batches,
-    //    &defined_app_name,
-    //    &defined_sub_name,
-    //    config,
-    //    &metadata_instance,
-    //    coralogix_exporter,
-    //)
-    //.await?;
     Ok(())
 }
 
-fn serialize_image_scan_finding(finding: &ImageScanFinding) -> String {
-    
-    
-    
-    let mut result = String::from("{");
-
-    // Serialize each field
-    if let Some(name) = &finding.name {
-        result.push_str(&format!("\"name\": \"{}\", ", name));
-    }
-    if let Some(description) = &finding.description {
-        result.push_str(&format!("\"description\": \"{}\", ", description));
-    }
-    if let Some(uri) = &finding.uri {
-        result.push_str(&format!("\"uri\": \"{}\", ", uri));
-    }
-    if let Some(severity) = &finding.severity {
-        // Assuming `FindingSeverity` can be converted to a string representation
-        result.push_str(&format!("\"severity\": \"{:?}\", ", severity));
-    }
-    // Serialize `attributes` if it's not too complex, otherwise you might need a nested loop
-
-    // Remove the last comma and space
-    if result.ends_with(", ") {
-        result.truncate(result.len() - 2);
-    }
-
-    result.push('}');
-    result
-}
 
 pub async fn get_bytes_from_s3(
     s3_client: &Client,
@@ -523,6 +414,7 @@ async fn process_vpcflows(
     blocking_pattern: &str,
     key: String,
 ) -> Result<Vec<String>, Error> {
+    info!("VPC Flow Integration Type");
     let v = ungzip(raw_data, key)?;
     let s = String::from_utf8(v)?;
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
@@ -551,6 +443,7 @@ async fn process_csv(
     blocking_pattern: &str,
     key: String,
 ) -> Result<Vec<String>, Error> {
+    info!("CSV Integration Type");
     if csv_delimiter == "\\t" {
         debug!("Replacing \\t with \t");
         csv_delimiter = "\t";}

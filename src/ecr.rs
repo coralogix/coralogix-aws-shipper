@@ -5,13 +5,18 @@ use lambda_runtime::Error;
 use std::string::String;
 use tracing::info;
 use aws_sdk_ecr::types::ImageIdentifier;
-
+use tracing::debug;
 use crate::config::Config;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct CurrentCountRoot {
     metadata: EcrMetadata,
-    ecr_scan_summary: Vec<String>,
+    ecr_scan_summary: EcrScanSummary,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct EcrScanSummary {
+    finding_severity_counts: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -76,7 +81,7 @@ enum FindingSeverity {
 
 pub async fn process_ecr_scan_event(
     event: EcrScanEvent,
-    config: &Config,
+    _config: &Config,
     ecr_client: &EcrClient,
 ) -> Result<Vec<String>, Error> {
     let current_severity_count = event.detail.finding_severity_counts;
@@ -149,10 +154,12 @@ pub async fn process_ecr_scan_event(
             }  
         }   
         if let Some(finding_severity_counts) = image_scan_findings.finding_severity_counts {
-            let ecr_scan_summary: Vec<String> = finding_severity_counts.iter()
+            let finding_severity_counts: Vec<String> = finding_severity_counts.iter()
                 .map(|(severity, count)| format!("{:?}: {}", severity, count))
                 .collect();
-            
+            let ecr_scan_summary: EcrScanSummary = EcrScanSummary {
+                finding_severity_counts: finding_severity_counts,
+            };
             let current_count_root = CurrentCountRoot {
                 metadata: current_ecr_metadata,
                 ecr_scan_summary: ecr_scan_summary,
