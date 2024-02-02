@@ -2,6 +2,7 @@ use aws_lambda_events::cloudwatch_logs::LogsEvent;
 use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
 use aws_sdk_s3::Client;
+use aws_sdk_ecr::Client as EcrClient;
 use combined_event::CombinedEvent;
 use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
 use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
@@ -63,6 +64,7 @@ pub fn set_up_coralogix_exporter(config: &Config) -> Result<DynLogExporter, Erro
 
 // lambda handler
 pub async fn function_handler(
+    ecr_client: &EcrClient,
     s3_client: &Client,
     coralogix_exporter: DynLogExporter,
     config: &Config,
@@ -151,6 +153,7 @@ pub async fn function_handler(
         CombinedEvent::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);
             crate::process::ecr_scan_logs(
+                ecr_client,
                 ecr_scan_event,
                 coralogix_exporter.clone(),
                 config,

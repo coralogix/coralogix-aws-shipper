@@ -102,7 +102,8 @@ pub async fn process_ecr_scan_event(
         .repository_name(current_ecr_metadata.repository.clone())
         .image_id(image_identifier)
         .send();
-    let response = request.await?;
+    let response  = request.await?;
+    debug!("ECR response: {:?}", response);
     let image_scan_findings = match response.image_scan_findings {
         Some(findings) => findings,
         None => return Err(Error::from("No image scan findings available")),
