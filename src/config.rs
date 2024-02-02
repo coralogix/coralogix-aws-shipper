@@ -37,6 +37,7 @@ pub enum IntegrationType {
     Kinesis,
     CloudFront,
     Kafka,
+    EcrScan,
 }
 
 impl FromStr for IntegrationType {
@@ -55,6 +56,7 @@ impl FromStr for IntegrationType {
             "CloudFront" => Ok(IntegrationType::CloudFront),
             "MSK" => Ok(IntegrationType::Kafka),
             "Kafka" => Ok(IntegrationType::Kafka),
+            "EcrScan" => Ok(IntegrationType::EcrScan),
             other => Err(format!("Invalid or Unsupported integration type {}", other)),
         }
     }
