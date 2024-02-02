@@ -1,7 +1,9 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
+use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::encodings::Base64Data;
 use aws_lambda_events::kafka::KafkaRecord;
 use aws_sdk_s3::Client;
+use aws_sdk_ecr::Client as EcrClient;
 use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
 use flate2::read::MultiGzDecoder;
@@ -19,6 +21,7 @@ use base64::prelude::*;
 
 use crate::config::{Config, IntegrationType};
 use crate::coralogix;
+use crate::ecr;
 
 
 
@@ -323,6 +326,42 @@ pub async fn cloudwatch_logs(
     Ok(())
 }
 
+pub async fn ecr_scan_logs(
+    ecr_scan_event: EcrScanEvent,
+    coralogix_exporter: DynLogExporter,
+    config: &Config,
+) -> Result<(), Error> {
+    let metadata_instance = Metadata {
+        stream_name: String::new(),
+        bucket_name: String::new(),
+        key_name: String::new(),
+    };
+    let defined_app_name = config
+        .app_name
+        .clone()
+        .unwrap_or_else(|| "NO APPLICATION NAME".to_string());
+    let defined_sub_name = config
+        .sub_name
+        .clone()
+        .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
+    //let mut batches = Vec::new();
+    
+    tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
+    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::v2023_11_09()).await;
+    let ecr_client = EcrClient::new(&aws_config);
+    let payload = ecr::process_ecr_scan_event(ecr_scan_event, config, &ecr_client).await?;
+    coralogix::process_batches(
+        payload,
+        &defined_app_name,
+        &defined_sub_name,
+        config,
+        &metadata_instance,
+        coralogix_exporter,
+    ).await?;
+    Ok(())
+}
+
+
 pub async fn get_bytes_from_s3(
     s3_client: &Client,
     bucket: String,
@@ -375,6 +414,7 @@ async fn process_vpcflows(
     blocking_pattern: &str,
     key: String,
 ) -> Result<Vec<String>, Error> {
+    info!("VPC Flow Integration Type");
     let v = ungzip(raw_data, key)?;
     let s = String::from_utf8(v)?;
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
@@ -403,6 +443,7 @@ async fn process_csv(
     blocking_pattern: &str,
     key: String,
 ) -> Result<Vec<String>, Error> {
+    info!("CSV Integration Type");
     if csv_delimiter == "\\t" {
         debug!("Replacing \\t with \t");
         csv_delimiter = "\t";}

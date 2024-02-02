@@ -4,9 +4,12 @@ use aws_lambda_events::event::sns::SnsEvent;
 use aws_lambda_events::event::sqs::SqsEvent;
 use aws_lambda_events::event::kinesis::KinesisEvent;
 use aws_lambda_events::event::kafka::KafkaEvent;
+use aws_lambda_events::ecr_scan::EcrScanEvent;
 use serde::de::{self, Deserialize, Deserializer};
 use serde_json::Value;
+use tracing::debug;
 
+#[derive(Debug)]
 pub enum CombinedEvent {
     S3(S3Event),
     Sns(SnsEvent),
@@ -14,6 +17,7 @@ pub enum CombinedEvent {
     Sqs(SqsEvent),
     Kinesis(KinesisEvent),
     Kafka(KafkaEvent),
+    EcrScan(EcrScanEvent),
 }
 
 impl<'de> Deserialize<'de> for CombinedEvent {
@@ -22,37 +26,42 @@ impl<'de> Deserialize<'de> for CombinedEvent {
         D: Deserializer<'de>,
     {
         let raw_value: Value = Deserialize::deserialize(deserializer)?;
-
+        debug!("raw_value: {:?}", raw_value);
         if let Ok(event) = S3Event::deserialize(&raw_value) {
-            tracing::debug!("s3 event detected");
+            tracing::info!("s3 event detected");
             return Ok(CombinedEvent::S3(event));
         }
 
         if let Ok(event) = SnsEvent::deserialize(&raw_value) {
-            tracing::debug!("sns event detected");
+            tracing::info!("sns event detected");
             return Ok(CombinedEvent::Sns(event));
+        }
+        if let Ok(event) = EcrScanEvent::deserialize(&raw_value) {
+            tracing::info!("ecr scan event detected");
+            return Ok(CombinedEvent::EcrScan(event));
         }
 
         if let Ok(event) = LogsEvent::deserialize(&raw_value) {
-            tracing::debug!("cloudwatch event detected");
+            tracing::info!("cloudwatch event detected");
             return Ok(CombinedEvent::CloudWatchLogs(event));
         }
 
         if let Ok(event) = KinesisEvent::deserialize(&raw_value) {
-            tracing::debug!("kinesis event detected");
+            tracing::info!("kinesis event detected");
             return Ok(CombinedEvent::Kinesis(event));
         }
 
         if let Ok(event) = SqsEvent::deserialize(&raw_value) {
-            tracing::debug!("sqs event detected");
+            tracing::info!("sqs event detected");
             return Ok(CombinedEvent::Sqs(event));
         }
+        
 
         // IMPORTANT: kafka must be evaluated last as it uses an arbitrary map to evaluate records.
         // Since all other fields are optional, this map could potentially match any arbitrary JSON
         // and result in empty values.
         if let Ok(event) = KafkaEvent::deserialize(&raw_value) {
-            tracing::debug!("kafka event detected");
+            tracing::info!("kafka event detected");
 
             // kafka events triggering a lambda function should always have at least one record
             // if not, it is likely an unsupport or bad event

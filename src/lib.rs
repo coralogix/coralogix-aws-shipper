@@ -21,6 +21,7 @@ pub mod combined_event;
 pub mod config;
 pub mod coralogix;
 pub mod process;
+pub mod ecr;
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()
@@ -71,6 +72,8 @@ pub async fn function_handler(
 
     // TODO this may need to be moved process
     // TODO will this always produce just one bucket/key? (check this)
+    debug!("Handling event: {:?}", evt);
+    debug!("Handling event payload: {:?}", evt.payload);
     match evt.payload {
         CombinedEvent::S3(s3_event) => {
             info!("S3 EVENT Detected");
@@ -145,7 +148,14 @@ pub async fn function_handler(
                 ).await?;
             }
         }
-            
+        CombinedEvent::EcrScan(ecr_scan_event) => {
+            debug!("ECR Scan event: {:?}", ecr_scan_event);
+            crate::process::ecr_scan_logs(
+                ecr_scan_event,
+                coralogix_exporter.clone(),
+                config,
+            ).await?;
+        }     
     };
 
     Ok(())

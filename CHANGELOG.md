@@ -1,5 +1,7 @@
 # Changelog
-
+## v0.0.14 Beta /
+### 🚀 New components 🚀
+- Added support for ECR Image Scan
 ## v0.0.13 Beta / 2024-02-01
 
 ### 🧰 Bug fixes 🧰
