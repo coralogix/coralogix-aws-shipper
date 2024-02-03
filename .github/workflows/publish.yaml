@@ -72,13 +72,13 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      - uses: aws-actions/configure-aws-credentials@v2
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
           cache: 'pip' # caching pip dependencies
@@ -109,7 +109,7 @@ jobs:
             --output-template-file packaged.yaml
 
       - name: store
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: packaged.yaml
           path: packaged.yaml
@@ -122,14 +122,14 @@ jobs:
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
     steps:
-      - uses: aws-actions/configure-aws-credentials@v2
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - name: download
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: packaged.yaml
 
