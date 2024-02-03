@@ -1,5 +1,6 @@
 # Changelog
 ## v1.0.0 🎉 / 2024-02-04
+- GA release of Coralogix AWS Shipper
 
 ## v0.0.14 Beta / 2024-02-03
 ### 🚀 New components 🚀
