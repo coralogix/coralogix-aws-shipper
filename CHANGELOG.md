@@ -1,14 +1,14 @@
 # Changelog
-## v0.0.14 Beta /
+
+## v0.0.14 Beta / 2024-02-03
 ### 🚀 New components 🚀
 - Added support for ECR Image Scan
-## v0.0.13 Beta / 2024-02-01
 
+## v0.0.13 Beta / 2024-02-01
 ### 🧰 Bug fixes 🧰
 - Fix bug causing non-kafka events to show up as kafka event
 
 ## v0.0.12 Beta / 2024-01-31
-
 ### 🧰 Bug fixes 🧰
 - Update aws_lambda_events 
 
@@ -66,7 +66,7 @@
 - Reduce Secret Manage IAM permissions
 - Added default App or Subsystem name.
 
-## v0.0.2 Beta / 2023-13-15
+## v0.0.2 Beta / 2023-12-15
 
 ### 🧰 Bug fixes 🧰
 - Lambda fail on empty empty gzip file for ELB logs.
