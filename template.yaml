@@ -3,7 +3,7 @@ Transform: AWS::Serverless-2016-10-31
 
 Description: |
   Send logs to Coralogix from AWS, (S3, SNS, Cloudwatch and more)
-  This is a beta release, please report any issues to:
+  Please report any issues to:
   github.com/coralogix/coralogix-aws-shipper/issues
 Metadata:
   AWS::ServerlessRepo::Application:
@@ -26,7 +26,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 0.0.14
+    SemanticVersion: 1.0.0
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
