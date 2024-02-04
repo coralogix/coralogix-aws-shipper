@@ -136,7 +136,7 @@ jobs:
   publish:
     name: publish
     needs: build
-    if: ${{ github.event_name == 'workflow_dispatch' || success() || github.ref == 'refs/heads/master' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (success() && github.ref == 'refs/heads/master') }}
     runs-on: ubuntu-latest
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
