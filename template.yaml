@@ -2,13 +2,13 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
 Description: |
-  Send logs to Coralogix from AWS, (S3, SNS, Cloudwatch and more)
+  Send logs to Coralogix from AWS (S3, SNS, Cloudwatch and more)
   Please report any issues to:
   github.com/coralogix/coralogix-aws-shipper/issues
 Metadata:
   AWS::ServerlessRepo::Application:
     Name: coralogix-aws-shipper
-    Description: Send logs to Coralogix.
+    Description: Send logs to Coralogix from AWS (S3, Cloudtrail, Cloudwatch, msk, SNS, SQS, Kinesis and more)
     Author: Coralogix
     SpdxLicenseId: Apache-2.0
     LicenseUrl: LICENSE
