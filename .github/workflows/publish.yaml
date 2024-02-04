@@ -2,8 +2,6 @@ name: Publish
 
 on:
   push:
-    branches:
-      - master
     paths:
       - 'template.yaml'
        
@@ -87,7 +85,7 @@ jobs:
       - uses: aws-actions/setup-sam@v2
         with:
           use-installer: true
-
+        
       - name: start ssh agent for rust private dependencies
         uses: webfactory/ssh-agent@v0.8.0
         with:
@@ -97,6 +95,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
+
+      - name: sam validate
+        working-directory: ./
+        run: sam validate
 
       - name: sam build
         run: sam build
@@ -117,7 +119,7 @@ jobs:
   publish:
     name: publish
     needs: build
-    if: ${{ github.event_name == 'workflow_dispatch' || success() }}
+    if: ${{ github.event_name == 'workflow_dispatch' || success() || github.ref == 'refs/heads/master' }}
     runs-on: ubuntu-latest
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
