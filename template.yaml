@@ -3,8 +3,7 @@ Transform: AWS::Serverless-2016-10-31
 
 Description: |
   Send logs to Coralogix from AWS (S3, Cloudtrail, Cloudwatch, msk, SNS, SQS, Kinesis and more)
-  Please report any issues to:
-  github.com/coralogix/coralogix-aws-shipper/issues
+  Please report any issues to: github.com/coralogix/coralogix-aws-shipper/issues
 Metadata:
   AWS::ServerlessRepo::Application:
     Name: coralogix-aws-shipper
