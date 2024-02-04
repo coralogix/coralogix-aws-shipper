@@ -61,9 +61,30 @@ jobs:
               sha: context.sha
             })
 
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+          
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: sam validate
+        working-directory: ./
+        run: sam validate
+
   build:
     name: build
-    needs: check_version
+    needs: [check_version , validate]
     if: ${{ github.event_name == 'workflow_dispatch' || (  success() && needs.check_version.outputs.template_updated == 'true' ) }}
     runs-on: ubuntu-latest
     steps:
@@ -95,10 +116,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
-
-      - name: sam validate
-        working-directory: ./
-        run: sam validate
 
       - name: sam build
         run: sam build
