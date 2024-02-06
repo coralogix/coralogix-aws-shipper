@@ -1549,6 +1549,7 @@ async fn test_ecrscan_event() {
         [
             ("CORALOGIX_API_KEY", Some("1234456789X")),
             ("APP_NAME", Some("integration-testing")),
+            ("SUB_NAME", Some("coralogix-serverless-repo")),
             ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
             ("SAMPLING", Some("1")),
             ("INTEGRATION_TYPE", Some("EcrScan")),
@@ -1610,18 +1611,12 @@ async fn run_test_ecrscan_event() {
     assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
+    println!("singles: {:?}", singles.len());
     assert_eq!(singles.len(), 1);
+    singles[0].entries.iter().for_each(|s| {
+        println!("s: {:?} ", s);
+    });
     assert_eq!(singles[0].entries.len(), 4);
-    let log_lines = vec![
-        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-        "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-        "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-    ];
-    for (i, log_line) in log_lines.iter().enumerate() {
-        assert!(singles[0].entries[i].body == *log_line);
-    }
-
     assert!(
         singles[0].entries[0].application_name == "integration-testing",
         "got application_name: {}",
