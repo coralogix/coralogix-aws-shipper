@@ -567,7 +567,6 @@ async fn process_cloudtrail(
 }
 
 pub async fn kafka_logs(
-    topic: String,
     records:  Vec<KafkaRecord>,
     coralogix_exporter: DynLogExporter,
     config: &Config,
@@ -580,7 +579,7 @@ pub async fn kafka_logs(
     let defined_sub_name = config
         .sub_name
         .clone()
-        .unwrap_or(topic);
+        .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
 
     let mut batch = Vec::new();
     for record in records {
@@ -594,7 +593,7 @@ pub async fn kafka_logs(
         }
     }
 
-    let metadata_instance = Metadata::default();    
+    let metadata_instance = Metadata::default();
 
     coralogix::process_batches(
         batch,
