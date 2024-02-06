@@ -1,6 +1,6 @@
 [package]
 name = "coralogix-aws-shipper"
-version = "0.0.13"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]

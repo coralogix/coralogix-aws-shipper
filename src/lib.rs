@@ -127,7 +127,7 @@ pub async fn function_handler(
         }
         CombinedEvent::Kinesis(kinesis_event) => {
             for record in kinesis_event.records {
-                debug!("Kinesis event: {:?}", record);
+                debug!("Kinesis record: {:?}", record);
                 let message = record.kinesis.data;
                 debug!("Kinesis data: {:?}", &message);
                 crate::process::kinesis_logs(
@@ -138,15 +138,16 @@ pub async fn function_handler(
             }
         }
         CombinedEvent::Kafka(kafka_event) => {
-            for (topic, records) in kafka_event.records {
-                debug!("Kafka event: {topic:?} --> {records:?}");
-                crate::process::kafka_logs(
-                    topic,
-                    records,
-                    coralogix_exporter.clone(),
-                    config,
-                ).await?;
+            let mut all_records = Vec::new();
+            for (topic_partition, mut records) in kafka_event.records {
+                debug!("Kafka record: {topic_partition:?} --> {records:?}");
+                all_records.append(&mut records)
             }
+            crate::process::kafka_logs(
+                all_records,
+                coralogix_exporter.clone(),
+                config,
+            ).await?;
         }
         CombinedEvent::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);

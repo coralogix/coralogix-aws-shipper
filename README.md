@@ -1,6 +1,6 @@
 # Forward AWS Logs via Lambda Shipper
 
-[![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-beta-purple)
+[![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-GA-brightgreen)
 
 ## Overview
 
@@ -38,7 +38,7 @@ Coralogix can be configured to receive data directly from your [MSK](https://doc
 
 ### Amazon ECR Image Security Scan
 
-Coralogix can be configured to recieve ECR [Image Scanning](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-scanning.html)
+Coralogix can be configured to receive ECR [Image Scanning](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-scanning.html).
 
 ## Deployment Options
 
@@ -87,7 +87,7 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | ApiKey                      | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.                                                                                                                    |               | :heavy_check_mark: |
 | StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          | :heavy_check_mark: |
 
-> **Note:** EcrScan doesn't need any extra configuration.
+> **Note:** `EcrScan` doesn't need any extra configuration.
 
 ### S3/CloudTrail/VpcFlow/S3Csv Configuration
 
@@ -143,26 +143,24 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 |------------------|-----------------------------------------------------------------------------------------------|---------------|--------------------|
 | KinesisStreamARN | Provide the ARN of the Kinesis Stream to which you want to subscribe for retrieving messages. |               | :heavy_check_mark: |
 
-### MSK & Kafka Configuration
-
-*Kafka*:
+### Kafka Configuration
 
 | Parameter           | Description                                                                   | Default Value | Required           |
 |---------------------|-------------------------------------------------------------------------------|---------------|--------------------|
-| KafkaBrokers        | Comma Delimited List of Kafka broker to connect to                            |               | :heavy_check_mark: |
-| KafkaTopic          | The Kafka topic to subscribe to                                               |               | :heavy_check_mark: |
-| KafkaBatchSize      | The Kafka batch size to use when reading from Kafka                           | 100           |                    |
-| KafkaSecurityGroups | Comma Delimited List of Kafka security groups to use when connecting to Kafka |               | :heavy_check_mark: |
-| KafkaSubnets        | Comma Delimited List of Kafka subnets to use when connecting to Kafka         |               | :heavy_check_mark: |
+| KafkaBrokers        | Comma-delimited list of Kafka brokers to establish a connection with.         |               | :heavy_check_mark: |
+| KafkaTopic          | Subscribe to this Kafka topic for data consumption.                         |               | :heavy_check_mark: |
+| KafkaBatchSize      | Specify the size of data batches to be read from Kafka during each retrieval.     | 100           |                    |
+| KafkaSecurityGroups | Comma-delimited list of Kafka security groups for secure connection setup.    |               | :heavy_check_mark: |
+| KafkaSubnets        | Comma-delimited list of Kafka subnets to use when connecting to Kafka.        |               | :heavy_check_mark: |
 
-*MSK*:
+### MSK Configuration
 
-When using the AWS MSK Integration, your Lambda must be in a VPC with access to the MSK cluster. You can do this by setting the relevant parameters for [vpc configuration](#vpc-configuration-optional).
+Your Lambda function must be in a VPC that has access to the MSK cluster. You can configure your VPC via the provided [VPC configuration parameters](#vpc-configuration-optional).
 
 | Parameter  | Description                                      | Default Value | Required           |
 |------------|--------------------------------------------------|---------------|--------------------|
-| MSKBrokers | Comma Delimited List of MSK broker to connect to |               | :heavy_check_mark: |
-| KafkaTopic | The Kafka topic to subscribe to                  |               | :heavy_check_mark: |
+| MSKBrokers | Comma-delimited list of MSK brokers to connect to. |               | :heavy_check_mark: |
+| KafkaTopic | Subscribe to this Kafka topic for data consumption. |               | :heavy_check_mark: |
 
 ### Generic Configuration (Optional)
 
