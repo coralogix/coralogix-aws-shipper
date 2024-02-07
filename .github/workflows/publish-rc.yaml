@@ -1,0 +1,92 @@
+name: Publish Release Candidate to Staging
+
+on:
+  push:
+    branches:
+      - dev
+  
+  workflow_dispatch: 
+
+env:
+  AWS_DEFAULT_REGION: eu-west-1
+  AWS_SERVERLESS_BUCKET: coralogix-serverless-repo-staging
+  AWS_S3_PREFIX: coralogix-aws-shipper-staging
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: 'pip' # caching pip dependencies
+      - run: pip3 install cargo-lambda
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: start ssh agent for rust private dependencies
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: install protobuf compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: sam build
+        run: sam build
+
+      - name: package
+        run: |
+          sam package \
+            --s3-bucket ${{ env.AWS_SERVERLESS_BUCKET }} \
+            --s3-prefix ${{ env.AWS_S3_PREFIX }} \
+            --output-template-file packaged.yaml
+
+      - name: store
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged.yaml
+          path: packaged.yaml
+
+  publish:
+    name: publish-rc
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' || success() }}
+    runs-on: ubuntu-latest
+    env:
+      AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: download
+        uses: actions/download-artifact@v4
+        with:
+          name: packaged.yaml
+
+      - name: publish
+        run: sam publish --template packaged.yaml
+
+      - name: store
+        run: |
+          aws s3 cp \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            s3://${{ env.AWS_SERVERLESS_BUCKET }}/coralogix-aws-shipper.zip
+
