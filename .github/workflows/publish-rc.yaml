@@ -37,7 +37,7 @@ jobs:
           use-installer: true
 
       - name: start ssh agent for rust private dependencies
-        uses: webfactory/ssh-agent@v0.8.0
+        uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
@@ -57,7 +57,7 @@ jobs:
             --output-template-file packaged.yaml
 
       - name: store
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: packaged.yaml
           path: packaged.yaml
@@ -70,14 +70,14 @@ jobs:
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
     steps:
-      - uses: aws-actions/configure-aws-credentials@v2
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - name: download
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: packaged.yaml
 
