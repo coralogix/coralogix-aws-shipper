@@ -3,7 +3,7 @@ name: Publish Release Candidate to Staging
 on:
   push:
     branches:
-      - master
+      - dev
   
   workflow_dispatch: 
 
@@ -63,7 +63,7 @@ jobs:
           path: packaged.yaml
 
   publish:
-    name: publish
+    name: publish-rc
     needs: build
     if: ${{ github.event_name == 'workflow_dispatch' || success() }}
     runs-on: ubuntu-latest
