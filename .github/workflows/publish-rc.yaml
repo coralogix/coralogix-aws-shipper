@@ -58,8 +58,8 @@ jobs:
             --s3-prefix ${{ env.AWS_S3_PREFIX }} \
             --output-template-file packaged.yaml
 
-          # remove author field from the template
-          yq -i 'del(.Metadata."AWS::ServerlessRepo::Application".Author)' packaged.yaml
+          # change author field
+          yq -i '.Metadata."AWS::ServerlessRepo::Application".Author = "coralogix-cdo-dev"' packaged.yaml 
 
       - name: store
         uses: actions/upload-artifact@v4
