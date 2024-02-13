@@ -72,8 +72,6 @@ jobs:
     needs: build
     if: ${{ github.event_name == 'workflow_dispatch' || success() }}
     runs-on: ubuntu-latest
-    env:
-      AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
