@@ -1595,27 +1595,16 @@ async fn run_test_ecrscan_event() {
             "version": "0"
           }"#,
     ).expect("failed to parse ecrscan_event");
-    //let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
-    //let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
-    //    .expect("failed to parse s3_event");
-    println!("evt: {:?}", evt);
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
-    println!("event: {:?}", event);
     coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
     let bulks = exporter.take_bulks();
-    println!("bulks: {:?}", bulks);
     assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
-    println!("singles: {:?}", singles.len());
     assert_eq!(singles.len(), 1);
-    singles[0].entries.iter().for_each(|s| {
-        println!("s: {:?} ", s);
-    });
     assert_eq!(singles[0].entries.len(), 4);
     assert!(
         singles[0].entries[0].application_name == "integration-testing",
