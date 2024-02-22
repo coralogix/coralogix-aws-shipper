@@ -1,4 +1,19 @@
 # Changelog
+## v1.0.0 🎉 / 2024-02-04
+- GA release of Coralogix AWS Shipper
+
+## v0.0.14 Beta / 2024-02-03
+### 🚀 New components 🚀
+- Added support for ECR Image Scan
+
+## v0.0.13 Beta / 2024-02-01
+### 🧰 Bug fixes 🧰
+- Fix bug causing non-kafka events to show up as kafka event
+
+## v0.0.12 Beta / 2024-01-31
+### 🧰 Bug fixes 🧰
+- Update aws_lambda_events 
+
 ## v0.0.11 Beta / 2024-01-25
 ### 🚀 New components 🚀
 - Added support for AWS MSK and Kafka Integration type
@@ -32,7 +47,6 @@
 - Bug Fix in SNS email notification
 
 ## v0.0.4 Beta / 2024-01-03
-
 ### 🚀 New components 🚀
 - Added support for sqs for s3 and sqs messages
 
@@ -40,7 +54,6 @@
 - Fix Sns and Sqs space in key bug
 
 ## v0.0.3 Beta / 2023-12-26
-
 ### 🛑 Breaking changes 🛑
 - Update the CoralogixRegion param list to be the same as the list in the [website](https://coralogix.com/docs/coralogix-domain/)
 
@@ -53,8 +66,7 @@
 - Reduce Secret Manage IAM permissions
 - Added default App or Subsystem name.
 
-## v0.0.2 Beta / 2023-13-15
-
+## v0.0.2 Beta / 2023-12-15
 ### 🧰 Bug fixes 🧰
 - Lambda fail on empty empty gzip file for ELB logs.
 - Change LogLevel to WARN
