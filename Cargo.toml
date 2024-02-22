@@ -1,12 +1,13 @@
 [package]
 name = "coralogix-aws-shipper"
-version = "0.0.11"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
-aws_lambda_events = { version = "0.12.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka"] }
+aws_lambda_events = { version = "0.13.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan"] }
 aws-config = "1.0.3"
 aws-sdk-s3 = "1.5.0"
+aws-sdk-ecr = "1.10.0"
 aws-sdk-secretsmanager = "1.4.0"
 cx_sdk_rest_logs = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false, features=["rustls"] }
 cx_sdk_core = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false}

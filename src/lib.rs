@@ -21,6 +21,7 @@ pub mod combined_event;
 pub mod config;
 pub mod coralogix;
 pub mod process;
+pub mod ecr;
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()
@@ -71,6 +72,8 @@ pub async fn function_handler(
 
     // TODO this may need to be moved process
     // TODO will this always produce just one bucket/key? (check this)
+    debug!("Handling event: {:?}", evt);
+    debug!("Handling event payload: {:?}", evt.payload);
     match evt.payload {
         CombinedEvent::S3(s3_event) => {
             info!("S3 EVENT Detected");
@@ -124,7 +127,7 @@ pub async fn function_handler(
         }
         CombinedEvent::Kinesis(kinesis_event) => {
             for record in kinesis_event.records {
-                debug!("Kinesis event: {:?}", record);
+                debug!("Kinesis record: {:?}", record);
                 let message = record.kinesis.data;
                 debug!("Kinesis data: {:?}", &message);
                 crate::process::kinesis_logs(
@@ -135,17 +138,25 @@ pub async fn function_handler(
             }
         }
         CombinedEvent::Kafka(kafka_event) => {
-            for (topic, records) in kafka_event.records {
-                debug!("Kafka event: {topic:?} --> {records:?}");
-                crate::process::kafka_logs(
-                    topic,
-                    records,
-                    coralogix_exporter.clone(),
-                    config,
-                ).await?;
+            let mut all_records = Vec::new();
+            for (topic_partition, mut records) in kafka_event.records {
+                debug!("Kafka record: {topic_partition:?} --> {records:?}");
+                all_records.append(&mut records)
             }
+            crate::process::kafka_logs(
+                all_records,
+                coralogix_exporter.clone(),
+                config,
+            ).await?;
         }
-            
+        CombinedEvent::EcrScan(ecr_scan_event) => {
+            debug!("ECR Scan event: {:?}", ecr_scan_event);
+            crate::process::ecr_scan_logs(
+                ecr_scan_event,
+                coralogix_exporter.clone(),
+                config,
+            ).await?;
+        }     
     };
 
     Ok(())
