@@ -3,6 +3,7 @@
 ## v1.0.1 / 
 ### 🚀 New components 🚀
 - Added LogGroup Name to CloudWatch Metadata
+- Added X86 support
 
 ## v1.0.0 🎉 / 2024-02-04
 - GA release of Coralogix AWS Shipper
