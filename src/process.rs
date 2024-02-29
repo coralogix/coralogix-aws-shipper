@@ -327,6 +327,7 @@ pub async fn cloudwatch_logs(
 }
 
 pub async fn ecr_scan_logs(
+    ecr_client: &EcrClient,
     ecr_scan_event: EcrScanEvent,
     coralogix_exporter: DynLogExporter,
     config: &Config,
@@ -347,8 +348,6 @@ pub async fn ecr_scan_logs(
     //let mut batches = Vec::new();
     
     tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
-    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::v2023_11_09()).await;
-    let ecr_client = EcrClient::new(&aws_config);
     let payload = ecr::process_ecr_scan_event(ecr_scan_event, config, &ecr_client).await?;
     coralogix::process_batches(
         payload,
