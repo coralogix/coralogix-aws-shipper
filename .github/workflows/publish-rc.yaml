@@ -73,7 +73,7 @@ jobs:
         run: |
           aws s3 cp \
             $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}.zip
+            s3://${{ env.AWS_SERVERLESS_BUCKET }}/coralogix-aws-shipper-${{ matrix.target }}.zip
 
       - name: store-arm64-package
         uses: actions/upload-artifact@v4
