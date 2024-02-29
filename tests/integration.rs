@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
+use aws_sdk_ecr::Client as EcrClient;
 use coralogix_aws_shipper::combined_event::CombinedEvent;
 use coralogix_aws_shipper::config::Config;
 use cx_sdk_core::auth::AuthData;
@@ -57,7 +58,41 @@ pub fn s3event_string(bucket: &str, key: &str) -> String {
         bucket, bucket, key
     )
 }
+fn get_mock_ecrclient(src: Option<&str>) -> Result<EcrClient, String> {
+    let data = match src {
+        Some(source) => std::fs::read(source).map_err(|e| e.to_string())?,
+        None => Vec::new(),
+    };
 
+    let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::from(""))
+            .unwrap(),
+        http::Response::builder()
+            .status(200)
+            .body(aws_smithy_types::body::SdkBody::from(data))
+            .unwrap(),
+    );
+
+    let conf = aws_sdk_ecr::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .credentials_provider(aws_sdk_ecr::config::Credentials::new(
+            "SOMETESTKEYID",
+            "somesecretkey",
+            Some("somesessiontoken".to_string()),
+            None,
+            "",
+        ))
+        .region(aws_sdk_ecr::config::Region::new("eu-central-1"))
+        .http_client(
+            aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
+                replay_event,
+            ]),
+        )
+        .build();
+
+    Ok(aws_sdk_ecr::Client::from_conf(conf))
+}
 // get_mock_s3client returns a mock s3 client that returns the data from the given file
 fn get_mock_s3client(src: Option<&str>) -> Result<Client, String> {
     let data = match src {
@@ -160,7 +195,8 @@ async fn run_test_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -223,7 +259,8 @@ async fn run_test_folder_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
     
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -289,7 +326,8 @@ async fn run_cloudtraillogs_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -353,7 +391,8 @@ async fn run_csv_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -418,7 +457,8 @@ async fn run_vpcflowlgos_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -499,7 +539,8 @@ async fn run_sns_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -546,7 +587,8 @@ async fn run_test_s3_event_large() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -620,7 +662,8 @@ async fn run_test_s3_event_large_with_sampling() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -702,7 +745,8 @@ async fn run_cloudwatchlogs_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -767,7 +811,8 @@ async fn run_blocking_and_newline_pattern() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -830,7 +875,8 @@ async fn run_test_empty_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -889,7 +935,8 @@ async fn run_sqs_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -967,7 +1014,8 @@ async fn run_sqs_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+      let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1046,7 +1094,8 @@ async fn run_kinesis_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1109,7 +1158,8 @@ async fn run_cloudfront_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1172,7 +1222,8 @@ async fn run_test_s3_event_with_metadata() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1235,7 +1286,8 @@ async fn run_test_s3_event_elb() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1331,7 +1383,8 @@ async fn run_kafka_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1404,8 +1457,8 @@ async fn run_kafka_event_with_base64() {
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
-
-    coralogix_aws_shipper::function_handler(&s3_client, exporter.clone(), &config, event)
+    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1489,4 +1542,78 @@ async fn test_invalid_event() {
 
     assert!(r.is_err() == true);
     assert!(r.err() == Some("unsupported or bad event type: {\"test\":\"unsupported event\",\"type\":\"invalid\"}".to_string()));
+}
+#[tokio::test]
+async fn test_ecrscan_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("SUB_NAME", Some("coralogix-serverless-repo")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("EcrScan")),
+            ("AWS_REGION", Some("eu-central-1")),
+        ],
+        run_test_ecrscan_event(),
+    )
+    .await;
+}
+
+
+async fn run_test_ecrscan_event() {
+    let ecr_client = get_mock_ecrclient(Some("./tests/fixtures/ecr_scan.log")).expect("failed to create ecr client");
+    let s3_client =
+        get_mock_s3client(None).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+    let evt: CombinedEvent = serde_json::from_str(
+        r#"{
+            "account": "0000000000",
+            "detail": {
+              "finding-severity-counts": {
+                "CRITICAL": 3,
+                "HIGH": 18,
+                "LOW": 1,
+                "MEDIUM": 5,
+                "UNDEFINED": 1
+              },
+              "image-digest": "sha256:f4268a8ed09f97f520000e7687b681d7d000780c8ef30d7fc0f23140234a7206",
+              "image-tags": [
+                "latest"
+              ],
+              "repository-name": "lopp",
+              "scan-status": "COMPLETE"
+            },
+            "detail-type": "ECR Image Scan",
+            "id": "903ef8eb-7379-683e-0000-be8a83c17ae1",
+            "region": "us-east-1",
+            "resources": [
+              "arn:aws:ecr:us-east-1:00000000000:repository/lopp"
+            ],
+            "source": "aws.ecr",
+            "time": "2024-01-18T11:06:24Z",
+            "version": "0"
+          }"#,
+    ).expect("failed to parse ecrscan_event");
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 4);
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
 }
