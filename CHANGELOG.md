@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.1 / 
+## v1.0.1 / 2024-03-01
 ### 🚀 New components 🚀
 - Added LogGroup Name to CloudWatch Metadata
 - Added X86 support
