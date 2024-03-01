@@ -105,6 +105,8 @@ struct JsonMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     stream_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    loggroup_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bucket_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     key_name: Option<String>,
@@ -132,6 +134,7 @@ fn convert_to_log_entry(
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
+    let loggroup_name = metadata_instance.log_group.clone();
     tracing::debug!("Severity: {:?}", severity);
 
     let message = match serde_json::from_str(&log) {
@@ -142,6 +145,7 @@ fn convert_to_log_entry(
     let mut message = JsonMessage {
         message,
         stream_name: None,
+        loggroup_name: None,
         bucket_name: None,
         key_name: None,
     };
@@ -157,6 +161,10 @@ fn convert_to_log_entry(
                 message.stream_name = Some(metadata_instance.stream_name.clone());
                 tracing::debug!("Assigned stream_name: {}", metadata_instance.stream_name);
             }
+            "loggroup_name" => {
+                message.loggroup_name = Some(metadata_instance.log_group.clone());
+                tracing::debug!("Assigned loggroup_name: {}", metadata_instance.log_group);
+            }
             "bucket_name" => {
                 message.bucket_name = Some(metadata_instance.bucket_name.clone());
                 tracing::debug!("Assigned bucket_name: {}", metadata_instance.bucket_name);
@@ -171,7 +179,7 @@ fn convert_to_log_entry(
         }
     }
 
-    let body =  if message.stream_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() {
+    let body =  if message.stream_name.is_some() || message.loggroup_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() {
         serde_json::to_value(&message).unwrap_or(message.message)
     } else {
         message.message

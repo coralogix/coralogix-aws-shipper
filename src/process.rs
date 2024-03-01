@@ -36,6 +36,7 @@ pub async fn s3(
     
     let mut metadata_instance = Metadata {
         stream_name: String::new(),
+        log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
     };
@@ -138,6 +139,7 @@ trait MetadataTrait {
 
 pub struct Metadata {
     pub stream_name: String,
+    pub log_group: String,
     pub bucket_name: String,
     pub key_name: String,
 }
@@ -146,6 +148,7 @@ impl Default for Metadata {
     fn default() -> Self {
         Self {
             stream_name: String::new(),
+            log_group: String::new(),
             bucket_name: String::new(),
             key_name: String::new(),
         }
@@ -163,6 +166,7 @@ pub async fn kinesis_logs(
 ) -> Result<(), Error> {
     let metadata_instance = Metadata {
         stream_name: String::new(),
+        log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
     };
@@ -218,6 +222,7 @@ pub async fn sqs_logs(
 ) -> Result<(), Error> {
     let metadata_instance = Metadata {
         stream_name: String::new(),
+        log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
     };
@@ -250,6 +255,7 @@ pub async fn sns_logs(
 ) -> Result<(), Error> {
     let metadata_instance = Metadata {
         stream_name: String::new(),
+        log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
     };
@@ -282,6 +288,7 @@ pub async fn cloudwatch_logs(
 ) -> Result<(), Error> {
     let mut metadata_instance = Metadata {
         stream_name: String::new(),
+        log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
     };
@@ -302,6 +309,7 @@ pub async fn cloudwatch_logs(
     let logs = match config.integration_type {
         IntegrationType::CloudWatch => {
             metadata_instance.stream_name = cloudwatch_event_log.data.log_stream.clone();
+            metadata_instance.log_group = cloudwatch_event_log.data.log_group.clone();
             process_cloudwatch_logs(cloudwatch_event_log, config.sampling).await?
         }
         _ => {
@@ -334,6 +342,7 @@ pub async fn ecr_scan_logs(
 ) -> Result<(), Error> {
     let metadata_instance = Metadata {
         stream_name: String::new(),
+        log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
     };

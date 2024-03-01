@@ -171,7 +171,7 @@ These are optional parameters if you wish to receive notification emails, exclud
 | NotificationEmail | A failure notification will be sent to this email address.                                                                                                                                              |               |                    |
 | BlockingPattern   | Enter a regular expression to identify lines excluded from being sent to Coralogix. For example, use `MainActivity.java:\d{3}` to match log lines with `MainActivity` followed by exactly three digits. |               |                    |
 | SamplingRate      | Send messages at a specific rate, such as 1 out of every N logs. For example, if your value is 10, a message will be sent for every 10th log.                                                           | 1             | :heavy_check_mark: |
-| AddMetadata       | Add metadata to the log message. Expects comma separated values. Options for S3 are `bucket_name`,`key_name`. For CloudWatch use `stream_name`.                                                         |               |                    |
+| AddMetadata       | Add metadata to the log message. Expects comma separated values. Options for S3 are `bucket_name`,`key_name`. For CloudWatch use `stream_name`, `loggroup_name` .                                                         |               |                    |
 
 ### Lambda Configuration (Optional)
 
