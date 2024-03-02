@@ -59,7 +59,7 @@ jobs:
             and .Type == "AWS::Serverless::Function" 
             and .Properties.CodeUri != null) | 
           .Properties.CodeUri) |= {
-              "Bucket": {"Fn::Sub": "coralogix-aws-shipper-${AWS::Region}"}, 
+              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"}, 
               "Key": {
                   "Fn::If": [
                       "CpuArchIsx8664", 
