@@ -17,7 +17,7 @@ env:
 jobs:
   get-template:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'}}
     steps:
       - name: checkout coralogix-aws-shipper repository
         uses: actions/checkout@v4
@@ -93,7 +93,7 @@ jobs:
     permissions:
       contents: write
     needs: get-template
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'}}
     steps:
       - uses: actions/checkout@v4
         id: checkout
