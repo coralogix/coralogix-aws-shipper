@@ -17,7 +17,14 @@ use std::string::String;
 use std::time::Instant;
 use tracing::{debug, info};
 use base64::prelude::*;
-
+use arrow::record_batch::RecordBatch;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReader;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::file::reader::{FileReader, SerializedFileReader};
+use std::sync::Arc;
+use std::io::Cursor;
+use bytes::Bytes;
+use bytes::Buf;
 
 use crate::config::{Config, IntegrationType};
 use crate::coralogix;
@@ -416,6 +423,22 @@ async fn process_cloudwatch_logs(cw_event: AwsLogs, sampling: usize) -> Result<V
     debug!("Cloudwatch Logs: {:?}", log_entries);
     Ok(sample(sampling, log_entries))
 }
+fn record_batch_to_strings(batch: &RecordBatch) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    // Implement conversion from RecordBatch to Vec<String>
+    // This is a placeholder implementation. You'll need to adjust this based on the actual structure of your data.
+    let mut strings = Vec::new();
+    for i in 0..batch.num_columns() {
+        let column = batch.column(i);
+        for j in 0..column.len() {
+            // Convert each value to String and push to strings Vec
+            // This simplistic approach assumes the data can be directly converted to String
+            // You might need to handle different data types and formatting properly
+            let value = column.as_any().downcast_ref::<arrow::array::StringArray>().unwrap().value(j).to_string();
+            strings.push(value);
+        }
+    }
+    Ok(strings)
+}
 async fn process_vpcflows(
     raw_data: Vec<u8>,
     sampling: usize,
@@ -423,24 +446,44 @@ async fn process_vpcflows(
     key: String,
 ) -> Result<Vec<String>, Error> {
     info!("VPC Flow Integration Type");
-    let v = ungzip(raw_data, key)?;
-    let s = String::from_utf8(v)?;
-    let array_s = split(Regex::new(r"\n")?, s.as_str())?;
-    let flow_header = split(Regex::new(r"\s+")?, array_s[0])?;
-    let csv_delimiter = " ";
-    let records: Vec<&str> = array_s
-        .iter()
-        .skip(1)
-        .filter(|&line| !line.trim().is_empty())
-        .copied()
-        .collect_vec();
-    let parsed_records = parse_records(&flow_header, &records, csv_delimiter)?;
-    let re_block: Regex = Regex::new(blocking_pattern)?;
-    tracing::debug!("Parsed Records: {:?}", &parsed_records);
-    Ok(sample(
-        sampling,
-        block(re_block, parsed_records, blocking_pattern)?,
-    ))
+
+    if key.ends_with(".log.parquet") {
+        debug!("Parquet file detected, skipping processing");
+        let cursor = Cursor::new(raw_data);
+        let bytes = Bytes::from(raw_data);
+        let reader  = SerializedFileReader::new(bytes)?;
+        let usizestuff: usize = 10;
+        let asdas = ParquetRecordBatchReader::try_new(bytes, usizestuff)?;
+        //let mut arrow_reader = ParquetFileArrowReader::new(Arc::new(reader));
+
+        for maybe_record_batch in asdas {
+            let record_batch = maybe_record_batch?;
+            let strings = record_batch_to_strings(&record_batch)?;
+            let re_block: Regex = Regex::new(blocking_pattern)?;
+            debug!("Parsed Records: {:?}", &strings);
+            return Ok(sample(sampling, block(re_block, strings, blocking_pattern)?));
+        }
+        Ok(Vec::new())
+    } else {
+        let v = ungzip(raw_data, key)?;
+        let s = String::from_utf8(v)?;
+        let array_s = split(Regex::new(r"\n")?, s.as_str())?;
+        let flow_header = split(Regex::new(r"\s+")?, array_s[0])?;
+        let csv_delimiter = " ";
+        let records: Vec<&str> = array_s
+            .iter()
+            .skip(1)
+            .filter(|&line| !line.trim().is_empty())
+            .copied()
+            .collect_vec();
+        let parsed_records = parse_records(&flow_header, &records, csv_delimiter)?;
+        let re_block: Regex = Regex::new(blocking_pattern)?;
+        tracing::debug!("Parsed Records: {:?}", &parsed_records);
+        Ok(sample(
+            sampling,
+            block(re_block, parsed_records, blocking_pattern)?,
+        ))
+    }
 }
 
 async fn process_csv(
