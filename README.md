@@ -79,7 +79,7 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | Parameter                   | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
 |-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
 | Application name            | This will also be the name of the CloudFormation stack that creates your integration. It can include letters (A–Z and a–z), numbers (0–9) and dashes (-).                                                                                                                                                                          |               | :heavy_check_mark: |
-| IntegrationType             | Choose the AWS service that you wish to integrate with Coralogix. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, SNS, SQS, CloudFront, Kinesis, Kafka, MSK, EcrScan.                    | S3            | :heavy_check_mark: |
+| IntegrationType             | Choose the AWS service that you wish to integrate with Coralogix. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, SNS, SQS, CloudFront, Kinesis, Kafka, MSK, EcrScan.                                                                                                                                                   | S3            | :heavy_check_mark: |
 | CoralogixRegion             | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
 | CustomDomain                | If you choose a custom domain name for your private cluster, Coralogix will send telemetry from the specified address (e.g. custom.coralogix.com).                                                                                                                                                                                 |               |                    |
 | ApplicationName             | The name of the application for which the integration is configured. [Advanced Configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
@@ -148,8 +148,8 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 | Parameter           | Description                                                                   | Default Value | Required           |
 |---------------------|-------------------------------------------------------------------------------|---------------|--------------------|
 | KafkaBrokers        | Comma-delimited list of Kafka brokers to establish a connection with.         |               | :heavy_check_mark: |
-| KafkaTopic          | Subscribe to this Kafka topic for data consumption.                         |               | :heavy_check_mark: |
-| KafkaBatchSize      | Specify the size of data batches to be read from Kafka during each retrieval.     | 100           |                    |
+| KafkaTopic          | Subscribe to this Kafka topic for data consumption.                           |               | :heavy_check_mark: |
+| KafkaBatchSize      | Specify the size of data batches to be read from Kafka during each retrieval. | 100           |                    |
 | KafkaSecurityGroups | Comma-delimited list of Kafka security groups for secure connection setup.    |               | :heavy_check_mark: |
 | KafkaSubnets        | Comma-delimited list of Kafka subnets to use when connecting to Kafka.        |               | :heavy_check_mark: |
 
@@ -157,9 +157,9 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 
 Your Lambda function must be in a VPC that has access to the MSK cluster. You can configure your VPC via the provided [VPC configuration parameters](#vpc-configuration-optional).
 
-| Parameter  | Description                                      | Default Value | Required           |
-|------------|--------------------------------------------------|---------------|--------------------|
-| MSKBrokers | Comma-delimited list of MSK brokers to connect to. |               | :heavy_check_mark: |
+| Parameter  | Description                                         | Default Value | Required           |
+|------------|-----------------------------------------------------|---------------|--------------------|
+| MSKBrokers | Comma-delimited list of MSK brokers to connect to.  |               | :heavy_check_mark: |
 | KafkaTopic | Subscribe to this Kafka topic for data consumption. |               | :heavy_check_mark: |
 
 ### Generic Configuration (Optional)
@@ -171,7 +171,7 @@ These are optional parameters if you wish to receive notification emails, exclud
 | NotificationEmail | A failure notification will be sent to this email address.                                                                                                                                              |               |                    |
 | BlockingPattern   | Enter a regular expression to identify lines excluded from being sent to Coralogix. For example, use `MainActivity.java:\d{3}` to match log lines with `MainActivity` followed by exactly three digits. |               |                    |
 | SamplingRate      | Send messages at a specific rate, such as 1 out of every N logs. For example, if your value is 10, a message will be sent for every 10th log.                                                           | 1             | :heavy_check_mark: |
-| AddMetadata       | Add metadata to the log message. Expects comma separated values. Options for S3 are `bucket_name`,`key_name`. For CloudWatch use `stream_name`, `loggroup_name` .                                                         |               |                    |
+| AddMetadata       | Add metadata to the log message. Expects comma separated values. Options for S3 are `bucket_name`,`key_name`. For CloudWatch use `stream_name`, `loggroup_name` .                                       |               |                    |
 
 ### Lambda Configuration (Optional)
 

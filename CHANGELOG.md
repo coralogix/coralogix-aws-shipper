@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.2 / 2024-03-06
+- Update dependencies to fix security vulnerabilities
+    - https://github.com/coralogix/coralogix-aws-shipper/security/dependabot/2
+
 ## v1.0.1 / 2024-03-01
 ### 🚀 New components 🚀
 - Added LogGroup Name to CloudWatch Metadata
