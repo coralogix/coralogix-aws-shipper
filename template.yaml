@@ -82,6 +82,7 @@ Metadata:
           - BlockingPattern
           - SamplingRate
           - AddMetadata
+          - CustomMetadata
       - Label:
           default: Lambda configuration
         Parameters:
@@ -145,7 +146,11 @@ Parameters:
     Description: |
       Add metadata to the log message. Expects comma separated values. Options are bucket_name,key_name,stream_name
     Default: ''
-
+  CustomMetadata:
+    Type: String
+    Description: |
+      Add custom metadata to the log message. Expects comma separated values. Options are key1=value1,key2=value2
+    Default: ''
   BlockingPattern:
     Type: String
     Description: Regular expression to detect lines that should be excluded from sent to Coralogix
@@ -358,6 +363,7 @@ Conditions:
   CSVDelimiterUse: !Equals [!Ref IntegrationType, 'S3Csv']
   NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
   AddMetadataNotSet: !Equals [ !Ref AddMetadata, '']
+  CustomMetadataNotSet: !Equals [ !Ref CustomMetadata, '']
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
   UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
@@ -570,6 +576,10 @@ Globals:
           - AddMetadataNotSet
           - !Ref AWS::NoValue
           - !Ref AddMetadata
+        CUSTOM_METADATA: !If
+          - CustomMetadataNotSet
+          - !Ref AWS::NoValue
+          - !Ref CustomMetadata
         NEWLINE_PATTERN: !If
           - NewlinePatternNotSet
           - !Ref AWS::NoValue
