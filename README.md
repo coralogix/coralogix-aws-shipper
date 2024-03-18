@@ -160,7 +160,7 @@ Your Lambda function must be in a VPC that has access to the MSK cluster. You ca
 | Parameter  | Description                                         | Default Value | Required           |
 |------------|-----------------------------------------------------|---------------|--------------------|
 | MSKBrokers | Comma-delimited list of MSK brokers to connect to.  |               | :heavy_check_mark: |
-| KafkaTopic | Subscribe to this Kafka topic for data consumption. |               | :heavy_check_mark: |
+| KafkaTopic | Comma separated list of Kafka topics to Subscribe to. |               | :heavy_check_mark: |
 
 ### Generic Configuration (Optional)
 
