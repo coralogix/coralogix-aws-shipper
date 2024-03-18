@@ -2,6 +2,7 @@
 ## v1.0.3 / 
 ### 🚀 New components 🚀
 - Custom Metadata can be added to the log messages.
+- Added Support for Custom CSV Header
 
 ## v1.0.2 / 2024-03-06
 - Update dependencies to fix security vulnerabilities
