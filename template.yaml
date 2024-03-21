@@ -25,7 +25,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.0.1
+    SemanticVersion: 1.0.3
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -1119,7 +1119,7 @@ Resources:
         - Statement:
             - Effect: Allow
               Action:
-                - 'ecr:GetImageScanFindings'
+                - 'ecr:DescribeImageScanFindings'
               Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*'
         - Statement:
             - Effect: Allow
@@ -1130,12 +1130,23 @@ Resources:
         DestinationConfig:
           OnFailure:
             Type: SNS
-  
+
+  LambdaFunctionEcrInvokePermission:
+    Condition: UseECRScan
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaFunctionWithECRScan.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt ECRScanTrigger.Arn
+
   ECRScanTrigger:
     Condition: UseECRScan
     Type: AWS::Events::Rule
     Properties:
       Description: "Trigger for ECR image scan completion"
+      State: ENABLED
       EventPattern:
         source:
           - "aws.ecr"
