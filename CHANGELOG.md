@@ -1,6 +1,10 @@
 # Changelog
 
-## v1.0.2 / 2024-03-06
+## v1.0.2 / 2024-03-21
+### 🧰 Bug fixes 🧰
+- Ecr integration lambda trigger bug fix
+
+## v1.0.1 / 2024-03-06
 - Update dependencies to fix security vulnerabilities
     - https://github.com/coralogix/coralogix-aws-shipper/security/dependabot/2
 
