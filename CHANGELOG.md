@@ -1,5 +1,8 @@
 # Changelog
 
+### 🧰 Bug fixes 🧰
+- Ecr integration lambda trigger bug fix
+
 ### 💡 Enhancements 💡
 - Support multiple topics for msk integration
 
