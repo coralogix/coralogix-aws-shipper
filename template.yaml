@@ -8,7 +8,7 @@ Metadata:
   AWS::ServerlessRepo::Application:
     Name: coralogix-aws-shipper
     Description: Send logs to Coralogix from AWS (S3, Cloudtrail, Cloudwatch, msk, SNS, SQS, Kinesis and more)
-    Author: guy
+    Author: Coralogix
     SpdxLicenseId: Apache-2.0
     LicenseUrl: LICENSE
     ReadmeUrl: README.md
@@ -1242,10 +1242,10 @@ Resources:
                 try:        
                     lambda_arn = event['ResourceProperties']['LambdaArn']
                     lambda_client = boto3.client('lambda')
-                    StringlogGroupName = event['ResourceProperties']['CloudwatchGroup']
-                    logGroupName = StringlogGroupName.split(',')
-                    cloudwatch_logs = boto3.client('logs')
                     if event['RequestType'] in ['Create', 'Update']:
+                        StringlogGroupName = event['ResourceProperties']['CloudwatchGroup']
+                        logGroupName = StringlogGroupName.split(',')
+                        cloudwatch_logs = boto3.client('logs')
                         for log_group in logGroupName:
                             cloudwatch_logs.put_subscription_filter(
                                 destinationArn=event['ResourceProperties']['LambdaArn'],
@@ -1253,12 +1253,6 @@ Resources:
                                 filterPattern='',
                                 logGroupName=log_group
                             )
-                    if event['RequestType'] in ['Update', 'Delete']:
-                      for log_group in logGroupName:
-                        cloudwatch_logs.delete_subscription_filter(
-                            filterName='coralogix-aws-shipper-cloudwatch-trigger',
-                            logGroupName=log_group
-                        )
                     responseStatus = cfnresponse.SUCCESS
                     print(event['RequestType'], "request completed....")
                 except Exception as e:
