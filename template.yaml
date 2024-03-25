@@ -1215,6 +1215,8 @@ Resources:
               Effect: Allow
               Action:
                 - "logs:PutSubscriptionFilter"
+                - "logs:DeleteSubscriptionFilter"
+                - "logs:DescribeSubscriptionFilters"
               Resource: !Sub  "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
 
       InlineCode: !If
