@@ -1,4 +1,11 @@
 # Changelog
+
+### 💡 Enhancements 💡
+- Update cloudwatch integration to delete log group subscription after the lambda deletion
+
+### 💡 Enhancements 💡
+- Support multiple topics for msk integration
+
 ## v1.0.3 / 
 ### 🚀 New components 🚀
 - Custom Metadata can be added to the log messages.
