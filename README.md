@@ -111,6 +111,7 @@ If you don’t want to send data directly as it enters S3, you can also use SNS/
 | SQSTopicArn    | The ARN for the SQS queue that contains the SQS subscription responsible for retrieving logs from Amazon S3.                                                                                      |                                          |                    |
 | CSVDelimiter   | Specify a single character to be used as a delimiter when ingesting a CSV file with a header line. This value is applicable when the S3Csv integration type is selected, for example, “,” or ” “. | ,                                        |                    |
 
+
 ### CloudWatch Configuration
 
 Coralogix can be configured to receive data directly from your CloudWatch log group. CloudWatch logs are streamed directly to Coralogix via Lambda. This option does not use S3. You must provide the log group name as a parameter during setup.
@@ -207,6 +208,9 @@ If you wish to use dynamic values for the Application and Subsystem Name paramet
 **JSON support:** To reference dynamic values from the log, use `$.my_log.field`. For the CloudTrail source, use `$.eventSource`.
 
 **S3 folder:** Use the following tag: `{{s3_key.value}}` where the value is the folder level. For example, if the file path that triggers the event is `AWSLogs/112322232/ELB1/elb.log` or `AWSLogs/112322232/ELB2/elb.log` and you want ELB1 and ELB2 to be the subsystem, your `subsystemName` should be `{{s3_key.3}}`
+
+**S3Csv Custom Headers:** Add Environment Variable "CUSTOM_CSV_HEADER" with the key names. This must be with the same delimiter as the CSV archive, for example if the csv file delimiter is ";", then your environment varialble should be like this:
+CUSTOM_CSV_HEADER = name;country;age
 
 ## Troubleshooting
 
