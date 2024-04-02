@@ -883,15 +883,15 @@ Resources:
       LambdaArn: !GetAtt [ 'LambdaFunctionCloudwatchLogs', Arn ]
       CloudwatchGroup: !Ref CloudWatchLogGroupName
 
-  LambdaFunctionInvokePermissionCloudwatchLogs:
-    Type: AWS::Lambda::Permission
-    Condition: UseCloudwatchLogs
-    Properties:
-      FunctionName: !GetAtt [ 'LambdaFunctionCloudwatchLogs', Arn ]
-      Action: lambda:InvokeFunction
-      Principal: logs.amazonaws.com
-      SourceAccount: !Ref AWS::AccountId
-      SourceArn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
+  # LambdaFunctionInvokePermissionCloudwatchLogs:
+  #   Type: AWS::Lambda::Permission
+  #   Condition: UseCloudwatchLogs
+  #   Properties:
+  #     FunctionName: !GetAtt [ 'LambdaFunctionCloudwatchLogs', Arn ]
+  #     Action: lambda:InvokeFunction
+  #     Principal: logs.amazonaws.com
+  #     SourceAccount: !Ref AWS::AccountId
+  #     SourceArn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
   
   ################################
   # ----- With SQS TopiC ------- #
