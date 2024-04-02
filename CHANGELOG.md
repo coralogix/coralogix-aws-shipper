@@ -8,6 +8,9 @@
 - Custom Metadata can be added to the log messages.
 - Added Support for Custom CSV Header
 
+### 🧰 Bug fixes 🧰
+- Update CloudWatch custom lambda, so you will be able to see log group as trigger in the UI
+
 ## v1.0.2 / 2024-03-21
 ### 🧰 Bug fixes 🧰
 - Ecr integration lambda trigger bug fix
