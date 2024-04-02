@@ -877,7 +877,7 @@ Resources:
   LambdaTriggerCloudwatchLogs:
     Condition: UseCloudwatchLogs
     Type: Custom::LambdaTrigger
-    DependsOn: LambdaFunctionInvokePermissionCloudwatchLogs
+    # DependsOn: LambdaFunctionInvokePermissionCloudwatchLogs
     Properties:
       ServiceToken: !GetAtt [ CustomResourceLambdaTriggerFunction, Arn ]
       LambdaArn: !GetAtt [ 'LambdaFunctionCloudwatchLogs', Arn ]
