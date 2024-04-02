@@ -1240,7 +1240,7 @@ Resources:
             import json
             import boto3
             import cfnresponse
-
+            import time
             print("Loading function")
 
             def lambda_handler(event, context):
@@ -1248,6 +1248,8 @@ Resources:
                 try:        
                     lambda_arn = event['ResourceProperties']['LambdaArn']
                     lambda_client = boto3.client('lambda')
+                    region = context.invoked_function_arn.split(":")[3]
+                    account_id = context.invoked_function_arn.split(":")[4]
                     StringlogGroupName = event['ResourceProperties']['CloudwatchGroup']
                     logGroupName = StringlogGroupName.split(',')
                     cloudwatch_logs = boto3.client('logs')
@@ -1260,14 +1262,34 @@ Resources:
                                     filterName='coralogix-aws-shipper-cloudwatch-trigger',
                                     logGroupName=log_group
                                 )
+                                response = lambda_client.remove_permission(
+                                    FunctionName=lambda_arn,
+                                    StatementId=f"allow-trigger-from-{log_group}"
+                                )
                     if event['RequestType'] in ['Create', 'Update']:
                         for log_group in logGroupName:
+                            cloudwatch_logs = boto3.client('logs')
+                            response = cloudwatch_logs.describe_subscription_filters(
+                              logGroupName=log_group,
+                              filterNamePrefix='coralogix-aws-shipper-cloudwatch-trigger'
+                            )
+                            if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
+                                response = lambda_client.add_permission(
+                                  FunctionName=lambda_arn,
+                                  StatementId=f'allow-trigger-from-{log_group}',
+                                  Action='lambda:InvokeFunction',
+                                  Principal='logs.amazonaws.com',
+                                  SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
+                                )
+                            time.sleep(1)
                             cloudwatch_logs.put_subscription_filter(
                                 destinationArn=event['ResourceProperties']['LambdaArn'],
                                 filterName='coralogix-aws-shipper-cloudwatch-trigger',
                                 filterPattern='',
                                 logGroupName=log_group
                             )
+
+
                     responseStatus = cfnresponse.SUCCESS
                     print(event['RequestType'], "request completed....")
                 except Exception as e:
