@@ -1,6 +1,4 @@
 use aws_config::BehaviorVersion;
-use aws_sdk_s3::Client;
-use aws_sdk_ecr::Client as EcrClient;
 use coralogix_aws_shipper::combined_event::CombinedEvent;
 use coralogix_aws_shipper::config;
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
