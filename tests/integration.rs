@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
-use aws_sdk_s3::Client;
+use aws_sdk_s3::Client as S3Client;
+use aws_sdk_sqs::Client as SqsClient;
 use aws_sdk_ecr::Client as EcrClient;
 use coralogix_aws_shipper::combined_event::CombinedEvent;
 use coralogix_aws_shipper::config::Config;
@@ -60,17 +61,19 @@ pub fn s3event_string(bucket: &str, key: &str) -> String {
 }
 fn get_mock_ecrclient(src: Option<&str>) -> Result<EcrClient, String> {
     let data = match src {
-        Some(source) => std::fs::read(source).map_err(|e| e.to_string())?,
-        None => Vec::new(),
+        Some(source) => {
+            let data = std::fs::read(source).map_err(|e| e.to_string())?;
+            aws_smithy_types::body::SdkBody::from(data)
+        },
+        None => aws_smithy_types::body::SdkBody::empty(),
     };
-
     let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::from(""))
             .unwrap(),
         http::Response::builder()
             .status(200)
-            .body(aws_smithy_types::body::SdkBody::from(data))
+            .body(data)
             .unwrap(),
     );
 
@@ -94,10 +97,13 @@ fn get_mock_ecrclient(src: Option<&str>) -> Result<EcrClient, String> {
     Ok(aws_sdk_ecr::Client::from_conf(conf))
 }
 // get_mock_s3client returns a mock s3 client that returns the data from the given file
-fn get_mock_s3client(src: Option<&str>) -> Result<Client, String> {
+fn get_mock_s3client(src: Option<&str>) -> Result<S3Client, String> {
     let data = match src {
-        Some(source) => std::fs::read(source).map_err(|e| e.to_string())?,
-        None => Vec::new(),
+        Some(source) => {
+            let data = std::fs::read(source).map_err(|e| e.to_string())?;
+            aws_smithy_types::body::SdkBody::from(data)
+        },
+        None => aws_smithy_types::body::SdkBody::empty(),
     };
 
     let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
@@ -106,7 +112,7 @@ fn get_mock_s3client(src: Option<&str>) -> Result<Client, String> {
             .unwrap(),
         http::Response::builder()
             .status(200)
-            .body(aws_smithy_types::body::SdkBody::from(data))
+            .body(data)
             .unwrap(),
     );
 
@@ -128,6 +134,45 @@ fn get_mock_s3client(src: Option<&str>) -> Result<Client, String> {
         .build();
 
     Ok(aws_sdk_s3::Client::from_conf(conf))
+}
+
+fn get_mock_sqsclient(src: Option<&str>) -> Result<SqsClient, String> {
+    let data = match src {
+        Some(source) => {
+            let data = std::fs::read(source).map_err(|e| e.to_string())?;
+            aws_smithy_types::body::SdkBody::from(data)
+        },
+        None => aws_smithy_types::body::SdkBody::empty(),
+    };
+
+    let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::from(""))
+            .unwrap(),
+        http::Response::builder()
+            .status(200)
+            .body(data)
+            .unwrap(),
+    );
+
+    let replay_client = aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
+        replay_event,
+    ]);
+
+    let conf = aws_sdk_sqs::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .credentials_provider(aws_sdk_s3::config::Credentials::new(
+            "SOMETESTKEYID",
+            "somesecretkey",
+            Some("somesessiontoken".to_string()),
+            None,
+            "",
+        ))
+        .region(aws_sdk_s3::config::Region::new("eu-central-1"))
+        .http_client(replay_client)
+        .build();
+
+    Ok(aws_sdk_sqs::Client::from_conf(conf))
 }
 
 #[derive(Default, Debug, Clone)]
@@ -195,8 +240,15 @@ async fn run_test_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -228,7 +280,6 @@ async fn run_test_s3_event() {
     );
 }
 
-
 #[tokio::test]
 async fn test_s3_event() {
     temp_env::async_with_vars(
@@ -250,17 +301,24 @@ async fn run_test_folder_s3_event() {
         get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
     let config = Config::load_from_env().expect("failed to load config from env");
 
-    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/elb1/s3.log");
-    let evt: CombinedEvent = serde_json::from_str(
-        s3event_string(bucket, key).as_str(),
-    )
-    .expect("failed to parse s3_event");
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/elb1/s3.log",
+    );
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
-    
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -291,7 +349,6 @@ async fn run_test_folder_s3_event() {
         singles[0].entries[0].subsystem_name
     );
 }
-
 
 #[tokio::test]
 async fn test_folder_s3_event() {
@@ -326,8 +383,15 @@ async fn run_cloudtraillogs_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -391,8 +455,15 @@ async fn run_csv_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -457,8 +528,15 @@ async fn run_vpcflowlgos_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -507,9 +585,7 @@ async fn test_vpcflowlgos_s3_event() {
 }
 
 async fn run_sns_event() {
-    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
-
     let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "Records": [
@@ -539,8 +615,16 @@ async fn run_sns_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -572,6 +656,23 @@ async fn run_sns_event() {
     );
 }
 
+#[tokio::test]
+async fn test_sns_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Sns")),
+        ],
+        run_sns_event(),
+    )
+    .await;
+}
+
 async fn run_test_s3_event_large() {
     let s3_client =
         get_mock_s3client(Some("./tests/fixtures/large.log")).expect("failed to create s3 client");
@@ -587,8 +688,15 @@ async fn run_test_s3_event_large() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -662,8 +770,15 @@ async fn run_test_s3_event_large_with_sampling() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -713,27 +828,9 @@ async fn test_s3_event_large_with_sampling() {
     .await;
 }
 
-#[tokio::test]
-async fn test_sns_event() {
-    temp_env::async_with_vars(
-        [
-            ("CORALOGIX_API_KEY", Some("1234456789X")),
-            ("APP_NAME", Some("integration-testing")),
-            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
-            ("SAMPLING", Some("1")),
-            ("SUB_NAME", Some("lambda")),
-            ("AWS_REGION", Some("eu-central-1")),
-            ("INTEGRATION_TYPE", Some("Sns")),
-        ],
-        run_sns_event(),
-    )
-    .await;
-}
 
 async fn run_cloudwatchlogs_event() {
-    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
-
     let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "awslogs": {
@@ -744,9 +841,16 @@ async fn run_cloudwatchlogs_event() {
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -811,8 +915,15 @@ async fn run_blocking_and_newline_pattern() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -868,15 +979,24 @@ async fn run_test_empty_s3_event() {
         get_mock_s3client(Some("./tests/fixtures/empty.log")).expect("failed to create s3 client");
     let config = Config::load_from_env().expect("failed to load config from env");
 
-    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/empty.log");
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/empty.log",
+    );
     let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -905,7 +1025,8 @@ async fn test_empty_s3_event() {
 }
 
 async fn run_sqs_s3_event() {
-    let s3_client = get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
 
     let evt: CombinedEvent = serde_json::from_str(
@@ -935,14 +1056,21 @@ async fn run_sqs_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
-        let bulks = exporter.take_bulks();
-        assert!(bulks.is_empty());
-    
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
@@ -984,9 +1112,7 @@ async fn test_sqs_s3_event() {
 }
 
 async fn run_sqs_event() {
-    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
-
     let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "Records": [
@@ -1014,8 +1140,16 @@ async fn run_sqs_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-      let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1064,9 +1198,7 @@ async fn test_sqs_event() {
 }
 
 async fn run_kinesis_event() {
-    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
-
     let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "Records": [
@@ -1093,9 +1225,16 @@ async fn run_kinesis_event() {
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client =  get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1144,8 +1283,8 @@ async fn test_kinesis_event() {
 }
 
 async fn run_cloudfront_s3_event() {
-    let s3_client =
-        get_mock_s3client(Some("./tests/fixtures/cloudfront.gz")).expect("failed to create s3 client");
+    let s3_client = get_mock_s3client(Some("./tests/fixtures/cloudfront.gz"))
+        .expect("failed to create s3 client");
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = (
@@ -1158,8 +1297,15 @@ async fn run_cloudfront_s3_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1222,8 +1368,15 @@ async fn run_test_s3_event_with_metadata() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1256,7 +1409,6 @@ async fn run_test_s3_event_with_metadata() {
     );
 }
 
-
 #[tokio::test]
 async fn test_s3_event_with_metadata() {
     temp_env::async_with_vars(
@@ -1279,15 +1431,25 @@ async fn run_test_s3_event_elb() {
         get_mock_s3client(Some("./tests/fixtures/elb.log.gz")).expect("failed to create s3 client");
     let config = Config::load_from_env().expect("failed to load config from env");
 
-    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/elb.log.gz");
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/elb.log.gz",
+    );
     let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1306,8 +1468,16 @@ async fn run_test_s3_event_elb() {
     let first_line = r#"grpcs 2024-01-15T12:10:00.200705Z app/staging-load-balancer/900ec696b1d45ff6 10.69.80.245:36584 10.69.71.185:9002 0.000 0.023 0.000 200 200 588 429 "POST https://metrics.supert.sh:443/supertenant.superproto.metrics.v1.MetricsService/ReportMetrics HTTP/2.0" "grpc-go/1.46.2" TLS_AES_128_GCM_SHA256 TLSv1.3 arn:aws:elasticloadbalancing:us-east-1:850012249230:targetgroup/sputnik1-target/7bee47c166ccb48f "Root=1-65a52098-58b5bf0604a095737ba62e06" "metrics.supert.sh" "arn:aws:acm:us-east-1:850012249230:certificate/573ba1a4-763c-47cc-8a81-e98132fef479" 2 2024-01-15T12:10:00.176000Z "forward" "-" "-" "10.69.71.185:9002" "200" "-" "-""#;
     let last_line = r#"grpcs 2024-01-15T12:15:00.094329Z app/staging-load-balancer/900ec696b1d45ff6 10.69.80.245:36584 10.69.71.185:9002 0.000 0.001 0.000 200 200 324 433 "POST https://metrics.supert.sh:443/supertenant.superproto.brain.hello.v1.HelloService/Hello HTTP/2.0" "grpc-go/1.46.2" TLS_AES_128_GCM_SHA256 TLSv1.3 arn:aws:elasticloadbalancing:us-east-1:850012249230:targetgroup/sputnik1-target/7bee47c166ccb48f "Root=1-65a521c4-0c1928a90d9e605111dd066a" "metrics.supert.sh" "arn:aws:acm:us-east-1:850012249230:certificate/573ba1a4-763c-47cc-8a81-e98132fef479" 2 2024-01-15T12:15:00.092000Z "forward" "-" "-" "10.69.71.185:9002" "200" "-" "-""#;
 
-    assert!(first_line == singles[0].entries[0].body, "got: {}", singles[0].entries[0].body);
-    assert!(last_line == singles[0].entries.last().unwrap().body, "got: {}", singles[0].entries.last().unwrap().body);
+    assert!(
+        first_line == singles[0].entries[0].body,
+        "got: {}",
+        singles[0].entries[0].body
+    );
+    assert!(
+        last_line == singles[0].entries.last().unwrap().body,
+        "got: {}",
+        singles[0].entries.last().unwrap().body
+    );
 
     assert!(
         singles[0].entries[0].application_name == "integration-testing",
@@ -1320,7 +1490,6 @@ async fn run_test_s3_event_elb() {
         singles[0].entries[0].subsystem_name
     );
 }
-
 
 #[tokio::test]
 async fn test_s3_event_elb() {
@@ -1339,9 +1508,7 @@ async fn test_s3_event_elb() {
 }
 
 async fn run_kafka_event() {
-    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
-
     let evt: CombinedEvent = serde_json::from_str(
         r#"{
             "eventSource": "SelfManagedKafka",
@@ -1383,8 +1550,16 @@ async fn run_kafka_event() {
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
 
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1414,51 +1589,64 @@ async fn run_kafka_event() {
 }
 
 async fn run_kafka_event_with_base64() {
-    let s3_client = get_mock_s3client(None).expect("failed to create s3 client");
     let config = Config::load_from_env().unwrap();
-
     let evt: CombinedEvent = serde_json::from_str(
         r#"{
-            "eventSource": "SelfManagedKafka",
-            "bootstrapServers":"b-2.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092,b-1.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092",
-            "records":{
-               "mytopic-0":[
-                  {
-                     "topic":"mytopic",
-                     "partition":0,
-                     "offset":15,
-                     "timestamp":1545084650987,
-                     "timestampType":"CREATE_TIME",
-                     "key":"abcDEFghiJKLmnoPQRstuVWXyz1234==",
-                     "value":"c29tZSBsb2cgbWVzc2FnZQ==",
-                     "headers":[
-                        {
-                           "headerKey":[
-                              104,
-                              101,
-                              97,
-                              100,
-                              101,
-                              114,
-                              86,
-                              97,
-                              108,
-                              117,
-                              101
-                           ]
+            "Records": [
+                {
+                    "messageId": "b5156cca-4ed0-4cb7-9442-8e46ae4b3e5d",
+                    "receiptHandle": "AQEB6ta8ohm23aNk42lK81DX7DIjGRhxS9LVXbHV5JrRknqXQiwvEy7+vg6ugf5Fxq1wqs6IoEItfCfiy1vicHYgeyIlGfMT3WvVtt52SWxPZ+3+nw1xdD8VVg+pfDmciCo+MvlprgYCzxF6LtTo7zI3NDr3pSV80vhA1LVr7kSX2SfAJPKDhiaa15GGE4IlBKugKhIPITDkuUqyTPbIYpEp8c7SCcTOer2V/P36t2h/q2mhyc8CKPCiPgzEjrYoqN/j4jHpuBfoZwREXWG6rRvor1SWVNUEsqM+0PXOXIqn01fPq1DXVhSakgbayE0ubVZzwyo+PAgyRot5gbauGBNuZA2UVKOV1uIhZknBBKnY8tS3KXAW73gbo9HnC2QSVCLEaVJHpkeFCnYFLcKPbtzQHQ==",
+                    "body": "{\"eventSource\": \"SelfManagedKafka\", \"bootstrapServers\": \"b-2.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092,b-1.demo-cluster-1.a1bcde.c1.kafka.us-east-1.amazonaws.com:9092\", \"records\": {\"mytopic-0\": [{\"topic\": \"mytopic\", \"partition\": 0, \"offset\": 15, \"timestamp\": 1545084650987, \"timestampType\": \"CREATE_TIME\", \"key\": \"abcDEFghiJKLmnoPQRstuVWXyz1234==\", \"value\": \"c29tZSBsb2cgbWVzc2FnZQ==\", \"headers\": [{\"headerKey\": [104, 101, 97, 100, 101, 114, 86, 97, 108, 117, 101]}]}]}}",
+                    "attributes": {
+                        "ApproximateReceiveCount": "1",
+                        "AWSTraceHeader": "Root=1-65ee26d2-7c8c4bb474a1c68815406000;Parent=79bf6658adb7892f;Sampled=0;Lineage=baa0488a:0",
+                        "SentTimestamp": "1710106323275",
+                        "SenderId": "AROAQQXZCKJODR6OC5JA7:awslambda_165_20240310213203238",
+                        "ApproximateFirstReceiveTimestamp": "1710106323276"
+                    },
+                    "messageAttributes": {
+                        "RequestID": {
+                            "stringValue": "44893703-7ce3-4038-87f1-ba00988ba1c5",
+                            "stringListValues": [],
+                            "binaryListValues": [],
+                            "dataType": "String"
+                        },
+                        "ErrorCode": {
+                            "stringValue": "200",
+                            "stringListValues": [],
+                            "binaryListValues": [],
+                            "dataType": "Number"
+                        },
+                        "ErrorMessage": {
+                            "stringValue": "Something went wrong",
+                            "stringListValues": [],
+                            "binaryListValues": [],
+                            "dataType": "String"
                         }
-                     ]
-                  }
-               ]
-            }
-         }"#,
+                    },
+                    "md5OfMessageAttributes": "6cc09da96b76ed00eb8583de71c9ca23",
+                    "md5OfBody": "4062d4b3c73c4a11695cff4713bd1911",
+                    "eventSource": "aws:sqs",
+                    "eventSourceARN": "arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT",
+                    "awsRegion": "eu-west-1"
+                }
+            ]
+        }"#,
     )
     .expect("failed to parse kinesis_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
-    let ecr_client = get_mock_ecrclient(None).expect("failed to create ecr client");
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1532,39 +1720,23 @@ async fn test_kafka_event() {
     .await;
 }
 
-
 #[tokio::test]
 async fn test_invalid_event() {
-    let r = serde_json::from_str::<CombinedEvent>(r#"{
+    let r = serde_json::from_str::<CombinedEvent>(
+        r#"{
         "test": "unsupported event",
         "type": "invalid"
-    }"#).map_err(|e| e.to_string());
+    }"#,
+    )
+    .map_err(|e| e.to_string());
 
     assert!(r.is_err() == true);
     assert!(r.err() == Some("unsupported or bad event type: {\"test\":\"unsupported event\",\"type\":\"invalid\"}".to_string()));
 }
-#[tokio::test]
-async fn test_ecrscan_event() {
-    temp_env::async_with_vars(
-        [
-            ("CORALOGIX_API_KEY", Some("1234456789X")),
-            ("APP_NAME", Some("integration-testing")),
-            ("SUB_NAME", Some("coralogix-serverless-repo")),
-            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
-            ("SAMPLING", Some("1")),
-            ("INTEGRATION_TYPE", Some("EcrScan")),
-            ("AWS_REGION", Some("eu-central-1")),
-        ],
-        run_test_ecrscan_event(),
-    )
-    .await;
-}
-
 
 async fn run_test_ecrscan_event() {
-    let ecr_client = get_mock_ecrclient(Some("./tests/fixtures/ecr_scan.log")).expect("failed to create ecr client");
-    let s3_client =
-        get_mock_s3client(None).expect("failed to create s3 client");
+    let ecr_client = get_mock_ecrclient(Some("./tests/fixtures/ecr_scan.log"))
+        .expect("failed to create ecr client");
     let config = Config::load_from_env().expect("failed to load config from env");
     let evt: CombinedEvent = serde_json::from_str(
         r#"{
@@ -1597,7 +1769,16 @@ async fn run_test_ecrscan_event() {
     ).expect("failed to parse ecrscan_event");
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
-    coralogix_aws_shipper::function_handler(&ecr_client, &s3_client, exporter.clone(), &config, event)
+
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
 
@@ -1616,4 +1797,403 @@ async fn run_test_ecrscan_event() {
         "got subsystem_name: {}",
         singles[0].entries[0].subsystem_name
     );
+}
+
+#[tokio::test]
+async fn test_ecrscan_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("SUB_NAME", Some("coralogix-serverless-repo")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("EcrScan")),
+            ("AWS_REGION", Some("eu-central-1")),
+        ],
+        run_test_ecrscan_event(),
+    )
+    .await;
+}
+
+async fn run_test_s3_retry_limit_reached_dlq_event() {
+    let evt: CombinedEvent = serde_json::from_str(r#"{
+        "Records": [
+            {
+                "messageId": "b5156cca-4ed0-4cb7-9442-8e46ae4b3e5d",
+                "receiptHandle": "AQEB6ta8ohm23aNk42lK81DX7DIjGRhxS9LVXbHV5JrRknqXQiwvEy7+vg6ugf5Fxq1wqs6IoEItfCfiy1vicHYgeyIlGfMT3WvVtt52SWxPZ+3+nw1xdD8VVg+pfDmciCo+MvlprgYCzxF6LtTo7zI3NDr3pSV80vhA1LVr7kSX2SfAJPKDhiaa15GGE4IlBKugKhIPITDkuUqyTPbIYpEp8c7SCcTOer2V/P36t2h/q2mhyc8CKPCiPgzEjrYoqN/j4jHpuBfoZwREXWG6rRvor1SWVNUEsqM+0PXOXIqn01fPq1DXVhSakgbayE0ubVZzwyo+PAgyRot5gbauGBNuZA2UVKOV1uIhZknBBKnY8tS3KXAW73gbo9HnC2QSVCLEaVJHpkeFCnYFLcKPbtzQHQ==",
+                "body": "{\"Records\": [{\"eventVersion\": \"2.0\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-east-1\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"EXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"127.0.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"EXAMPLE123456789\", \"x-amz-id-2\": \"EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"example-bucket\", \"ownerIdentity\": {\"principalId\": \"EXAMPLE\"}, \"arn\": \"arn:aws:s3:::example-bucket\"}, \"object\": {\"key\": \"test/key\", \"size\": 1024, \"eTag\": \"0123456789abcdef0123456789abcdef\", \"sequencer\": \"0A1B2C3D4E5F678901\"}}}]}",
+                "attributes": {
+                    "ApproximateReceiveCount": "1",
+                    "AWSTraceHeader": "Root=1-65ee26d2-7c8c4bb474a1c68815406000;Parent=79bf6658adb7892f;Sampled=0;Lineage=baa0488a:0",
+                    "SentTimestamp": "1710106323275",
+                    "SenderId": "AROAQQXZCKJODR6OC5JA7:awslambda_165_20240310213203238",
+                    "ApproximateFirstReceiveTimestamp": "1710106323276"
+                },
+                "messageAttributes": {
+                    "RequestID": {
+                        "stringValue": "44893703-7ce3-4038-87f1-ba00988ba1c5",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    },
+                    "ErrorCode": {
+                        "stringValue": "200",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "Number"
+                    },
+                    "ErrorMessage": {
+                        "stringValue": "Something went wrong",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    },
+                    "retry": {
+                        "stringValue": "3",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    }
+                },
+                "md5OfMessageAttributes": "6cc09da96b76ed00eb8583de71c9ca23",
+                "md5OfBody": "4062d4b3c73c4a11695cff4713bd1911",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT",
+                "awsRegion": "eu-west-1"
+            }
+        ]
+    }"#).expect("failed to parse ecrscan_event");
+
+    let s3_replay_event_failure = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+        http::Response::builder()
+            .status(500) // invooke server error
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+    );
+
+    let s3_replay_event_result = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+        http::Response::builder()
+            .status(200) // invooke server error
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+    );
+    
+    let s3_relay_client = aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
+        s3_replay_event_failure,
+        s3_replay_event_result
+    ]);
+    
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = make_client!(aws_sdk_s3, s3_relay_client);
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    s3_relay_client.actual_requests().into_iter().skip(1).for_each(|v| {
+        let val = std::str::from_utf8(v.body().bytes().unwrap()).unwrap();
+        let e: aws_lambda_events::event::s3::S3Event = serde_json::from_str(val)
+            .expect("unable to desrialize body to s3 event");
+        assert_eq!(e.records.len(), 1);
+        assert_eq!(e.records[0].clone().s3.bucket.name.unwrap(), "example-bucket".to_string());
+        assert_eq!(e.records[0].clone().s3.object.key.unwrap(), "test/key".to_string());
+    });
+}
+
+#[tokio::test]
+async fn test_s3_retry_limit_reached_dlq_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("SUB_NAME", Some("coralogix-serverless-repo")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("DLQ_ARN", Some("arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT")),
+            ("DLQ_URL", Some("https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT")),
+            ("DLQ_RETRY_LIMIT", Some("2")),
+            ("DLQ_S3_BUCKET", Some("some_bucket"))
+        ],
+        run_test_s3_retry_limit_reached_dlq_event(),
+    )
+    .await;
+}
+
+
+async fn run_test_route_failed_event_to_dlq() {
+    let evt: CombinedEvent = serde_json::from_str(r#"{
+        "Records": [
+            {
+                "messageId": "b5156cca-4ed0-4cb7-9442-8e46ae4b3e5d",
+                "receiptHandle": "AQEB6ta8ohm23aNk42lK81DX7DIjGRhxS9LVXbHV5JrRknqXQiwvEy7+vg6ugf5Fxq1wqs6IoEItfCfiy1vicHYgeyIlGfMT3WvVtt52SWxPZ+3+nw1xdD8VVg+pfDmciCo+MvlprgYCzxF6LtTo7zI3NDr3pSV80vhA1LVr7kSX2SfAJPKDhiaa15GGE4IlBKugKhIPITDkuUqyTPbIYpEp8c7SCcTOer2V/P36t2h/q2mhyc8CKPCiPgzEjrYoqN/j4jHpuBfoZwREXWG6rRvor1SWVNUEsqM+0PXOXIqn01fPq1DXVhSakgbayE0ubVZzwyo+PAgyRot5gbauGBNuZA2UVKOV1uIhZknBBKnY8tS3KXAW73gbo9HnC2QSVCLEaVJHpkeFCnYFLcKPbtzQHQ==",
+                "body": "{\"Records\": [{\"eventVersion\": \"2.0\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-east-1\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"EXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"127.0.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"EXAMPLE123456789\", \"x-amz-id-2\": \"EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"example-bucket\", \"ownerIdentity\": {\"principalId\": \"EXAMPLE\"}, \"arn\": \"arn:aws:s3:::example-bucket\"}, \"object\": {\"key\": \"test/key\", \"size\": 1024, \"eTag\": \"0123456789abcdef0123456789abcdef\", \"sequencer\": \"0A1B2C3D4E5F678901\"}}}]}",
+                "attributes": {
+                    "ApproximateReceiveCount": "1",
+                    "AWSTraceHeader": "Root=1-65ee26d2-7c8c4bb474a1c68815406000;Parent=79bf6658adb7892f;Sampled=0;Lineage=baa0488a:0",
+                    "SentTimestamp": "1710106323275",
+                    "SenderId": "AROAQQXZCKJODR6OC5JA7:awslambda_165_20240310213203238",
+                    "ApproximateFirstReceiveTimestamp": "1710106323276"
+                },
+                "messageAttributes": {
+                    "RequestID": {
+                        "stringValue": "44893703-7ce3-4038-87f1-ba00988ba1c5",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    },
+                    "ErrorCode": {
+                        "stringValue": "200",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "Number"
+                    },
+                    "ErrorMessage": {
+                        "stringValue": "Something went wrong",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    },
+                    "retry": {
+                        "stringValue": "3",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    }
+                },
+                "md5OfMessageAttributes": "6cc09da96b76ed00eb8583de71c9ca23",
+                "md5OfBody": "4062d4b3c73c4a11695cff4713bd1911",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT",
+                "awsRegion": "eu-west-1"
+            }
+        ]
+    }"#).expect("failed to parse ecrscan_event");
+    
+    let sqs_replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+        http::Response::builder()
+            .status(200)
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+    );
+
+    let s3_replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+        http::Response::builder()
+            .status(500) // invooke server error
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+    );
+
+    let sqs_replay_client = aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
+        sqs_replay_event,
+    ]);
+
+    let s3_relay_client = aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
+        s3_replay_event,
+    ]);
+    
+    let sqs_client = make_client!(aws_sdk_sqs, sqs_replay_client);
+    let s3_client = make_client!(aws_sdk_s3, s3_relay_client);
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+      s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    sqs_replay_client.actual_requests().into_iter().for_each(|x| {
+        let v = std::str::from_utf8(x.body().bytes().unwrap()).unwrap();
+        let got: serde_json::Value = serde_json::from_str(v).unwrap();
+        let expected: serde_json::Value = serde_json::from_str(r#"{"MessageAttributes": {"LastError": {"DataType": "String", "StringValue": "service error"}, "retry": {"DataType": "String", "StringValue": "4"}}, "MessageBody": "{\"Records\": [{\"eventVersion\": \"2.0\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-east-1\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"EXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"127.0.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"EXAMPLE123456789\", \"x-amz-id-2\": \"EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"example-bucket\", \"ownerIdentity\": {\"principalId\": \"EXAMPLE\"}, \"arn\": \"arn:aws:s3:::example-bucket\"}, \"object\": {\"key\": \"test/key\", \"size\": 1024, \"eTag\": \"0123456789abcdef0123456789abcdef\", \"sequencer\": \"0A1B2C3D4E5F678901\"}}}]}", "QueueUrl": "https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT"}"#).unwrap();
+        assert_eq!(got, expected, "sdk body does not match expected");
+    });
+}
+
+#[tokio::test]
+async fn test_route_failed_event_to_dlq() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("SUB_NAME", Some("coralogix-serverless-repo")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("DLQ_ARN", Some("arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT")),
+            ("DLQ_URL", Some("https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT")),
+            ("DLQ_RETRY_LIMIT", Some("4")),
+            ("DLQ_S3_BUCKET", Some("some_bucket"))
+        ],
+        run_test_route_failed_event_to_dlq(),
+    )
+    .await;
+}
+
+async fn run_dlq_success_msg() {
+    let evt: CombinedEvent = serde_json::from_str(r#"{
+        "Records": [
+            {
+                "messageId": "b5156cca-4ed0-4cb7-9442-8e46ae4b3e5d",
+                "receiptHandle": "AQEB6ta8ohm23aNk42lK81DX7DIjGRhxS9LVXbHV5JrRknqXQiwvEy7+vg6ugf5Fxq1wqs6IoEItfCfiy1vicHYgeyIlGfMT3WvVtt52SWxPZ+3+nw1xdD8VVg+pfDmciCo+MvlprgYCzxF6LtTo7zI3NDr3pSV80vhA1LVr7kSX2SfAJPKDhiaa15GGE4IlBKugKhIPITDkuUqyTPbIYpEp8c7SCcTOer2V/P36t2h/q2mhyc8CKPCiPgzEjrYoqN/j4jHpuBfoZwREXWG6rRvor1SWVNUEsqM+0PXOXIqn01fPq1DXVhSakgbayE0ubVZzwyo+PAgyRot5gbauGBNuZA2UVKOV1uIhZknBBKnY8tS3KXAW73gbo9HnC2QSVCLEaVJHpkeFCnYFLcKPbtzQHQ==",
+                "body": "{\"Records\": [{\"eventVersion\": \"2.0\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-east-1\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"EXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"127.0.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"EXAMPLE123456789\", \"x-amz-id-2\": \"EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"example-bucket\", \"ownerIdentity\": {\"principalId\": \"EXAMPLE\"}, \"arn\": \"arn:aws:s3:::example-bucket\"}, \"object\": {\"key\": \"test/key\", \"size\": 1024, \"eTag\": \"0123456789abcdef0123456789abcdef\", \"sequencer\": \"0A1B2C3D4E5F678901\"}}}]}",
+                "attributes": {
+                    "ApproximateReceiveCount": "1",
+                    "AWSTraceHeader": "Root=1-65ee26d2-7c8c4bb474a1c68815406000;Parent=79bf6658adb7892f;Sampled=0;Lineage=baa0488a:0",
+                    "SentTimestamp": "1710106323275",
+                    "SenderId": "AROAQQXZCKJODR6OC5JA7:awslambda_165_20240310213203238",
+                    "ApproximateFirstReceiveTimestamp": "1710106323276"
+                },
+                "messageAttributes": {
+                    "RequestID": {
+                        "stringValue": "44893703-7ce3-4038-87f1-ba00988ba1c5",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    },
+                    "ErrorCode": {
+                        "stringValue": "200",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "Number"
+                    },
+                    "ErrorMessage": {
+                        "stringValue": "Something went wrong",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    },
+                    "retry": {
+                        "stringValue": "3",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    }
+                },
+                "md5OfMessageAttributes": "6cc09da96b76ed00eb8583de71c9ca23",
+                "md5OfBody": "4062d4b3c73c4a11695cff4713bd1911",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT",
+                "awsRegion": "eu-west-1"
+            }
+        ]
+    }"#).expect("failed to parse ecrscan_event");
+    
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(Some("./tests/fixtures/s3.log")).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients{
+      s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client  
+    };
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 4);
+    let log_lines = vec![
+        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    ];
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(singles[0].entries[i].body == *log_line);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+    
+}
+
+#[tokio::test]
+async fn test_success_msg_from_dlq() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("SUB_NAME", Some("coralogix-serverless-repo")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("DLQ_ARN", Some("arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT")),
+            ("DLQ_URL", Some("https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT")),
+            ("DLQ_RETRY_LIMIT", Some("4")),
+            ("DLQ_S3_BUCKET", Some("some_bucket"))
+        ],
+        run_dlq_success_msg(),
+    )
+    .await;
+}
+
+#[macro_export]
+macro_rules! make_client {
+    ($sdk:ident, $relay_client:ident) => {
+
+        $sdk::Client::from_conf(
+            $sdk::Config::builder()
+                .behavior_version(BehaviorVersion::latest())
+                .credentials_provider($sdk::config::Credentials::new(
+                    "SOMETESTKEYID",
+                    "somesecretkey",
+                    Some("somesessiontoken".to_string()),
+                    None,
+                    "",
+            ))
+            .region($sdk::config::Region::new("eu-central-1"))
+            .http_client($relay_client.clone())
+            .build())
+    };
 }
