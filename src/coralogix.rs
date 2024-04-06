@@ -134,7 +134,7 @@ fn convert_to_log_entry(
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
-    let loggroup_name = metadata_instance.log_group.clone();
+    // let loggroup_name = metadata_instance.log_group.clone();
     tracing::debug!("Severity: {:?}", severity);
 
     let message = match serde_json::from_str(&log) {
