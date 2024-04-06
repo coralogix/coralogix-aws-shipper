@@ -23,6 +23,10 @@ pub struct Config {
     pub batches_max_size: usize,
     pub batches_max_concurrency: usize,
     pub add_metadata: String,
+    pub dlq_arn: Option<String>,
+    pub dlq_url: Option<String>,
+    pub dlq_retry_limit: Option<String>,
+    pub dlq_s3_bucket: Option<String>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -113,6 +117,10 @@ impl Config {
                 .map_err(|e| format!("Error parsing BATCHES_MAX_CONCURRENCY to usize - {}", e))?,
             add_metadata: env::var("ADD_METADATA")
             .unwrap_or(" ".to_string()),
+            dlq_arn: env::var("DLQ_ARN").ok(),
+            dlq_url: env::var("DLQ_URL").ok(),
+            dlq_retry_limit: env::var("DLQ_RETRY_LIMIT").ok(),
+            dlq_s3_bucket: env::var("DLQ_S3_BUCKET").ok(),
         };
 
         Ok(conf)
