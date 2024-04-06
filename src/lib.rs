@@ -1,7 +1,6 @@
 use aws_lambda_events::cloudwatch_logs::LogsEvent;
 use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
-use aws_sdk_s3::Client;
 use aws_config::SdkConfig;
 use aws_sdk_ecr::Client as EcrClient;
 use combined_event::CombinedEvent;
@@ -145,11 +144,6 @@ pub async fn function_handler(
                                 continue;
                             }
 
-                            // let retry_count = record.message_attributes.get("retry")
-                            //     .and_then(|attr| attr.string_value.as_ref())
-                            //     .map_or(Ok(0), str::parse::<i32>)
-                            //     .unwrap_or(0);
-
                             let mut current_retry_count = record
                                 .message_attributes
                                 .get("retry")
@@ -201,16 +195,6 @@ pub async fn function_handler(
                                 .message_body(message)
                                 .send()
                                 .await?;
-
-                            // clients
-                            //     .sqs
-                            //     .send_dlq_message(
-                            //         dlq_url,
-                            //         record.body.clone().unwrap(),
-                            //         current_retry_count,
-                            //         result.err().unwrap().to_string(),
-                            //     )
-                            //     .await?;
                         }
 
                         // result.err();
