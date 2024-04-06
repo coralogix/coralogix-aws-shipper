@@ -31,6 +31,10 @@ temp-env = { version = "0.3.6", features = ["async_closure"] }
 aws-smithy-runtime = { version = "1.1.7", features = ["test-util"] }
 aws-smithy-types = "1.1.7"
 base64 = "0.22.0"
+aws-sdk-sqs = "1.18.0"
+chrono = "0.4.37"
+async-recursion = "1.1.0"
+md5 = "0.7.0"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
