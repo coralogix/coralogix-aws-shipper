@@ -15,7 +15,7 @@ async fn main() -> Result<(), Error> {
     );
 
     let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
-    let clients = coralogix_aws_shipper::AwsClients::new(&aws_config); 
+    let clients = coralogix_aws_shipper::AwsClients::new(&aws_config);
     let mut config = config::Config::load_from_env()?;
 
     // if APIKey provided is an ARN, get the APIKey from Secrets Manager

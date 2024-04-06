@@ -105,8 +105,7 @@ impl Config {
                 .unwrap_or("250".to_string())
                 .parse::<u64>()
                 .map_err(|e| format!("Error parsing MAX_ELAPSED_TIME to u64 - {}", e))?,
-            csv_delimiter: env::var("CSV_DELIMITER")
-                .unwrap_or(",".to_string()),
+            csv_delimiter: env::var("CSV_DELIMITER").unwrap_or(",".to_string()),
             batches_max_size: env::var("BATCHES_MAX_SIZE")
                 .unwrap_or("4".to_string())
                 .parse::<usize>()
@@ -115,8 +114,7 @@ impl Config {
                 .unwrap_or("10".to_string())
                 .parse::<usize>()
                 .map_err(|e| format!("Error parsing BATCHES_MAX_CONCURRENCY to usize - {}", e))?,
-            add_metadata: env::var("ADD_METADATA")
-            .unwrap_or(" ".to_string()),
+            add_metadata: env::var("ADD_METADATA").unwrap_or(" ".to_string()),
             dlq_arn: env::var("DLQ_ARN").ok(),
             dlq_url: env::var("DLQ_URL").ok(),
             dlq_retry_limit: env::var("DLQ_RETRY_LIMIT").ok(),

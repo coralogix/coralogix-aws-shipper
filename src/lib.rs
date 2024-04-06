@@ -1,13 +1,19 @@
+use async_recursion::async_recursion;
+use aws_config::SdkConfig;
 use aws_lambda_events::cloudwatch_logs::LogsEvent;
 use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
-use aws_config::SdkConfig;
 use aws_sdk_ecr::Client as EcrClient;
+use aws_sdk_s3::Client as S3Client;
+use aws_sdk_sqs::types::MessageAttributeValue;
+use aws_sdk_sqs::Client as SqsClient;
+use chrono;
 use combined_event::CombinedEvent;
 use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
 use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
 use http::header::USER_AGENT;
 use lambda_runtime::{Context, Error, LambdaEvent};
+use md5;
 use std::collections::HashMap;
 use std::string::String;
 use std::sync::Arc;
@@ -15,20 +21,14 @@ use std::time::Duration;
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
-use aws_sdk_s3::Client as S3Client;
-use aws_sdk_sqs::types::MessageAttributeValue;
-use aws_sdk_sqs::Client as SqsClient;
-use chrono;
-use async_recursion::async_recursion;
-use md5;
 
 use crate::config::{Config, IntegrationType};
 
 pub mod combined_event;
 pub mod config;
 pub mod coralogix;
-pub mod process;
 pub mod ecr;
+pub mod process;
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()
@@ -164,14 +164,15 @@ pub async fn function_handler(
                                     record.body
                                 );
 
-   
-                            s3_store_failed_event(&clients.s3,  
-                                config.dlq_s3_bucket.clone().unwrap(), 
-                                record.body.clone().unwrap()).await?;
+                                s3_store_failed_event(
+                                    &clients.s3,
+                                    config.dlq_s3_bucket.clone().unwrap(),
+                                    record.body.clone().unwrap(),
+                                )
+                                .await?;
 
-                            continue;
+                                continue;
                             }
-
 
                             // increment retry count
                             current_retry_count += 1;
@@ -180,14 +181,15 @@ pub async fn function_handler(
                                 .set_data_type(Some("String".to_string()))
                                 .set_string_value(Some(current_retry_count.to_string()))
                                 .build()?;
-                
+
                             let last_err_attr = MessageAttributeValue::builder()
                                 .set_data_type(Some("String".to_string()))
                                 .set_string_value(Some(result.err().unwrap().to_string()))
                                 .build()?;
-                    
+
                             // send sqs event to dlq
-                            clients.sqs
+                            clients
+                                .sqs
                                 .send_message()
                                 .queue_url(dlq_url)
                                 .message_attributes("retry", retry_attr)
@@ -216,11 +218,7 @@ pub async fn function_handler(
                 debug!("Kinesis record: {:?}", record);
                 let message = record.kinesis.data;
                 debug!("Kinesis data: {:?}", &message);
-                crate::process::kinesis_logs(
-                    message,
-                    coralogix_exporter.clone(),
-                    config,
-                ).await?;
+                crate::process::kinesis_logs(message, coralogix_exporter.clone(), config).await?;
             }
         }
         CombinedEvent::Kafka(kafka_event) => {
@@ -229,11 +227,7 @@ pub async fn function_handler(
                 debug!("Kafka record: {topic_partition:?} --> {records:?}");
                 all_records.append(&mut records)
             }
-            crate::process::kafka_logs(
-                all_records,
-                coralogix_exporter.clone(),
-                config,
-            ).await?;
+            crate::process::kafka_logs(all_records, coralogix_exporter.clone(), config).await?;
         }
         CombinedEvent::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);
@@ -242,8 +236,9 @@ pub async fn function_handler(
                 ecr_scan_event,
                 coralogix_exporter.clone(),
                 config,
-            ).await?;
-        }     
+            )
+            .await?;
+        }
     };
 
     Ok(())
@@ -273,10 +268,9 @@ pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Erro
     let decoded_key = percent_encoding::percent_decode_str(&key)
         .decode_utf8()?
         .replace("+", " ");
-    
+
     Ok((bucket, decoded_key))
 }
-
 
 /// A type used to hold the AWS clients required to interact with AWS services
 /// used by the lambda function.
@@ -327,8 +321,8 @@ async fn s3_store_failed_event(
 
 #[cfg(test)]
 mod test {
-    use aws_lambda_events::event::s3::S3Event;
     use super::*;
+    use aws_lambda_events::event::s3::S3Event;
 
     // Note: we test the s3_event handler directly here, since the integration tests will bypass it
     // using the mock s3 client. The [handle_cloudwatch_logs_event] is however invoked as part of the
@@ -381,17 +375,21 @@ mod test {
 
         // test normal s3 event
         let s3_event = s3_event_str("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
-        let evt: S3Event = serde_json::from_str(s3_event.as_str()).expect("failed to parse s3_event");
+        let evt: S3Event =
+            serde_json::from_str(s3_event.as_str()).expect("failed to parse s3_event");
         let (bucket, key) = handle_s3_event(evt).await.unwrap();
         assert_eq!(bucket, "coralogix-serverless-repo");
         assert_eq!(key, "coralogix-aws-shipper/s3.log");
 
         // test s3 event with spaces in key name (note: aws event replaces spaces with +)
-        let s3_event = s3_event_str("coralogix-serverless-repo", "coralogix-aws-shipper/s3+with+spaces.log");
-        let evt: S3Event = serde_json::from_str(s3_event.as_str()).expect("failed to parse s3_event");
+        let s3_event = s3_event_str(
+            "coralogix-serverless-repo",
+            "coralogix-aws-shipper/s3+with+spaces.log",
+        );
+        let evt: S3Event =
+            serde_json::from_str(s3_event.as_str()).expect("failed to parse s3_event");
         let (bucket, key) = handle_s3_event(evt).await.unwrap();
         assert_eq!(bucket, "coralogix-serverless-repo");
         assert_eq!(key, "coralogix-aws-shipper/s3 with spaces.log");
     }
-    
 }
