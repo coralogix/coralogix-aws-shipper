@@ -131,6 +131,7 @@ pub async fn function_handler(
                             internal_event,
                         )
                         .await;
+
                         if result.is_ok() {
                             continue;
                         }
@@ -163,7 +164,6 @@ pub async fn function_handler(
                                     "Retry limit reached for message: {:?}",
                                     record.body
                                 );
-
                                 s3_store_failed_event(
                                     &clients.s3,
                                     config.dlq_s3_bucket.clone().unwrap(),
@@ -294,14 +294,45 @@ impl AwsClients {
 async fn s3_store_failed_event(
     s3client: &S3Client,
     bucket: String,
-    data: String,
+    event: String,
 ) -> Result<(), String> {
     // create object name using md5sum of the data string
-    let digest = md5::compute(data.as_bytes());
-    let object_name = format!("{:x}.json", digest);
+    let digest = md5::compute(event.as_bytes());
+    let mut object_name = format!("{:x}.json", digest);
     let mut key = chrono::Local::now()
         .format("coraligx-aws-shipper/failed-events/%Y/%m/%d/%H")
         .to_string();
+
+    let mut data = event.clone().as_bytes().to_owned();
+
+    // if s3 event, read the object from s3
+    if let Ok(e) = serde_json::from_str::<S3Event>(&event) {
+        let bucket = e.records[0]
+            .s3
+            .bucket
+            .name
+            .as_deref()
+            .ok_or_else(|| format!("failed to get bucket name"))?;
+        let key = e.records[0]
+            .s3
+            .object
+            .key
+            .as_deref()
+            .ok_or_else(|| format!("failed to get object key name"))?;
+        object_name = format!("{}/{}", bucket, key);
+        data = process::get_bytes_from_s3(s3client, bucket.to_string(), key.to_string())
+            .await
+            .map_err(|e| format!("failed to read object from s3 - {}", e))?;
+    }
+
+    // if cloudwatch logs event, use loggroup name and md5 sum as object name
+    if let Ok(e) = serde_json::from_str::<LogsEvent>(&event) {
+        object_name = format!(
+            "{}/{}/{}",
+            e.aws_logs.data.log_group, e.aws_logs.data.log_stream, object_name
+        );
+    }
+
     key = format!("{}/{}", key, object_name);
     let buffer =
         aws_smithy_types::byte_stream::ByteStream::new(aws_smithy_types::body::SdkBody::from(data));
