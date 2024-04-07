@@ -1,3 +1,4 @@
+use anyhow;
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_ecr::Client as EcrClient;
@@ -215,6 +216,42 @@ impl LogExporter for FakeLogExporter {
             .unwrap()
             .push(request.try_map_body(serde_json::to_value)?);
         Ok(())
+    }
+}
+
+// FailingLogExporter used to trigger intential failures for testing
+#[derive(Default, Debug, Clone)]
+pub struct FailingLogExporter;
+
+#[async_trait]
+impl LogExporter for FailingLogExporter {
+    async fn export_bulk<B>(
+        &self,
+        _: LogBulkRequest<B>,
+        _: &AuthData,
+    ) -> Result<(), cx_sdk_rest_logs::Error>
+    where
+        B: Serialize + Send + Sync,
+    {
+        Err(cx_sdk_rest_logs::Error::ServerError {
+            source: anyhow::Error::msg("FailingLogExporter always fails..."),
+            status: None,
+        })
+    }
+
+    async fn export_singles<B>(
+        &self,
+        _: LogSinglesRequest<B>,
+        _: &AuthData,
+    ) -> Result<(), cx_sdk_rest_logs::Error>
+    where
+        B: Serialize + Send + Sync,
+    {
+        println!("called");
+        Err(cx_sdk_rest_logs::Error::ServerError {
+            source: anyhow::Error::msg("FailingLogExporter always fails..."),
+            status: None,
+        })
     }
 }
 
@@ -1864,6 +1901,20 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
             .unwrap(),
     );
 
+    let response_data = std::fs::read("tests/fixtures/s3.log")
+        .map_err(|e| e.to_string())
+        .expect("failed to read test fixture: tests/fixtures/s3.log");
+
+    let s3_replay_event_get_object = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+        http::Response::builder()
+            .status(200) // invooke server error
+            .body(aws_smithy_types::body::SdkBody::from(response_data))
+            .unwrap(),
+    );
+
     let s3_replay_event_result = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::empty())
@@ -1877,6 +1928,7 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
     let s3_relay_client =
         aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
             s3_replay_event_failure,
+            s3_replay_event_get_object,
             s3_replay_event_result,
         ]);
 
@@ -1900,20 +1952,35 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
     s3_relay_client
         .actual_requests()
         .into_iter()
-        .skip(1)
+        .skip(2)
         .for_each(|v| {
-            let val = std::str::from_utf8(v.body().bytes().unwrap()).unwrap();
-            let e: aws_lambda_events::event::s3::S3Event =
-                serde_json::from_str(val).expect("unable to desrialize body to s3 event");
-            assert_eq!(e.records.len(), 1);
-            assert_eq!(
-                e.records[0].clone().s3.bucket.name.unwrap(),
-                "example-bucket".to_string()
+            let result_logs: Vec<String> = std::str::from_utf8(v.body().bytes().unwrap())
+                .expect("unable parse log lines from result")
+                .to_string()
+                .split("\n")
+                .map(|s| s.to_string())
+                .collect();
+
+            let time_prefix = chrono::Local::now()
+                .format("coraligx-aws-shipper/failed-events/%Y/%m/%d/%H")
+                .to_string();
+
+            let expected_uri = format!("https://s3.eu-central-1.amazonaws.com/{}/{}/example-bucket/test/key?x-id=PutObject",
+                std::env::var("DLQ_S3_BUCKET").unwrap(),
+                time_prefix,
             );
-            assert_eq!(
-                e.records[0].clone().s3.object.key.unwrap(),
-                "test/key".to_string()
-            );
+
+            assert_eq!(expected_uri, v.uri(), "request uri does not match expected");
+
+            let log_lines = vec![
+                "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+                "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+                "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+                "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+            ];
+            for (i, log_line) in log_lines.iter().enumerate() {
+                assert!(result_logs[i] == *log_line);
+            }
         });
 }
 
@@ -1937,9 +2004,140 @@ async fn test_s3_retry_limit_reached_dlq_event() {
                 Some("https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT"),
             ),
             ("DLQ_RETRY_LIMIT", Some("2")),
-            ("DLQ_S3_BUCKET", Some("some_bucket")),
+            ("DLQ_S3_BUCKET", Some("dlq_bucket")),
         ],
         run_test_s3_retry_limit_reached_dlq_event(),
+    )
+    .await;
+}
+
+async fn run_test_cloudwatch_retry_limit_reached_dlq_event() {
+    let evt: CombinedEvent = serde_json::from_str(r#"{
+        "Records": [
+            {
+                "messageId": "b5156cca-4ed0-4cb7-9442-8e46ae4b3e5d",
+                "receiptHandle": "AQEB6ta8ohm23aNk42lK81DX7DIjGRhxS9LVXbHV5JrRknqXQiwvEy7+vg6ugf5Fxq1wqs6IoEItfCfiy1vicHYgeyIlGfMT3WvVtt52SWxPZ+3+nw1xdD8VVg+pfDmciCo+MvlprgYCzxF6LtTo7zI3NDr3pSV80vhA1LVr7kSX2SfAJPKDhiaa15GGE4IlBKugKhIPITDkuUqyTPbIYpEp8c7SCcTOer2V/P36t2h/q2mhyc8CKPCiPgzEjrYoqN/j4jHpuBfoZwREXWG6rRvor1SWVNUEsqM+0PXOXIqn01fPq1DXVhSakgbayE0ubVZzwyo+PAgyRot5gbauGBNuZA2UVKOV1uIhZknBBKnY8tS3KXAW73gbo9HnC2QSVCLEaVJHpkeFCnYFLcKPbtzQHQ==",
+                "body": "{\"awslogs\": {\"data\": \"H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA==\"}}",
+                "attributes": {
+                    "ApproximateReceiveCount": "1",
+                    "AWSTraceHeader": "Root=1-65ee26d2-7c8c4bb474a1c68815406000;Parent=79bf6658adb7892f;Sampled=0;Lineage=baa0488a:0",
+                    "SentTimestamp": "1710106323275",
+                    "SenderId": "AROAQQXZCKJODR6OC5JA7:awslambda_165_20240310213203238",
+                    "ApproximateFirstReceiveTimestamp": "1710106323276"
+                },
+                "messageAttributes": {
+                    "RequestID": {
+                        "stringValue": "44893703-7ce3-4038-87f1-ba00988ba1c5",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    },
+                    "ErrorCode": {
+                        "stringValue": "200",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "Number"
+                    },
+                    "ErrorMessage": {
+                        "stringValue": "Something went wrong",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    },
+                    "retry": {
+                        "stringValue": "3",
+                        "stringListValues": [],
+                        "binaryListValues": [],
+                        "dataType": "String"
+                    }
+                },
+                "md5OfMessageAttributes": "6cc09da96b76ed00eb8583de71c9ca23",
+                "md5OfBody": "4062d4b3c73c4a11695cff4713bd1911",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT",
+                "awsRegion": "eu-west-1"
+            }
+        ]
+    }"#).expect("failed to parse ecrscan_event");
+
+    let s3_replay_event_result = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+        http::Response::builder()
+            .status(200) // invooke server error
+            .body(aws_smithy_types::body::SdkBody::empty())
+            .unwrap(),
+    );
+
+    let s3_relay_client =
+        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
+            s3_replay_event_result,
+        ]);
+
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = make_client!(aws_sdk_s3, s3_relay_client);
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients {
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client,
+    };
+
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let exporter = Arc::new(FailingLogExporter::default());
+    let event = LambdaEvent::new(evt, Context::default());
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    s3_relay_client.actual_requests().into_iter().for_each(|v| {
+        let val = std::str::from_utf8(v.body().bytes().unwrap()).unwrap();
+        println!("{}", val);
+        println!("{}", v.uri());
+
+        let time_prefix = chrono::Local::now()
+            .format("coraligx-aws-shipper/failed-events/%Y/%m/%d/%H")
+            .to_string();
+
+        let expected_uri = format!(
+            "https://s3.eu-central-1.amazonaws.com/dlq_bucket/{}/testLogGroup/testLogStream/edcd7c7fd888d56191a8073d5b0283d1.json?x-id=PutObject", 
+            time_prefix
+        );
+
+        assert_eq!(expected_uri, v.uri(), "request uri does not match expect");
+        assert_eq!(
+            r#"{"awslogs": {"data": "H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA=="}}"#,
+            val,
+            "request both does not match"
+        )
+    });
+}
+
+#[tokio::test]
+async fn test_cloudwatch_retry_limit_reached_dlq_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("SUB_NAME", Some("coralogix-serverless-repo")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("CloudWatch")),
+            ("AWS_REGION", Some("eu-central-1")),
+            (
+                "DLQ_ARN",
+                Some("arn:aws:sqs:eu-west-1:035955823196:dlq-EchoDLQ-ZhCQ49N5iRjT"),
+            ),
+            (
+                "DLQ_URL",
+                Some("https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT"),
+            ),
+            ("DLQ_RETRY_LIMIT", Some("2")),
+            ("DLQ_S3_BUCKET", Some("dlq_bucket")),
+        ],
+        run_test_cloudwatch_retry_limit_reached_dlq_event(),
     )
     .await;
 }
