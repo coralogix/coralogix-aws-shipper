@@ -1,5 +1,5 @@
 # Changelog
-## v1.0.3 / 
+## v1.0.3 / 2024-04-09
 ### 💡 Enhancements 💡
 - Update cloudwatch integration to delete log group subscription after the lambda deletion
 - Support multiple topics for msk integration
