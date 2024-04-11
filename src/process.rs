@@ -17,7 +17,7 @@ use std::string::String;
 use std::time::Instant;
 use tracing::{debug, info};
 use base64::prelude::*;
-
+use std::env;
 
 use crate::config::{Config, IntegrationType};
 use crate::coralogix;
@@ -465,6 +465,7 @@ async fn process_csv(
         debug!("NON-ZIP S3 object: {}", s);
         s
     };
+    let custom_header = env::var("CUSTOM_CSV_HEADER").unwrap_or("".to_string());
     let mut flow_header: Vec<&str>;
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
     let records: Vec<&str> = if array_s[0].starts_with("#Version") {
@@ -479,8 +480,12 @@ async fn process_csv(
             .copied()
             .collect_vec()
     } else {
-        flow_header = array_s[0].split(csv_delimiter).collect_vec();
-        tracing::debug!("Flow Header: {:?}", &flow_header);
+        if custom_header.len() > 0{
+            flow_header = custom_header.split(csv_delimiter).collect_vec();
+        } else {
+            flow_header = array_s[0].split(csv_delimiter).collect_vec();
+        }
+            tracing::debug!("Flow Header: {:?}", &flow_header);
         array_s
             .iter()
             .skip(1)
@@ -488,7 +493,6 @@ async fn process_csv(
             .copied()
             .collect_vec()
     };
-    
     let re_block: Regex = Regex::new(blocking_pattern)?;
     let parsed_records = parse_records(&flow_header, &records, csv_delimiter)?;
     debug!("Parsed Records: {:?}", &parsed_records);
