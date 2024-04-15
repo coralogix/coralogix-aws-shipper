@@ -1,4 +1,15 @@
 # Changelog
+## v1.0.3 / 2024-04-09
+### 💡 Enhancements 💡
+- Support multiple topics for msk integration
+
+### 🚀 New components 🚀
+- Custom Metadata can be added to the log messages.
+- Added Support for Custom CSV Header
+
+### 🧰 Bug fixes 🧰
+- Update CloudWatch custom lambda, so you will be able to see log group as trigger in the UI
+- Update cloudwatch integration to delete log group subscription after the lambda deletion
 
 ## v1.0.2 / 2024-03-21
 ### 🧰 Bug fixes 🧰
