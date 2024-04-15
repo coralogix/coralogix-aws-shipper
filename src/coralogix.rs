@@ -13,6 +13,7 @@ use std::time::Instant;
 use std::vec::Vec;
 use time::OffsetDateTime;
 use tracing::{error, info};
+use std::env;
 
 pub async fn process_batches(
     logs: Vec<String>,
@@ -110,6 +111,8 @@ struct JsonMessage {
     bucket_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     key_name: Option<String>,
+    #[serde(flatten)]
+    custom_metadata: HashMap<String, String>,
 }
 
 fn convert_to_log_entry(
@@ -148,6 +151,7 @@ fn convert_to_log_entry(
         loggroup_name: None,
         bucket_name: None,
         key_name: None,
+        custom_metadata: HashMap::new(),
     };
 
     let add_metadata: Vec<&str> = config.add_metadata.split(',').map(|s| s.trim()).collect();
@@ -181,12 +185,31 @@ fn convert_to_log_entry(
             }
         }
     }
-
-    let body = if message.stream_name.is_some()
-        || message.loggroup_name.is_some()
-        || message.bucket_name.is_some()
-        || message.key_name.is_some()
-    {
+    if let Ok(custom_metadata_str) = env::var("CUSTOM_METADATA") {
+        debug!("Custom metadata STR: {}", custom_metadata_str);
+        let mut metadata = HashMap::new();
+        let pairs = custom_metadata_str.split(',');
+    
+        for pair in pairs {
+            let split_pair: Vec<&str> = pair.split('=').collect();
+            match split_pair.as_slice() {
+                [key, value] => {
+                    metadata.insert(key.to_string(), value.to_string());
+                },
+                _ => {
+                    error!("Failed to split key-value pair: {}", pair);
+                    continue;
+                }
+            }
+        }
+    
+        if !metadata.is_empty() {
+            debug!("Custom metadata: {:?}", metadata);
+            message.custom_metadata = metadata;
+        }
+    }
+    debug!("Message metadata: {:?}", message.custom_metadata);
+    let body =  if message.stream_name.is_some() || message.loggroup_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() || !message.custom_metadata.is_empty() {
         serde_json::to_value(&message).unwrap_or(message.message)
     } else {
         message.message

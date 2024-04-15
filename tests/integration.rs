@@ -2420,3 +2420,146 @@ macro_rules! make_client {
         )
     };
 }
+
+
+async fn run_test_s3_event_with_custom_metadata() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/s3.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/s3.log");
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients {
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client,
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 4);
+    let log_lines = vec![
+        "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+        "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+        "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+        "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+    ];
+    for (i, log_line) in log_lines.iter().enumerate() {
+        let expected: Value = serde_json::from_str(log_line).unwrap();
+        assert_eq!(singles[0].entries[i].body, expected);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+
+#[tokio::test]
+async fn test_s3_event_with_custom_metadata() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("CUSTOM_METADATA", Some("client=client1,env=prod")),
+        ],
+        run_test_s3_event_with_custom_metadata(),
+    )
+    .await;
+}
+async fn run_csv_s3_custom_headers_event() {
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/s3csv.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/s3csv.log",
+    );
+    let evt: CombinedEvent = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = coralogix_aws_shipper::AwsClients {
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client,
+    };
+
+    coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 2);
+    let log_lines = vec![
+        "{\"client\":1,\"text\":\"This is an info message\",\"sev\":\"INFO\",\"time\":\"2019-01-01 00:00:00\"}",
+        "{\"client\":2,\"text\":\"This is another info message\",\"sev\":\"INFO\",\"time\":\"2019-01-01 00:00:01\"}"
+    ];
+
+    for (i, log_line) in log_lines.iter().enumerate() {
+        let expected: Value = serde_json::from_str(log_line).unwrap();
+        assert_eq!(singles[0].entries[i].body, expected);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+#[tokio::test]
+async fn test_csv_s3_custom_headers_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("S3Csv")),
+            ("CUSTOM_CSV_HEADER", Some("time,client,sev,text")),
+        ],
+        run_csv_s3_custom_headers_event(),
+    )
+    .await;
+}

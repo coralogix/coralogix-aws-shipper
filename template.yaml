@@ -25,7 +25,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.0.2
+    SemanticVersion: 1.0.3
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -82,6 +82,7 @@ Metadata:
           - BlockingPattern
           - SamplingRate
           - AddMetadata
+          - CustomMetadata
       - Label:
           default: Lambda configuration
         Parameters:
@@ -145,7 +146,11 @@ Parameters:
     Description: |
       Add metadata to the log message. Expects comma separated values. Options are bucket_name,key_name,stream_name
     Default: ''
-
+  CustomMetadata:
+    Type: String
+    Description: |
+      Add custom metadata to the log message. Expects comma separated values. Options are key1=value1,key2=value2
+    Default: ''
   BlockingPattern:
     Type: String
     Description: Regular expression to detect lines that should be excluded from sent to Coralogix
@@ -419,6 +424,7 @@ Conditions:
   CSVDelimiterUse: !Equals [!Ref IntegrationType, 'S3Csv']
   NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
   AddMetadataNotSet: !Equals [ !Ref AddMetadata, '']
+  CustomMetadataNotSet: !Equals [ !Ref CustomMetadata, '']
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
   UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
@@ -636,6 +642,10 @@ Globals:
           - AddMetadataNotSet
           - !Ref AWS::NoValue
           - !Ref AddMetadata
+        CUSTOM_METADATA: !If
+          - CustomMetadataNotSet
+          - !Ref AWS::NoValue
+          - !Ref CustomMetadata
         NEWLINE_PATTERN: !If
           - NewlinePatternNotSet
           - !Ref AWS::NoValue
@@ -979,22 +989,22 @@ Resources:
   LambdaTriggerCloudwatchLogs:
     Condition: UseCloudwatchLogs
     Type: Custom::LambdaTrigger
-    DependsOn: LambdaFunctionInvokePermissionCloudwatchLogs
+    # DependsOn: LambdaFunctionInvokePermissionCloudwatchLogs
     Properties:
       ServiceToken: !GetAtt [ CustomResourceLambdaTriggerFunction, Arn ]
       LambdaArn: !GetAtt [ 'LambdaFunctionCloudwatchLogs', Arn ]
       CloudwatchGroup: !Ref CloudWatchLogGroupName
       Command: configure_cloudwatch_trigger
 
-  LambdaFunctionInvokePermissionCloudwatchLogs:
-    Type: AWS::Lambda::Permission
-    Condition: UseCloudwatchLogs
-    Properties:
-      FunctionName: !GetAtt [ 'LambdaFunctionCloudwatchLogs', Arn ]
-      Action: lambda:InvokeFunction
-      Principal: logs.amazonaws.com
-      SourceAccount: !Ref AWS::AccountId
-      SourceArn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
+  # LambdaFunctionInvokePermissionCloudwatchLogs:
+  #   Type: AWS::Lambda::Permission
+  #   Condition: UseCloudwatchLogs
+  #   Properties:
+  #     FunctionName: !GetAtt [ 'LambdaFunctionCloudwatchLogs', Arn ]
+  #     Action: lambda:InvokeFunction
+  #     Principal: logs.amazonaws.com
+  #     SourceAccount: !Ref AWS::AccountId
+  #     SourceArn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
   
   LambdaFunctionCloudwatchLogsDLQ:
     Condition: DLQEnabledAndUseCloudwatchLogs
@@ -1161,15 +1171,24 @@ Resources:
         DestinationConfig:
           OnFailure:
             Type: SNS
-      Events:
-        MSKEvent:
-          Type: MSK
-          Properties:
-            Stream: !Ref MSKClusterArn
-            StartingPosition: LATEST
+      # Events:
+      #   MSKEvent:
+      #     Type: MSK
+      #     Properties:
+      #       Stream: !Ref MSKClusterArn
+      #       StartingPosition: LATEST
             
-            Topics: 
-              - !Ref KafkaTopic
+      #       Topics: 
+      #         - !Ref KafkaTopic
+      
+  LambdaTriggerMskTopic:
+    Condition: UseMSK
+    Type: Custom::LambdaTrigger
+    Properties:
+      ServiceToken: !GetAtt [ CustomResourceLambdaTriggerFunction, Arn ]
+      LambdaName: !GetAtt [ 'LambdaFunctionWithMSK', Arn ]
+      MSKClusterArn: !Ref MSKClusterArn
+      TopicsList: !Ref KafkaTopic
 
   LambdaLogGroupMSK:
     Condition: UseMSK
@@ -1388,6 +1407,8 @@ Resources:
               Effect: Allow
               Action:
                 - "logs:PutSubscriptionFilter"
+                - "logs:DeleteSubscriptionFilter"
+                - "logs:DescribeSubscriptionFilters"
               Resource: !Sub  "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
 
       InlineCode: |
@@ -1564,8 +1585,42 @@ Resources:
                         )
                     time.sleep(10) # wait for mapping to be disabled
                     self.aws_lambda.delete_event_source_mapping(UUID=mapping["UUID"])
-          
+            
             def handle(self):
+                if self.event['ResourceProperties']['Command'] == 'configure_msk_trigger':
+                    self.handle_msk()
+                    return
+                self.handle_kafka()
+            
+            def handle_msk(self):
+                try:        
+                    lambda_name = self.event['ResourceProperties']['LambdaName']
+                    msk_cluster_arn = self.event['ResourceProperties']['MSKClusterArn']
+                    if self.event['RequestType'] in ['Create', 'Update']:
+                        TopicsListString = self.event['ResourceProperties']['TopicsList']
+                        TopicsList = TopicsListString.split(',')
+                        for topic in TopicsList:
+                            response = self.aws_lambda.create_event_source_mapping(
+                                EventSourceArn=msk_cluster_arn,
+                                FunctionName=lambda_name,
+                                Topics=[
+                                    topic
+                                ],
+                                StartingPosition='LATEST',
+                                BatchSize=100,
+                            )
+                    responseStatus = self.cfn.SUCCESS
+                    print(self.event['RequestType'], "request completed....")
+                except Exception as exc:
+                    print("Failed to process:", exc)
+                    responseStatus = self.cfn.FAILED
+                finally:
+                    self.cfn.send(
+                        responseStatus,
+                        physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)
+                    )
+          
+            def handle_kafka(self):
                 responseStatus = self.cfn.SUCCESS
                 physicalResourceId = self.event.get("PhysicalResourceId")
                 function_name = self.event["ResourceProperties"]["Function"]
@@ -1621,23 +1676,52 @@ Resources:
                 self.context = context
                 self.cfn = cfn
                 self.aws_lambda = boto3.client("lambda")
+                self.cloudwatch_logs = boto3.client('logs')
 
 
             def handle(self):
                 try:        
                     lambda_arn = self.event['ResourceProperties']['LambdaArn']
-                    lambda_client = boto3.client('lambda')
-                    if self.event['RequestType'] in ['Create', 'Update']:
-                        StringlogGroupName = self.event['ResourceProperties']['CloudwatchGroup']
-                        logGroupName = StringlogGroupName.split(',')
-                        cloudwatch_logs = boto3.client('logs')
+                    region = self.context.invoked_function_arn.split(":")[3]
+                    account_id = self.context.invoked_function_arn.split(":")[4]
+                    StringlogGroupName = self.event['ResourceProperties']['CloudwatchGroup']
+                    logGroupName = StringlogGroupName.split(',')
+                    if self.event['RequestType'] in ['Update', 'Delete']:
                         for log_group in logGroupName:
-                            cloudwatch_logs.put_subscription_filter(
+                            response = self.cloudwatch_logs.describe_subscription_filters(logGroupName=log_group)
+                            for filter in response['subscriptionFilters']:
+                                if filter['filterName'] == 'coralogix-aws-shipper-cloudwatch-trigger':
+                                    self.cloudwatch_logs.delete_subscription_filter(
+                                        filterName='coralogix-aws-shipper-cloudwatch-trigger',
+                                        logGroupName=log_group
+                                    )
+                                    response = self.aws_lambda.remove_permission(
+                                        FunctionName=lambda_arn,
+                                        StatementId=f"allow-trigger-from-{log_group}"
+                                    )
+                    if self.event['RequestType'] in ['Create', 'Update']:
+                        for log_group in logGroupName:
+                            response = self.cloudwatch_logs.describe_subscription_filters(
+                                logGroupName=log_group,
+                                filterNamePrefix='coralogix-aws-shipper-cloudwatch-trigger'
+                            )
+                            if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
+                                response = self.aws_lambda.add_permission(
+                                    FunctionName=lambda_arn,
+                                    StatementId=f'allow-trigger-from-{log_group}',
+                                    Action='lambda:InvokeFunction',
+                                    Principal='logs.amazonaws.com',
+                                    SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
+                                )
+                            time.sleep(1)
+                            self.cloudwatch_logs.put_subscription_filter(
                                 destinationArn=self.event['ResourceProperties']['LambdaArn'],
                                 filterName='coralogix-aws-shipper-cloudwatch-trigger',
                                 filterPattern='',
                                 logGroupName=log_group
                             )
+
+
                     responseStatus = self.cfn.SUCCESS
                     print(self.event['RequestType'], "request completed....")
                 except Exception as e:
@@ -1735,7 +1819,7 @@ Resources:
                 case 'configure_s3_trigger':
                     ConfigureS3Trigger(event, context, cfn).handle()
                     
-                case 'configure_kafka_trigger':
+                case 'configure_kafka_trigger' | 'configure_msk_trigger':
                     ConfigureKafkaTrigger(event, context, cfn).handle()
                     
                 case 'configure_cloudwatch_trigger':
