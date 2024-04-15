@@ -1949,6 +1949,9 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
         .await
         .unwrap();
 
+    let req_count = s3_relay_client.actual_requests().into_iter().count();
+    assert_eq!(req_count, 3, "expected 3 requests, got {}", req_count);
+
     s3_relay_client
         .actual_requests()
         .into_iter()
@@ -2091,6 +2094,9 @@ async fn run_test_cloudwatch_retry_limit_reached_dlq_event() {
     coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
+
+    let req_count = s3_relay_client.actual_requests().into_iter().count();
+    assert_eq!(req_count, 1, "expected 1 requests, got {}", req_count);
 
     s3_relay_client.actual_requests().into_iter().for_each(|v| {
         let val = std::str::from_utf8(v.body().bytes().unwrap()).unwrap();
@@ -2235,6 +2241,9 @@ async fn run_test_route_failed_event_to_dlq() {
     coralogix_aws_shipper::function_handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
+
+    let req_count = sqs_replay_client.actual_requests().into_iter().count();
+    assert_eq!(req_count, 1, "expected 1 request, got {}", req_count);
 
     sqs_replay_client.actual_requests().into_iter().for_each(|x| {
         let v = std::str::from_utf8(x.body().bytes().unwrap()).unwrap();
