@@ -2,3 +2,5 @@
 /local
 .aws-sam
 .vscode
+packaged.yaml
+samconfig.toml
