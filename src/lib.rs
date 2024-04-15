@@ -142,9 +142,11 @@ pub async fn function_handler(
                             config.dlq_url.clone(),
                         ) {
                             if dlq_arn != event_source_arn {
-                                continue;
+                                // if the message is not from the dlq, return the orginal result
+                                return result;
                             }
 
+                            tracing::info!("DLQ event detected");
                             let mut current_retry_count = record
                                 .message_attributes
                                 .get("retry")
@@ -187,7 +189,7 @@ pub async fn function_handler(
                                 .set_string_value(Some(result.err().unwrap().to_string()))
                                 .build()?;
 
-                            // send sqs event to dlq
+                            tracing::info!("sending message to DLQ");
                             clients
                                 .sqs
                                 .send_message()
@@ -197,10 +199,11 @@ pub async fn function_handler(
                                 .message_body(message)
                                 .send()
                                 .await?;
+
+                            continue;
                         }
 
-                        // result.err();
-                        // handle_dlq_error(result, clients, config, record);
+                        result?;
                     } else {
                         debug!("SQS TEXT EVENT Detected");
                         crate::process::sqs_logs(
@@ -307,22 +310,28 @@ async fn s3_store_failed_event(
 
     // if s3 event, read the object from s3
     if let Ok(e) = serde_json::from_str::<S3Event>(&event) {
-        let bucket = e.records[0]
+        let b = e.records[0]
             .s3
             .bucket
             .name
             .as_deref()
             .ok_or_else(|| format!("failed to get bucket name"))?;
-        let key = e.records[0]
+        let k = e.records[0]
             .s3
             .object
             .key
             .as_deref()
             .ok_or_else(|| format!("failed to get object key name"))?;
-        object_name = format!("{}/{}", bucket, key);
-        data = process::get_bytes_from_s3(s3client, bucket.to_string(), key.to_string())
-            .await
-            .map_err(|e| format!("failed to read object from s3 - {}", e))?;
+       
+        match process::get_bytes_from_s3(s3client, b.to_string(), k.to_string()).await {
+            Ok(bytes) => {
+                data = bytes;
+                object_name = format!("{}/{}", b, k);
+            }
+            Err(e) => {
+                tracing::error!("failed to read object from s3 for dlq, storing original event instead - {}", e);
+            }
+        }
     }
 
     // if cloudwatch logs event, use loggroup name and md5 sum as object name
@@ -337,7 +346,7 @@ async fn s3_store_failed_event(
     let buffer =
         aws_smithy_types::byte_stream::ByteStream::new(aws_smithy_types::body::SdkBody::from(data));
 
-    tracing::debug!("uploading failed event to S3: s3://{}", key);
+    tracing::info!("uploading failed event to S3: s3://{}/{}", bucket, key);
     s3client
         .put_object()
         .bucket(bucket)
@@ -345,7 +354,7 @@ async fn s3_store_failed_event(
         .body(buffer)
         .send()
         .await
-        .map_err(|e| format!("failed uploading file to bucket - {}", e))?;
+        .map_err(|e| format!("failed uploading file to bucket - {}", e.into_service_error()))?;
 
     Ok(())
 }
