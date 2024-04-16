@@ -9,8 +9,6 @@ aws-config = "1.0.3"
 aws-sdk-s3 = "1.5.0"
 aws-sdk-ecr = "1.10.0"
 aws-sdk-secretsmanager = "1.4.0"
-cx_sdk_rest_logs = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false, features=["rustls"] }
-cx_sdk_core = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false}
 derive_more = "0.99.17"
 fancy-regex ="0.12.0"
 flate2 = "1.0"
