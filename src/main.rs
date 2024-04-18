@@ -1,6 +1,4 @@
 use aws_config::BehaviorVersion;
-use aws_sdk_s3::Client;
-use aws_sdk_ecr::Client as EcrClient;
 use coralogix_aws_shipper::combined_event::CombinedEvent;
 use coralogix_aws_shipper::config;
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
@@ -17,8 +15,7 @@ async fn main() -> Result<(), Error> {
     );
 
     let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
-    let s3_client = Client::new(&aws_config);
-    let ecr_client = EcrClient::new(&aws_config);
+    let clients = coralogix_aws_shipper::AwsClients::new(&aws_config);
     let mut config = config::Config::load_from_env()?;
 
     // if APIKey provided is an ARN, get the APIKey from Secrets Manager
@@ -33,8 +30,7 @@ async fn main() -> Result<(), Error> {
 
     run(service_fn(|request: LambdaEvent<CombinedEvent>| {
         coralogix_aws_shipper::function_handler(
-            &ecr_client,
-            &s3_client,
+            &clients,
             coralogix_exporter.clone(),
             &config,
             request,
