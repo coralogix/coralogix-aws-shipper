@@ -2,8 +2,9 @@ use aws_lambda_events::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::encodings::Base64Data;
 use aws_lambda_events::kafka::KafkaRecord;
-use aws_sdk_s3::Client;
 use aws_sdk_ecr::Client as EcrClient;
+use aws_sdk_s3::Client;
+use base64::prelude::*;
 use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
 use flate2::read::MultiGzDecoder;
@@ -16,14 +17,11 @@ use std::path::Path;
 use std::string::String;
 use std::time::Instant;
 use tracing::{debug, info};
-use base64::prelude::*;
 use std::env;
 
 use crate::config::{Config, IntegrationType};
 use crate::coralogix;
 use crate::ecr;
-
-
 
 pub async fn s3(
     s3_client: &Client,
@@ -32,8 +30,6 @@ pub async fn s3(
     bucket: String,
     key: String,
 ) -> Result<(), Error> {
-    
-    
     let mut metadata_instance = Metadata {
         stream_name: String::new(),
         log_group: String::new(),
@@ -199,7 +195,7 @@ pub async fn kinesis_logs(
             vec![s]
         }
         Err(error) => {
-            tracing::error!(?error ,"Failed to decode data");
+            tracing::error!(?error, "Failed to decode data");
             Vec::new()
         }
     };
@@ -355,7 +351,7 @@ pub async fn ecr_scan_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     //let mut batches = Vec::new();
-    
+
     tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
     let payload = ecr::process_ecr_scan_event(ecr_scan_event, config, &ecr_client).await?;
     coralogix::process_batches(
@@ -365,10 +361,10 @@ pub async fn ecr_scan_logs(
         config,
         &metadata_instance,
         coralogix_exporter,
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
-
 
 pub async fn get_bytes_from_s3(
     s3_client: &Client,
@@ -454,7 +450,8 @@ async fn process_csv(
     info!("CSV Integration Type");
     if csv_delimiter == "\\t" {
         debug!("Replacing \\t with \t");
-        csv_delimiter = "\t";}
+        csv_delimiter = "\t";
+    }
     let s = if key_path.extension() == Some(OsStr::new("gz")) {
         let v = ungzip(raw_data, key)?;
         let s = String::from_utf8(v)?;
@@ -580,7 +577,7 @@ async fn process_cloudtrail(
 }
 
 pub async fn kafka_logs(
-    records:  Vec<KafkaRecord>,
+    records: Vec<KafkaRecord>,
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
@@ -668,7 +665,6 @@ fn parse_records(
             serde_json::to_string(&parsed_log).map_err(|e| e.to_string())
         })
         .collect()
-    
 }
 
 fn split(re: Regex, string: &str) -> Result<Vec<&str>, Error> {
