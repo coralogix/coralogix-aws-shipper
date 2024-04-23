@@ -216,10 +216,8 @@ If you wish to use dynamic values for the Application and Subsystem Name paramet
 A Dead Letter Queue (DLQ) is a queue where messages are sent if they cannot be processed by the Lambda function. This is useful for debugging and monitoring.
 
 The DLQ workflow for the Coralogix AWS Shipper is as follows:
-- Failed events are sent to the DLQ
-- The event is consumed and used to trigger the Shipper Lmabda function
-- If the event fails to be processed, it is sent back to the DLQ with an incremented retry value
-- Once the retries have been exhaused, the event is saved to an S3 bucket
+
+![DLQ Workflow](./static/dlq-workflow.png)
 
  To enable the DLQ, you must provide the required parameters outlined below.
 
