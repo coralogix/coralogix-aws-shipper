@@ -137,7 +137,7 @@ fn convert_to_log_entry(
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
-    let loggroup_name = metadata_instance.log_group.clone();
+    // let loggroup_name = metadata_instance.log_group.clone();
     tracing::debug!("Severity: {:?}", severity);
 
     let message = match serde_json::from_str(&log) {
@@ -178,7 +178,10 @@ fn convert_to_log_entry(
                 tracing::debug!("Assigned key_name: {}", metadata_instance.key_name);
             }
             _ => {
-                tracing::debug!("No matching metadata field or condition not met for: {}", metadata_field);
+                tracing::debug!(
+                    "No matching metadata field or condition not met for: {}",
+                    metadata_field
+                );
             }
         }
     }
@@ -263,7 +266,9 @@ fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<Strin
         json_data.as_str().map(|str| str.to_owned())
     } else if app_name.starts_with("{{s3_key") {
         // Check if there is an index provided
-        let maybe_index_str = app_name.trim_start_matches("{{s3_key").trim_end_matches('}');
+        let maybe_index_str = app_name
+            .trim_start_matches("{{s3_key")
+            .trim_end_matches('}');
         debug!("Getting s3 Key from {}", app_name);
         if let Some('.') = maybe_index_str.chars().next() {
             // Parse the index

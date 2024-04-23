@@ -1,10 +1,10 @@
+use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::event::cloudwatch_logs::LogsEvent;
+use aws_lambda_events::event::kafka::KafkaEvent;
+use aws_lambda_events::event::kinesis::KinesisEvent;
 use aws_lambda_events::event::s3::S3Event;
 use aws_lambda_events::event::sns::SnsEvent;
 use aws_lambda_events::event::sqs::SqsEvent;
-use aws_lambda_events::event::kinesis::KinesisEvent;
-use aws_lambda_events::event::kafka::KafkaEvent;
-use aws_lambda_events::ecr_scan::EcrScanEvent;
 use serde::de::{self, Deserialize, Deserializer};
 use serde_json::Value;
 use tracing::debug;
@@ -55,7 +55,6 @@ impl<'de> Deserialize<'de> for CombinedEvent {
             tracing::info!("sqs event detected");
             return Ok(CombinedEvent::Sqs(event));
         }
-        
 
         // IMPORTANT: kafka must be evaluated last as it uses an arbitrary map to evaluate records.
         // Since all other fields are optional, this map could potentially match any arbitrary JSON
