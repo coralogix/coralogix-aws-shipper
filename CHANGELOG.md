@@ -1,7 +1,7 @@
 # Changelog
 ## v1.0.4 / 2024-04-25
 ### 💡 Enhancements 💡
-- cds-756: Added support for DLQ
+- Added support for DLQ
 
 ## v1.0.3 / 2024-04-09
 ### 💡 Enhancements 💡
