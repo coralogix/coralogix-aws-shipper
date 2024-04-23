@@ -360,7 +360,7 @@ Parameters:
     Description: The delay in seconds between retries
     MinValue: 0
     MaxValue: 900
-    Default: 60
+    Default: 900
   
   DLQS3Bucket:
     Type: String
