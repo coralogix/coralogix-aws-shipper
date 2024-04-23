@@ -111,7 +111,6 @@ If you don’t want to send data directly as it enters S3, you can also use SNS/
 | SQSTopicArn    | The ARN for the SQS queue that contains the SQS subscription responsible for retrieving logs from Amazon S3.                                                                                      |                                          |                    |
 | CSVDelimiter   | Specify a single character to be used as a delimiter when ingesting a CSV file with a header line. This value is applicable when the S3Csv integration type is selected, for example, “,” or ” “. | ,                                        |                    |
 
-
 ### CloudWatch Configuration
 
 Coralogix can be configured to receive data directly from your CloudWatch log group. CloudWatch logs are streamed directly to Coralogix via Lambda. This option does not use S3. You must provide the log group name as a parameter during setup.
@@ -158,9 +157,9 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 
 Your Lambda function must be in a VPC that has access to the MSK cluster. You can configure your VPC via the provided [VPC configuration parameters](#vpc-configuration-optional).
 
-| Parameter  | Description                                         | Default Value | Required           |
-|------------|-----------------------------------------------------|---------------|--------------------|
-| MSKBrokers | Comma-delimited list of MSK brokers to connect to.  |               | :heavy_check_mark: |
+| Parameter  | Description                                           | Default Value | Required           |
+|------------|-------------------------------------------------------|---------------|--------------------|
+| MSKBrokers | Comma-delimited list of MSK brokers to connect to.    |               | :heavy_check_mark: |
 | KafkaTopic | Comma separated list of Kafka topics to Subscribe to. |               | :heavy_check_mark: |
 
 ### Generic Configuration (Optional)
@@ -173,7 +172,8 @@ These are optional parameters if you wish to receive notification emails, exclud
 | BlockingPattern   | Enter a regular expression to identify lines excluded from being sent to Coralogix. For example, use `MainActivity.java:\d{3}` to match log lines with `MainActivity` followed by exactly three digits. |               |                    |
 | SamplingRate      | Send messages at a specific rate, such as 1 out of every N logs. For example, if your value is 10, a message will be sent for every 10th log.                                                           | 1             | :heavy_check_mark: |
 | AddMetadata       | Add metadata to the log message. Expects comma separated values. Options for S3 are `bucket_name`,`key_name`. For CloudWatch use `stream_name`, `loggroup_name` .                                       |               |                    |
-| CustomMetadata    | Add custom metadata to the log message. Expects comma separated values. Options are key1=value1,key2=value2 | | |
+| CustomMetadata    | Add custom metadata to the log message. Expects comma separated values. Options are key1=value1,key2=value2                                                                                             |               |                    |
+
 ### Lambda Configuration (Optional)
 
 These are the default presets for Lambda. Read [Troubleshooting](#troubleshooting) for more information on changing these defaults.
@@ -209,8 +209,26 @@ If you wish to use dynamic values for the Application and Subsystem Name paramet
 
 **S3 folder:** Use the following tag: `{{s3_key.value}}` where the value is the folder level. For example, if the file path that triggers the event is `AWSLogs/112322232/ELB1/elb.log` or `AWSLogs/112322232/ELB2/elb.log` and you want ELB1 and ELB2 to be the subsystem, your `subsystemName` should be `{{s3_key.3}}`
 
-**S3Csv Custom Headers:** Add Environment Variable "CUSTOM_CSV_HEADER" with the key names. This must be with the same delimiter as the CSV archive, for example if the csv file delimiter is ";", then your environment varialble should be like this:
-CUSTOM_CSV_HEADER = name;country;age
+**S3Csv Custom Headers:** Add Environment Variable "CUSTOM_CSV_HEADER" with the key names. This must be with the same delimiter as the CSV archive, for example if the csv file delimiter is ";", then your environment varialble should be like this: CUSTOM_CSV_HEADER = name;country;age
+
+### DLQ
+
+A Dead Letter Queue (DLQ) is a queue where messages are sent if they cannot be processed by the Lambda function. This is useful for debugging and monitoring.
+
+The DLQ workflow for the Coralogix AWS Shipper is as follows:
+- Failed events are sent to the DLQ
+- The event is consumed and used to trigger the Shipper Lmabda function
+- If the event fails to be processed, it is sent back to the DLQ with an incremented retry value
+- Once the retries have been exhaused, the event is saved to an S3 bucket
+
+ To enable the DLQ, you must provide the required parameters outlined below.
+
+| Parameter     | Description                                                                   | Default Value | Required           |
+|---------------|-------------------------------------------------------------------------------|---------------|--------------------|
+| EnableDLQ     | Enable the Dead Letter Queue for the Lambda function.                         | false         | :heavy_check_mark: |
+| DLQS3Bucket   | An S3 bucket used to store all failure events that have exhausted retries.    |               | :heavy_check_mark: |
+| DLQRetryLimit | The number of times a failed event should be retried before being saved in S3 | 3             | :heavy_check_mark: |
+| DLQRetryDelay | The delay in seconds between retries of failed events                         | 900           | :heavy_check_mark: |
 
 ## Troubleshooting
 
