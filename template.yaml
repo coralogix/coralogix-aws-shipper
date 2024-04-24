@@ -1697,7 +1697,7 @@ Resources:
                                     )
                                     response = self.aws_lambda.remove_permission(
                                         FunctionName=lambda_arn,
-                                        StatementId=f"allow-trigger-from-{log_group.replace['/', '-']}"
+                                        StatementId=f'allow-trigger-from-{log_group.replace["/", "-"]}'
                                     )
                     if self.event['RequestType'] in ['Create', 'Update']:
                         for log_group in logGroupName:
@@ -1708,7 +1708,7 @@ Resources:
                             if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
                                 response = self.aws_lambda.add_permission(
                                     FunctionName=lambda_arn,
-                                    StatementId=f"allow-trigger-from-{log_group.replace['/', '-']}",
+                                    StatementId=f'allow-trigger-from-{log_group.replace["/", "-"]}',
                                     Action='lambda:InvokeFunction',
                                     Principal='logs.amazonaws.com',
                                     SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
