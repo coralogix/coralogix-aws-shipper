@@ -86,6 +86,7 @@ pub async fn s3(
             .await?
         }
         IntegrationType::S3 => {
+            //println!("key_path: {:?}", key);
             let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
             metadata_instance.key_name = key.clone();
             metadata_instance.bucket_name = bucket;
