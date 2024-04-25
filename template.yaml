@@ -1690,9 +1690,9 @@ Resources:
                         for log_group in logGroupName:
                             response = self.cloudwatch_logs.describe_subscription_filters(logGroupName=log_group)
                             for filter in response['subscriptionFilters']:
-                                if filter['filterName'] == 'coralogix-aws-shipper-cloudwatch-trigger':
+                                if filter['filterName'] == f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}':
                                     self.cloudwatch_logs.delete_subscription_filter(
-                                        filterName='coralogix-aws-shipper-cloudwatch-trigger',
+                                        filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
                                         logGroupName=log_group
                                     )
                                     response = self.aws_lambda.remove_permission(
@@ -1703,7 +1703,7 @@ Resources:
                         for log_group in logGroupName:
                             response = self.cloudwatch_logs.describe_subscription_filters(
                                 logGroupName=log_group,
-                                filterNamePrefix='coralogix-aws-shipper-cloudwatch-trigger'
+                                filterNamePrefix=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}'
                             )
                             if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
                                 response = self.aws_lambda.add_permission(
@@ -1716,7 +1716,7 @@ Resources:
                             time.sleep(1)
                             self.cloudwatch_logs.put_subscription_filter(
                                 destinationArn=self.event['ResourceProperties']['LambdaArn'],
-                                filterName='coralogix-aws-shipper-cloudwatch-trigger',
+                                filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
                                 filterPattern='',
                                 logGroupName=log_group
                             )
