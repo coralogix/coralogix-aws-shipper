@@ -1,4 +1,8 @@
 # Changelog
+## v1.0.5 / 2024-04-25
+### 🧰 Bug fixes 🧰
+- Fixed Issue with S3 files naming containing "+"
+
 ## v1.0.4 / 2024-04-25
 ### 💡 Enhancements 💡
 - Added support for DLQ
