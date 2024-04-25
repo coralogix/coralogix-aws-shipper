@@ -5,9 +5,8 @@
 
 ## v1.0.4 / 2024-04-24
 ### 🧰 Bug fixes 🧰
-- Fix bug when deploying cloudwatch integration using log groups with / get an error
+- Fix bug when deploying cloudwatch integration using log groups with "/" get an error
 
-## v1.0.4 / 2024-04-25
 ### 💡 Enhancements 💡
 - Added support for DLQ
 
