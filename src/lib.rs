@@ -268,10 +268,10 @@ pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Erro
         .expect("Object key to exist")
         .to_owned();
 
-    let decoded_key = percent_encoding::percent_decode_str(&key)
+    let decoded_key = percent_encoding::percent_decode_str(&key.replace("+", " "))
         .decode_utf8()?
-        .replace("+", " ");
-
+        //.replace("+", " ");
+        .to_string();
     Ok((bucket, decoded_key))
 }
 

@@ -1,5 +1,16 @@
 # Changelog
-## v1.0.4 / 2024-04-25
+## v1.0.6 / 2024-04-25
+### 🧰 Bug fixes 🧰
+- Fixed Issue with S3 files naming containing "+"
+
+## v1.0.5 / 2024-04-25
+### 🧰 Bug fixes 🧰
+- Fix runtime bug affecting Amazon Linux 2 by updating build runtime to Amazon Linux 2023
+
+## v1.0.4 / 2024-04-24
+### 🧰 Bug fixes 🧰
+- Fix bug when deploying cloudwatch integration using log groups with "/" get an error
+
 ### 💡 Enhancements 💡
 - Added support for DLQ
 
