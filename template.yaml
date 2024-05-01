@@ -63,6 +63,7 @@ Metadata:
           default: Cloudwatch configuration
         Parameters:
           - CloudWatchLogGroupName
+          - CloudWatchLogGroupPrefix
       - Label:
           default: SNS configuration
         Parameters:
@@ -259,6 +260,11 @@ Parameters:
   CloudWatchLogGroupName:
     Type: String
     Description: 'A comma separated list of CloudWatch log groups names to watch  e.g, (log-group1,log-group2,log-group3)'
+    Default: ''
+
+  CloudWatchLogGroupPrefix:
+    Type: String
+    Description: 'Prefix of the CloudWatch log groups that will trigger the lambda, in case that your log groups are log-group1, log-group2, log-group3 then you can set the value to `log-group`. When using this variable you will not be able to see the log groups as trigger for the lambda. The parameter dose not replace CloudWatchLogGroupName parameter'
     Default: ''
 
   LambdaLogRetention:
@@ -994,6 +1000,7 @@ Resources:
       ServiceToken: !GetAtt [ CustomResourceLambdaTriggerFunction, Arn ]
       LambdaArn: !GetAtt [ 'LambdaFunctionCloudwatchLogs', Arn ]
       CloudwatchGroup: !Ref CloudWatchLogGroupName
+      CloudwatchPrefix: !Ref CloudWatchLogGroupPrefix
       Command: configure_cloudwatch_trigger
 
   # LambdaFunctionInvokePermissionCloudwatchLogs:
@@ -1677,7 +1684,7 @@ Resources:
                 self.cfn = cfn
                 self.aws_lambda = boto3.client("lambda")
                 self.cloudwatch_logs = boto3.client('logs')
-
+                self.lambda_client = boto3.client('lambda')
 
             def handle(self):
                 try:        
@@ -1686,41 +1693,56 @@ Resources:
                     account_id = self.context.invoked_function_arn.split(":")[4]
                     StringlogGroupName = self.event['ResourceProperties']['CloudwatchGroup']
                     logGroupName = StringlogGroupName.split(',')
+                    LambdaPremissionPreFix = self.event['ResourceProperties']['CloudwatchPrefix'].split(',')
                     if self.event['RequestType'] in ['Update', 'Delete']:
                         for log_group in logGroupName:
                             response = self.cloudwatch_logs.describe_subscription_filters(logGroupName=log_group)
                             for filter in response['subscriptionFilters']:
-                                if filter['filterName'] == 'coralogix-aws-shipper-cloudwatch-trigger':
+                                if filter['filterName'] == f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}':
                                     self.cloudwatch_logs.delete_subscription_filter(
-                                        filterName='coralogix-aws-shipper-cloudwatch-trigger',
+                                        filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
                                         logGroupName=log_group
                                     )
-                                    response = self.aws_lambda.remove_permission(
-                                        FunctionName=lambda_arn,
-                                        StatementId=f"allow-trigger-from-{log_group}"
-                                    )
+                                if not LambdaPremissionPreFix:
+                                  response = self.aws_lambda.remove_permission(
+                                      FunctionName=lambda_arn,
+                                      StatementId=f'allow-trigger-from-{log_group.replace("/", "-")}'
+                                  )
                     if self.event['RequestType'] in ['Create', 'Update']:
-                        for log_group in logGroupName:
-                            response = self.cloudwatch_logs.describe_subscription_filters(
-                                logGroupName=log_group,
-                                filterNamePrefix='coralogix-aws-shipper-cloudwatch-trigger'
+                      if LambdaPremissionPreFix and LambdaPremissionPreFix != [""]:
+                        for prefix in LambdaPremissionPreFix:
+                          try:
+                            self.lambda_client.add_permission(
+                              FunctionName=lambda_arn,
+                              StatementId=f'allow-trigger-from-{prefix.replace("/", "-")}-log-groups',
+                              Action='lambda:InvokeFunction',
+                              Principal='logs.amazonaws.com',
+                              SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{prefix}*:*',
                             )
+                          except Exception as e:
+                            print("permission already exists: ", str(e))
+
+                      for log_group in logGroupName:
+                          response = self.cloudwatch_logs.describe_subscription_filters(
+                              logGroupName=log_group,
+                              filterNamePrefix=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}'
+                          )
+                          if not LambdaPremissionPreFix or LambdaPremissionPreFix == [""]:
                             if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
                                 response = self.aws_lambda.add_permission(
                                     FunctionName=lambda_arn,
-                                    StatementId=f'allow-trigger-from-{log_group}',
+                                    StatementId=f'allow-trigger-from-{log_group.replace("/", "-")}',
                                     Action='lambda:InvokeFunction',
                                     Principal='logs.amazonaws.com',
                                     SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
                                 )
                             time.sleep(1)
-                            self.cloudwatch_logs.put_subscription_filter(
-                                destinationArn=self.event['ResourceProperties']['LambdaArn'],
-                                filterName='coralogix-aws-shipper-cloudwatch-trigger',
-                                filterPattern='',
-                                logGroupName=log_group
-                            )
-
+                          self.cloudwatch_logs.put_subscription_filter(
+                              destinationArn=self.event['ResourceProperties']['LambdaArn'],
+                              filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
+                              filterPattern='',
+                              logGroupName=log_group
+                          )
 
                     responseStatus = self.cfn.SUCCESS
                     print(self.event['RequestType'], "request completed....")
@@ -1733,7 +1755,6 @@ Resources:
                         responseStatus,
                         physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)
                     )
-        
         
         class ConfigureDLQ:
             '''
