@@ -118,7 +118,7 @@ Coralogix can be configured to receive data directly from your CloudWatch log gr
 | Parameter | Description  | Default Value | Required |
 |-----------|--------------|---------------|----------|
 | CloudWatchLogGroupName | Provide a comma-separated list of CloudWatch log group names to monitor, for example, (`log-group1`, `log-group2`, `log-group3`). | | :heavy_check_mark: |
-| CloudWatchLogsPrefix | Prefix of the CloudWatch log groups that will trigger the lambda, in case that your log groups are `log-group1, log-group2, log-group3` then you can set the value to `log-group`. When using this variable you will not be able to see the log groups as trigger for the lambda. The parameter dose not replace **CloudWatchLogGroupName** parameter | | |
+| CloudWatchLogGroupPrefix | Prefix of the CloudWatch log groups that will trigger the lambda, in case that your log groups are `log-group1, log-group2, log-group3` then you can set the value to `log-group`. When using this variable you will not be able to see the log groups as trigger for the lambda. The parameter dose not replace **CloudWatchLogGroupName** parameter | | |
 
 ### SNS Configuration
 

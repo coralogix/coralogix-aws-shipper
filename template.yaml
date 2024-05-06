@@ -1699,9 +1699,7 @@ Resources:
                             response = self.cloudwatch_logs.describe_subscription_filters(logGroupName=log_group)
                             for filter in response['subscriptionFilters']:
                                 if filter['filterName'] == f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}':
-                                if filter['filterName'] == f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}':
                                     self.cloudwatch_logs.delete_subscription_filter(
-                                        filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
                                         filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
                                         logGroupName=log_group
                                     )
@@ -1733,7 +1731,6 @@ Resources:
                             if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
                                 response = self.aws_lambda.add_permission(
                                     FunctionName=lambda_arn,
-                                    StatementId=f'allow-trigger-from-{log_group.replace("/", "-")}',
                                     StatementId=f'allow-trigger-from-{log_group.replace("/", "-")}',
                                     Action='lambda:InvokeFunction',
                                     Principal='logs.amazonaws.com',
