@@ -14,7 +14,7 @@ async fn main() -> Result<(), Error> {
         env!("CARGO_PKG_VERSION")
     );
 
-    let aws_config = aws_config::load_defaults(BehaviorVersion::v2023_11_09()).await;
+    let aws_config = aws_config::load_defaults(BehaviorVersion::v2024_03_28()).await;
     let clients = coralogix_aws_shipper::AwsClients::new(&aws_config);
     let mut config = config::Config::load_from_env()?;
 
