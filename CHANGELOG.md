@@ -1,4 +1,9 @@
 # Changelog
+## v1.0.7 / 2024-05-11
+### 💡 Enhancements 💡
+- Disabled ANSI characters in tracing crate logs
+- Minor documentation updates
+
 ## v1.0.6 / 2024-04-25
 ### 🧰 Bug fixes 🧰
 - Fixed Issue with S3 files naming containing "+"
