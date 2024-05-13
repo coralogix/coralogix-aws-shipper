@@ -7,13 +7,11 @@ use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sqs::types::MessageAttributeValue;
 use aws_sdk_sqs::Client as SqsClient;
-use chrono;
 use combined_event::CombinedEvent;
 use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
 use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
 use http::header::USER_AGENT;
 use lambda_runtime::{Context, Error, LambdaEvent};
-use md5;
 use std::collections::HashMap;
 use std::string::String;
 use std::sync::Arc;
@@ -61,6 +59,7 @@ pub fn set_up_coralogix_exporter(config: &Config) -> Result<DynLogExporter, Erro
         url: config.endpoint.clone(),
         request_timeout: Duration::from_secs(30),
         backoff_config: backoff,
+        user_agent: None,
         additional_headers: headers,
     };
     let exporter = Arc::new(RestLogExporter::builder().with_config(config).build()?);
