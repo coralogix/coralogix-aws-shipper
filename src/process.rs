@@ -306,7 +306,7 @@ pub async fn cloudwatch_logs(
         IntegrationType::CloudWatch => {
             metadata_instance.stream_name = cloudwatch_event_log.data.log_stream.clone();
             metadata_instance.log_group = cloudwatch_event_log.data.log_group.clone();
-            process_cloudwatch_logs(cloudwatch_event_log, config.sampling).await?
+            process_cloudwatch_logs(cloudwatch_event_log, config.sampling, &config.blocking_pattern).await?
         }
         _ => {
             tracing::warn!(
@@ -401,7 +401,7 @@ pub async fn get_bytes_from_s3(
     Ok(data)
 }
 
-async fn process_cloudwatch_logs(cw_event: AwsLogs, sampling: usize) -> Result<Vec<String>, Error> {
+async fn process_cloudwatch_logs(cw_event: AwsLogs, sampling: usize, blocking_pattern: &str) -> Result<Vec<String>, Error> {
     let log_entries: Vec<String> = cw_event
         .data
         .log_events
@@ -410,7 +410,10 @@ async fn process_cloudwatch_logs(cw_event: AwsLogs, sampling: usize) -> Result<V
         .collect();
     info!("Received {} CloudWatch logs", log_entries.len());
     debug!("Cloudwatch Logs: {:?}", log_entries);
-    Ok(sample(sampling, log_entries))
+    //Ok(sample(sampling, log_entries))
+    let re_block: Regex = Regex::new(blocking_pattern)?;
+    info!("Blocking Pattern: {:?}", blocking_pattern);
+    Ok(sample(sampling, block(re_block, log_entries, blocking_pattern)?))
 }
 async fn process_vpcflows(
     raw_data: Vec<u8>,
