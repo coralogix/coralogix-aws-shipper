@@ -1,4 +1,12 @@
 # Changelog
+## v1.0.7 / 2024-05-13
+### 💡 Enhancements 💡
+- Added support for blocking pattern in CloudWatch integration
+- Update dependencies
+
+### 🧰 Bug fixes 🧰
+- Fix duplication bug in CloudWatch Integration.
+
 ## v1.0.6 / 2024-04-25
 ### 🧰 Bug fixes 🧰
 - Fixed Issue with S3 files naming containing "+"
