@@ -35,6 +35,7 @@ pub fn set_up_logging() {
                 .with_default_directive(LevelFilter::WARN.into())
                 .from_env_lossy(),
         )
+        .with_ansi(false)
         .init();
 }
 
