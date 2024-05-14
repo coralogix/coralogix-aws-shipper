@@ -1,4 +1,9 @@
 # Changelog
+## v1.0.8 / 2024-05-13
+### 💡 Enhancements 💡
+- Disabled ANSI characters in tracing crate logs
+- Minor documentation updates
+
 ## v1.0.7 / 2024-05-13
 ### 💡 Enhancements 💡
 - Added support for blocking pattern in CloudWatch integration
