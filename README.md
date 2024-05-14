@@ -243,6 +243,9 @@ If you see “Task out of memory”, you should increase the Lambda maximum Memo
 
 To add more verbosity to your function logs, set RUST_LOG to DEBUG.
 
+**Trigger Failed on Deployment**
+If Deployment is failing while asigning the trigger, please check that S3 Bucket notifications has no notifications enabled. If Using Cloudwatch max number of notificactions per LogGroup is 2.
+
 > **Warning:** Remember to change it back to WARN after troubleshooting.
 
 **Changing defaults**
