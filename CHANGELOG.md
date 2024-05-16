@@ -3,6 +3,8 @@
 ### 💡 Enhancements 💡
 - Disabled ANSI characters in tracing crate logs
 - Minor documentation updates
+  
+### 🧰 Bug fixes 🧰
 - Fix a bug with MSK integration
 
 ## v1.0.7 / 2024-05-13
