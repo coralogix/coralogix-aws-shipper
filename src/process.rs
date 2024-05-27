@@ -200,8 +200,6 @@ pub async fn kinesis_logs(
     let batches = match String::from_utf8(string_data) {
         Ok(s) => {
             tracing::debug!("Kinesis Message: {:?}", s);
-            let json_s = serde_json::from_str::<serde_json::Value>(&s)?;
-            metadata_instance.topic_name = json_s["topic_name"].as_str().unwrap_or("NO_TOPIC_NAME").to_string();
             vec![s]
         }
         Err(error) => {
@@ -602,7 +600,14 @@ pub async fn kafka_logs(
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-
+    let mut metadata_instance = Metadata {
+        stream_name: String::new(),
+        log_group: String::new(),
+        bucket_name: String::new(),
+        key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
+    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -618,14 +623,14 @@ pub async fn kafka_logs(
         if let Some(value) = record.value {
             // check if value is base64 encoded
             if let Ok(message) = BASE64_STANDARD.decode(&value) {
+                metadata_instance.topic_name = record.topic.expect("Topic name is missing");
                 batch.push(String::from_utf8(message)?);
             } else {
+                metadata_instance.topic_name = record.topic.expect("Topic name is missing");
                 batch.push(value);
             }
         }
     }
-
-    let metadata_instance = Metadata::default();
 
     coralogix::process_batches(
         batch,
