@@ -35,6 +35,8 @@ pub async fn s3(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -138,6 +140,8 @@ pub struct Metadata {
     pub log_group: String,
     pub bucket_name: String,
     pub key_name: String,
+    pub topic_name: String,
+    pub broker_name: String,
 }
 
 impl Default for Metadata {
@@ -147,6 +151,8 @@ impl Default for Metadata {
             log_group: String::new(),
             bucket_name: String::new(),
             key_name: String::new(),
+            topic_name: String::new(),
+            broker_name: String::new(),
         }
     }
 }
@@ -160,11 +166,13 @@ pub async fn kinesis_logs(
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
+    let mut metadata_instance = Metadata {
         stream_name: String::new(),
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -192,6 +200,8 @@ pub async fn kinesis_logs(
     let batches = match String::from_utf8(string_data) {
         Ok(s) => {
             tracing::debug!("Kinesis Message: {:?}", s);
+            let json_s = serde_json::from_str::<serde_json::Value>(&s)?;
+            metadata_instance.topic_name = json_s["topic_name"].as_str().unwrap_or("NO_TOPIC_NAME").to_string();
             vec![s]
         }
         Err(error) => {
@@ -221,6 +231,8 @@ pub async fn sqs_logs(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -254,6 +266,8 @@ pub async fn sns_logs(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -287,6 +301,8 @@ pub async fn cloudwatch_logs(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -341,6 +357,8 @@ pub async fn ecr_scan_logs(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -584,6 +602,7 @@ pub async fn kafka_logs(
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
+
     let defined_app_name = config
         .app_name
         .clone()

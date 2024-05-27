@@ -1712,6 +1712,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("MSK")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event(),
     )
@@ -1726,6 +1727,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("Kafka")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event(),
     )
@@ -1740,6 +1742,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("Kafka")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event_with_base64(),
     )
