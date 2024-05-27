@@ -1571,7 +1571,7 @@ async fn run_kafka_event() {
             }
          }"#,
     )
-    .expect("failed to parse kinesis_event");
+    .expect("failed to parse kafka_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
@@ -1701,7 +1701,7 @@ async fn run_kafka_event_with_base64() {
     );
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_kafka_event() {
     temp_env::async_with_vars(
         [
@@ -1712,6 +1712,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("MSK")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event(),
     )
@@ -1726,6 +1727,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("Kafka")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event(),
     )
@@ -1740,6 +1742,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("Kafka")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event_with_base64(),
     )
