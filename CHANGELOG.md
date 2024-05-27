@@ -1,4 +1,8 @@
 # Changelog
+## v1.0.9 /
+### 🚀 New components 🚀
+- Added topic_name as option for Add_Metadata
+
 ## v1.0.8 / 2024-05-13
 ### 💡 Enhancements 💡
 - Disabled ANSI characters in tracing crate logs
