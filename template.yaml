@@ -1397,17 +1397,21 @@ Resources:
               Action:
                 - sqs:*
               Resource: "*"
-        - Statement:
-            - Sid: vpcEc2
-              Effect: Allow
-              Action:
-                - ec2:*
-              Resource: "*"
+        # - Statement:
+        #     - Sid: vpcEc2
+        #       Effect: Allow
+        #       Action:
+        #         - ec2:*
+        #       Resource: "*"
         - Statement:
             - Sid: S3all
               Effect: Allow
               Action:
-                - s3:*
+                - s3:GetObject
+                - s3:ListBucket
+                - s3:GetBucketLocation
+                - s3:GetObjectVersion
+                - s3:GetLifecycleConfiguration
               Resource: "*"
         - Statement:
             - Sid: LambdaAccess
@@ -1603,9 +1607,7 @@ Resources:
                             FunctionName=function_name,
                             Enabled=False
                         )
-                    time.sleep(15) # wait for mapping to be disabled
-                    print("mapping state: ", mapping["State"])
-                    print("Deleted mapping: ", mapping["UUID"])
+                    time.sleep(20) # wait for mapping to be disabled
                     self.aws_lambda.delete_event_source_mapping(UUID=mapping["UUID"])
             
             def handle(self):
@@ -1667,9 +1669,7 @@ Resources:
                             object_key = kafka_topics.split('/')[-1]
                             response = client.get_object(Bucket=bucket_name, Key=object_key)
                             kafka_topics = str(response['Body'].read().decode('utf-8'))
-                        print("kafka topics: " + kafka_topics)
                         topics_list = kafka_topics.split(',')
-                        print("Creating EventSourceMapping with topics:", topics_list)
                         print("type of topics_list is:", type(topics_list))
                         for topic in topics_list:
                           try:
@@ -1697,10 +1697,11 @@ Resources:
                                     } for securityGroupId in self.event["ResourceProperties"]["SecurityGroupIds"]
                                 ])
                             )
+                            physicalResourceId = response["UUID"]
                           except Exception as e:
                             print("EventSourceMapping already exists: ", str(e))
-                          physicalResourceId = response["UUID"]
-                          print(f"EventSourceMapping successfully created: {response["UUID"]}")
+                          
+                          print(f"EventSourceMapping successfully created: {physicalResourceId}")
                     elif self.event["RequestType"] == "Delete":
                         self.delete_event_source_mappings(function_name)
                         print("EventSourceMapping successfully deleted")
@@ -1708,7 +1709,6 @@ Resources:
                     print("Failed to process:", exc)
                     responseStatus = self.cfn.FAILED
                 finally:
-                    print("pysical id: ", physicalResourceId)
                     self.cfn.send(responseStatus, physical_resource_id=physicalResourceId)  
 
 
@@ -1735,12 +1735,8 @@ Resources:
                       client = boto3.client('s3')
                       bucket_name = StringlogGroupName.split('/')[-2].split('.')[0]
                       object_key = StringlogGroupName.split('/')[-1]
-                      print("bucket_name: ", bucket_name)
-                      print("object_key: ", object_key)
                       response = client.get_object(Bucket=bucket_name, Key=object_key)
-                      print("try to read file")
                       StringlogGroupName = response['Body'].read().decode('utf-8')
-                      print("StringlogGroupName: ", StringlogGroupName)
                     logGroupName = StringlogGroupName.split(',')
                     LambdaPremissionPreFix = self.event['ResourceProperties']['CloudwatchPrefix'].split(',')
                     if self.event['RequestType'] in ['Update', 'Delete']:
