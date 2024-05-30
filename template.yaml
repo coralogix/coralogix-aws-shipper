@@ -1397,12 +1397,6 @@ Resources:
               Action:
                 - sqs:*
               Resource: "*"
-        # - Statement:
-        #     - Sid: vpcEc2
-        #       Effect: Allow
-        #       Action:
-        #         - ec2:*
-        #       Resource: "*"
         - Statement:
             - Sid: S3all
               Effect: Allow
@@ -1628,7 +1622,6 @@ Resources:
                             object_key = TopicsListString.split('/')[-1]
                             response = client.get_object(Bucket=bucket_name, Key=object_key)
                             TopicsListString = response['Body'].read().decode('utf-8')
-                            print("TopicsListString: ", TopicsListString)
                         TopicsList = TopicsListString.split(',')
                         for topic in TopicsList:
                             response = self.aws_lambda.create_event_source_mapping(
@@ -1670,7 +1663,6 @@ Resources:
                             response = client.get_object(Bucket=bucket_name, Key=object_key)
                             kafka_topics = str(response['Body'].read().decode('utf-8'))
                         topics_list = kafka_topics.split(',')
-                        print("type of topics_list is:", type(topics_list))
                         for topic in topics_list:
                           try:
                             response = self.aws_lambda.create_event_source_mapping(
