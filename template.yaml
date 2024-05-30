@@ -480,14 +480,14 @@ Conditions:
   UseCloudwatchLogs: !And
     - !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
     - !Not [ !Condition UseSNSTopicARN ] 
-  UseDefault: !And 
-    - !Not [ !Condition UseCloudwatchLogs ]
-    - !Not [ !Condition UseSNSTopicARN  ]
-    - !Not [ !Condition UseSQSTopicARN  ]
-    - !Not [ !Condition UseKinesisStreamARN  ]
-    - !Not [ !Condition UseMSK ]
-    - !Not [ !Condition UseKafka ]
-    - !Not [ !Condition UseECRScan]
+  UseDefault: !And
+    - !Not [!Condition UseSNSTopicARN]
+    - !Not [!Condition UseSQSTopicARN]
+    - !Or
+      - !Equals [ !Ref IntegrationType, 'S3' ]
+      - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
+      - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
+      - !Equals [ !Ref IntegrationType, 'S3Csv' ]
 
   UseDefaultWithNotification: !And
     - !Condition UseDefault
@@ -704,8 +704,8 @@ Resources:
                         - !Ref "AWS::StackId"          
 
   DeadLetterQueue:
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    # DeletionPolicy: Retain
+    # UpdateReplacePolicy: Retain
     Condition: DLQEnabled
     Type: AWS::SQS::Queue
     Properties: 
