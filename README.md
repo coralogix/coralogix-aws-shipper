@@ -231,6 +231,9 @@ The DLQ workflow for the Coralogix AWS Shipper is as follows:
 
 ## Troubleshooting
 
+**Parameter max value**
+If you tried to deploy the integration and got this error `length is greater than 4094`, then you can upload the value of the parameter to an S3 bucket as txt and pass the file URL as the parameter value ( this option is available for `KafkaTopic` and `CloudWatchLogGroupName` parameters).
+
 **Timeout errors**
 
 If you see “Task timed out after”, you need to increase the Lambda Timeout value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
