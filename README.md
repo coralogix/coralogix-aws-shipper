@@ -126,7 +126,7 @@ To receive SNS messages directly to Coralogix, use the `SNSIntegrationTopicARN` 
 
 | Parameter | Description  | Default Value | Required |
 |-----------|--------------|---------------|----------|
-| SNSIntegrationTopicARN | Provide the ARN of the SNS topic to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
+| SNSIntegrationTopicArn | Provide the ARN of the SNS topic to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
 
 ### SQS Configuration
 
@@ -134,7 +134,7 @@ To receive SQS messages directly to Coralogix, use the `SQSIntegrationTopicARN` 
 
 | Parameter | Description | Default Value | Required |
 |-----------|-------------|---------------|----------|
-| SQSIntegrationTopicARN | Provide the ARN of the SQS queue to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
+| SQSIntegrationTopicArn | Provide the ARN of the SQS queue to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
 
 ### Kinesis Configuration
 
@@ -142,7 +142,7 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 
 | Parameter | Description | Default Value | Required |
 |-----------|-------------|---------------|----------|
-| KinesisStreamARN | Provide the ARN of the Kinesis Stream to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
+| KinesisStreamArn | Provide the ARN of the Kinesis Stream to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
 
 ### Kafka Configuration
 
