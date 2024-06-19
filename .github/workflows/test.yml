@@ -1,0 +1,28 @@
+name: test
+
+on: [push]
+
+jobs:
+  echo-credentials:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v2
+
+    - name: test
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+    - name: echo test
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+        AWS_REGION: ${{ env.AWS_DEFAULT_REGION }}
+      run: |
+        echo "AWS Access Key ID is set"
+        echo "AWS Secret Access Key is set"
+        echo "AWS Region: $AWS_REGION"
