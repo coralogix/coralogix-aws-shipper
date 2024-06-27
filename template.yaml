@@ -172,13 +172,13 @@ Parameters:
       - "DEBUG"
     Default: "WARN"
 
-  S3BucketName:
-    Type: String
-    Description: |
-      The name of the AWS S3 bucket to watch
-    AllowedPattern: '^[0-9A-Za-z\.\-_]*(?<!\.)$'
-    Default: ""
-    MaxLength: 63
+  # S3BucketName:
+  #   Type: String
+  #   Description: |
+  #     The name of the AWS S3 bucket to watch
+  #   AllowedPattern: '^[0-9A-Za-z\.\-_]*(?<!\.)$'
+  #   Default: ""
+  #   MaxLength: 63
 
   CSVDelimiter:
     Type: String
