@@ -118,14 +118,6 @@ Parameters:
     Description: The Custom Domain. If set, will be the domain used to send telemetry (e.g. cx123.coralogix.com)
     Default: ''
 
-  ApiKey:
-    Type: String
-    Description: |
-      Your Coralogix Send Your Data - API Key which is used to validate your authenticity (https://coralogix.com/docs/send-your-data-api-key/)
-      This value can be a Coralogix API Key or an AWS Secret Manager ARN that holds the API Key
-    MinLength: 1
-    NoEcho: true
-
   ApplicationName:
     Type: String
     Description: The name of your application (https://coralogix.com/docs/application-and-subsystem-names/)
