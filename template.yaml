@@ -153,7 +153,15 @@ Parameters:
     Description: Send messages with specific rate (1 out of N) e.g., put the value 10 if you want to send every 10th log 
     MinValue: 1
     Default: 1
-
+    
+  ApiKey:
+    Type: String
+    Description: |
+      Your Coralogix Send Your Data - API Key which is used to validate your authenticity (https://coralogix.com/docs/send-your-data-api-key/)
+      This value can be a Coralogix API Key or an AWS Secret Manager ARN that holds the API Key
+    MinLength: 1
+    NoEcho: true
+    
   LogLevel:
     Type: String
     Description: 'Log level for the Lambda function. Can be one of: INFO, WARN, ERROR, DEBUG'
