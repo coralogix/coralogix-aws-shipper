@@ -1410,13 +1410,13 @@ Resources:
                 - s3:PutBucketNotification
               Resource: !Sub "arn:aws:s3:::${S3BucketName}"
 
-            # - Sid: PutSubscriptionFilter
-            #   Effect: Allow
-            #   Action:
-            #     - "logs:PutSubscriptionFilter"
-            #     - "logs:DeleteSubscriptionFilter"
-            #     - "logs:DescribeSubscriptionFilters"
-            #   Resource: !Sub  "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
+            - Sid: PutSubscriptionFilter
+              Effect: Allow
+              Action:
+                - "logs:PutSubscriptionFilter"
+                - "logs:DeleteSubscriptionFilter"
+                - "logs:DescribeSubscriptionFilters"
+              Resource: !Sub  "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*"
 
       InlineCode: |
         import json
