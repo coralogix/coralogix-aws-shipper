@@ -42,7 +42,7 @@ jobs:
               "Type": "String", 
               "AllowedValues": ["x86_64", "arm64"], 
               "Default": "arm64"
-            } | .Globals.Function.Architectures = [ {"Ref": "CpuArch"}  ]' ./template.yaml
+            } | .Resources.LambdaFunction.Properties.Architectures = [ {"Ref": "CpuArch"}  ]' ./template.yaml
           
           # add CpuArch Condition
           yq -i '.Conditions.CpuArchIsx8664 = {
@@ -51,14 +51,9 @@ jobs:
                 "x86_64" ] 
             }' ./template.yaml
 
-          # update the CodeUri property of all AWS::Serverless::Function resources
+          # update the CodeUri property of LambdaFunction resources
           # based on the CpuArch condition
-          yq -i '(.Resources[] | 
-          select(
-            has("Type") 
-            and .Type == "AWS::Serverless::Function" 
-            and .Properties.CodeUri != null) | 
-          .Properties.CodeUri) |= {
+          yq -i '.Resources.LambdaFunction.Properties.CodeUri |= {
               "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"}, 
               "Key": {
                   "Fn::If": [
@@ -67,6 +62,12 @@ jobs:
                       "coralogix-aws-shipper.zip"
                   ]
               }
+          }' template.yaml
+
+          # set custom resource CodeUri
+          yq -i '.Resources.CustomResourceFunction.Properties.CodeUri = {
+              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"}, 
+              "Key": "coralogix-aws-shipper-custom-resource.zip"
           }' template.yaml
 
           # sed -i '3a\#Created automatically from coralogix\/coralogix-aws-shipper' ./template.yaml

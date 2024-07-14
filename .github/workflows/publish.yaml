@@ -140,22 +140,13 @@ jobs:
         if: ${{ matrix.target == 'x86-64' }}
         run: |
           aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}.zip
-
       
-      - name: s3upload-x86-64-build-versioned
-        if: ${{ matrix.target == 'x86-64' }}
+      - name: s3upload-${{ matrix.target }}-build-versioned
         run: |
           aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
-      
-      - name: s3upload-arm64-build-versioned
-        if: ${{ matrix.target == 'arm64' }}
-        run: |
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
         
       - name: store-arm64-package
@@ -192,6 +183,6 @@ jobs:
       - name: store
         run: |
           aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
 
