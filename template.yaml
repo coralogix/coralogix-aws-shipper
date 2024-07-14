@@ -409,11 +409,6 @@ Conditions:
   S3SuffixIsSet: !Not [ !Equals [ !Ref S3KeySuffix, '' ] ]
   IsApiKeyNotArn: !Equals [!Ref ApiKey , !Select [0,!Split [":" , !Ref ApiKey]]]
   ApiKeyIsArn: !Not [!Condition IsApiKeyNotArn]
-  UseCloudwatchLogsWithSecretPolicy: !And
-    - !Condition UseCloudwatchLogs
-    - !Or
-      - !Condition StoreAPIKeyInSecretsManager
-      - !Condition ApiKeyIsArn
   UseAWSDefaultPrefix: !Or 
     - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
     - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
@@ -434,65 +429,15 @@ Conditions:
   UseKinesisStreamARN: !And 
       - !Not [ !Equals [ !Ref KinesisStreamArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-  UseSNSTopicARN: 
-    Fn::Or: 
-    - !And 
-      - !Not [ !Equals [ !Ref SNSTopicArn, '' ] ]
-      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-    - !And 
-      - !Not [ !Equals [ !Ref SNSIntegrationTopicArn, '' ] ]
-      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
   UseVpcConfig: !And 
     - !Not [ !Equals [ !Ref LambdaSubnetID, '' ] ]
     - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
-  UseCloudwatchLogs: !And
-    - !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
-    - !Not [ !Condition UseSNSTopicARN ] 
-  UseDefault: !And 
-    - !Not [ !Condition UseCloudwatchLogs ]
-    - !Not [ !Condition UseSNSTopicARN  ]
-    - !Not [ !Condition UseSQSTopicARN  ]
-    - !Not [ !Condition UseKinesisStreamARN  ]
-    - !Not [ !Condition UseMSK ]
-    - !Not [ !Condition UseKafka ]
-    - !Not [ !Condition UseECRScan]
 
-  UseDefaultWithNotification: !And
-    - !Condition UseDefault
-    - !Condition IsNotificationEnabled
-  UseCloudwatchLogsWithNotification: !And
-    - !Condition UseCloudwatchLogs
-    - !Condition IsNotificationEnabled
-  UseKinesisTopicARNWithNotification: !And
-    - !Condition UseKinesisStreamARN
-    - !Condition IsNotificationEnabled
-  UseSQSTopicARNWithNotification: !And
-    - !Condition UseSQSTopicARN
-    - !Condition IsNotificationEnabled
-  UseSNSTopicARNWithNotification: !And
-    - !Condition UseSNSTopicARN
-    - !Condition IsNotificationEnabled
   UseMSK: !And
     - !Not [ !Equals [ !Ref MSKClusterArn, '' ] ]
     - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
     - !Equals [ !Ref IntegrationType, 'MSK' ]
-  UseKafka: !And
-    - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
-    - !Equals [ !Ref MSKClusterArn, '' ]
-    - !Equals [ !Ref IntegrationType, 'Kafka' ]
 
-  UseMSKWithNotification: !And
-    - !Condition UseMSK
-    - !Condition IsNotificationEnabled
-
-  UseKatkaTopicARNWithNotification: !And
-    - !Condition IsKafkaIntegration
-    - !Condition IsNotificationEnabled
-    - !Condition UseKafka
-
-  UseECRScanWithNotification: !And
-    - !Condition UseECRScan
-    - !Condition IsNotificationEnabled
   S3BucketNameIsSet: !Not [ !Equals [ !Ref S3BucketName, '' ] ]
 
 Rules:
@@ -794,7 +739,7 @@ Resources:
   ConfigureLambda:
     Type: Custom::ConfigureLambda
     Properties:
-      ServiceToken: !GetAtt CustomResourceLambdaTriggerFunction.Arn
+      ServiceToken: !GetAtt CustomResourceFunction.Arn
       LambdaArn: !GetAtt LambdaFunction.Arn
       DLQ:
         EnableDLQ: !Ref EnableDLQ
@@ -829,7 +774,6 @@ Resources:
         LogLevel: !Ref LogLevel
         S3BucketName: !Ref S3BucketName
         CSVDelimiter: !Ref CSVDelimiter
-        S3KeyPrefix: !Ref S3KeyPrefix
         FunctionMemorySize: !Ref FunctionMemorySize
         FunctionTimeout: !Ref FunctionTimeout
         SNSTopicArn: !Ref SNSTopicArn
@@ -852,6 +796,23 @@ Resources:
         KafkaBrokers: !Ref KafkaBrokers
         KafkaSubnets: !Ref KafkaSubnets
         KafkaSecurityGroups: !Ref KafkaSecurityGroups
+        S3KeyPrefix: !If
+          - S3SuffixIsSet
+          - !Ref S3KeySuffix
+          - !If
+            - UseAWSDefaultCloudTrailSuffix
+            - '.json.gz'
+            - !If
+              - UseAWSDefaultVpcFlowSuffix
+              - '.log.gz'
+              - ""
+        S3KeySuffix: !If
+          - S3KeyPrefixIsSet
+          - !Ref S3KeyPrefix
+          - !If
+            - UseAWSDefaultPrefix
+            - 'AWSLogs/'
+            - ''
         CoralogixEndpoint: !If
           - IsCustomDomain
           - !If
@@ -1014,10 +975,10 @@ Resources:
 ##################################
 # -- Custom Resource Definition -#
 ##################################
-  CustomResourceLambdaTriggerFunction:
+  CustomResourceFunction:
     Type: AWS::Serverless::Function
     Metadata:
-      SamResourceId: CustomResourceLambdaTriggerFunction
+      SamResourceId: CustomResourceFunction
     Properties:
       Handler: index.lambda_handler
       Runtime: python3.12
