@@ -432,7 +432,6 @@ Conditions:
   UseVpcConfig: !And 
     - !Not [ !Equals [ !Ref LambdaSubnetID, '' ] ]
     - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
-
   UseMSK: !And
     - !Not [ !Equals [ !Ref MSKClusterArn, '' ] ]
     - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
@@ -982,7 +981,7 @@ Resources:
     Properties:
       Handler: index.lambda_handler
       Runtime: python3.12
-      Timeout: 50
+      Timeout: 900
       Policies:
       - Statement:
         - Sid: IAMAccess
@@ -1044,4 +1043,3 @@ Resources:
           - logs:DescribeSubscriptionFilters
           Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*
       CodeUri: custom-resource/
-      

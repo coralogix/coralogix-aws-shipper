@@ -122,6 +122,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
+      
+      - name: install yq
+        run: sudo snap install yq
+
+      - name: get_version
+        id: get_version
+        run: |
+          set -xv
+          # Extract the value from the current commit
+          current=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
+          echo "current_version=$current" >> $GITHUB_ENV
 
       - name: sam build
         env:

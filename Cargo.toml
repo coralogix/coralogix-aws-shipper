@@ -39,3 +39,4 @@ anyhow = "1.0.81"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
+test-log = "0.2.16"

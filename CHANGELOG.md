@@ -1,4 +1,9 @@
 # Changelog
+## v1.0.9 /
+### 🚀 New components 🚀
+- Added topic_name as option for Add_Metadata
+- Allow user to pass S3 Object URL as topic name or CloudWatchLogGroup, the code will ge the parameter value from this file.
+
 ## v1.0.8 / 2024-05-13
 ### 💡 Enhancements 💡
 - Disabled ANSI characters in tracing crate logs
