@@ -424,12 +424,12 @@ Conditions:
     - !Condition IsApiKeyNotArn
   IsPrivateLink: !Equals [ !Ref UsePrivateLink, 'true' ]
 
-  SNSIsSet: 
+  SNSIsSet:
     !Or
     - !Not [ !Equals [ !Ref SNSTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ] ]
     - !Not [ !Equals [ !Ref SNSIntegrationTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ] ]
   
-  SQSIsSet: 
+  SQSIsSet:
     !Or
     - !Not [ !Equals [ !Ref SQSTopicArn, 'arn:aws:sqs:us-east-1:123456789012:placeholder' ] ]
     - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, 'arn:aws:sqs:us-east-1:123456789012:placeholder' ] ]
@@ -456,9 +456,6 @@ Rules:
   ValidateCloudWatchLogs:
     RuleCondition: !And 
       - !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
-      - !Equals [ !Ref SNSTopicArn, '' ]
-      - !Equals [ !Ref SQSTopicArn, '' ]
-      - !Equals [ !Ref KinesisStreamArn, '' ]
     Assertions:
       - Assert: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
         AssertDescription: CloudWatchLogGroupName must be set when IntegrationType is set to cloudwatch
@@ -470,6 +467,7 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref CustomDomain, '' ] ]
         AssertDescription: CustomDomain must be set when CoralogixRegion is set to Custom
+        
   ValidateSQSTopicArnParam:
     RuleCondition: !And
       - !Not [ !Equals [ !Ref SQSTopicArn, '' ] ]
