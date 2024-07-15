@@ -178,7 +178,7 @@ Parameters:
     Description: |
       The name of the AWS S3 bucket to watch
     AllowedPattern: '^[0-9A-Za-z\.\-_]*(?<!\.)$'
-    Default: ""
+    Default: "none"
     MaxLength: 63
 
   CSVDelimiter:
@@ -222,19 +222,23 @@ Parameters:
   SNSTopicArn:
     Type: String
     Description: The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3
-    Default: ''
+    # placeholder value to avoid cfn-lint issues
+    Default: 'arn:aws:sns:us-east-1:123456789012:placeholder'
   SQSTopicArn:
     Type: String
     Description: The ARN for the SQS topic that contains the SQS subscription responsible for retrieving logs from Amazon S3
-    Default: ''
+    # placeholder value to avoid cfn-lint issues
+    Default: 'arn:aws:sqs:us-east-1:123456789012:placeholder'
   SQSIntegrationTopicArn:
     Type: String
     Description: The ARN of SQS topic to subscribe to retrieving messages
-    Default: ''
+    # placeholder value to avoid cfn-lint issues
+    Default: 'arn:aws:sqs:us-east-1:123456789012:placeholder'
   SNSIntegrationTopicArn:
     Type: String
     Description: The ARN of SNS topic to subscribe to retrieving messages
-    Default: ''
+    # placeholder value to avoid cfn-lint issues
+    Default: 'arn:aws:sns:us-east-1:123456789012:placeholder'
   KinesisStreamArn:
     Type: String
     Description: The ARN of Kinesis stream to subscribe to retrieving messages
@@ -371,7 +375,8 @@ Parameters:
   DLQS3Bucket:
     Type: String
     Description: The S3 bucket to store the DLQ failed messages after retry limit is reached
-    Default: ''
+    # placeholder value to avoid cfn-lint issues
+    Default: 'none'
 
 Mappings:
   CoralogixRegionMap:
@@ -418,14 +423,17 @@ Conditions:
     - !Equals [ !Ref StoreAPIKeyInSecretsManager, 'true' ]
     - !Condition IsApiKeyNotArn
   IsPrivateLink: !Equals [ !Ref UsePrivateLink, 'true' ]
-  UseSQSTopicARN: 
-    Fn::Or: 
-    - !And 
-      - !Not [ !Equals [ !Ref SQSTopicArn, '' ] ]
-      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-    - !And 
-      - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, '' ] ]
-      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
+
+  SNSIsSet: 
+    !Or
+    - !Not [ !Equals [ !Ref SNSTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ] ]
+    - !Not [ !Equals [ !Ref SNSIntegrationTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ] ]
+  
+  SQSIsSet: 
+    !Or
+    - !Not [ !Equals [ !Ref SQSTopicArn, 'arn:aws:sqs:us-east-1:123456789012:placeholder' ] ]
+    - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, 'arn:aws:sqs:us-east-1:123456789012:placeholder' ] ]
+
   UseKinesisStreamARN: !And 
       - !Not [ !Equals [ !Ref KinesisStreamArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
@@ -437,13 +445,13 @@ Conditions:
     - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
     - !Equals [ !Ref IntegrationType, 'MSK' ]
 
-  S3BucketNameIsSet: !Not [ !Equals [ !Ref S3BucketName, '' ] ]
+  S3BucketNameIsSet: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
 
 Rules:
   ValidateDLQ:
     RuleCondition: !Equals [ !Ref EnableDLQ, 'true' ]
     Assertions:
-      - Assert: !Not [ !Equals [ !Ref DLQS3Bucket, '' ] ]
+      - Assert: !Not [ !Equals [ !Ref DLQS3Bucket, 'none' ] ]
         AssertDescription: DLQS3Bucket must be set when EnableDLQ is set to true
   ValidateCloudWatchLogs:
     RuleCondition: !And 
@@ -504,6 +512,18 @@ Rules:
       - Assert: !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
         AssertDescription: KafkaTopic must be set when IntegrationType is set to MSK
         
+  ValidateSNSIntegrationParams:
+    RuleCondition: !Equals [ !Ref IntegrationType, 'Sns' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref SNSIntegrationTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ] ]
+        AssertDescription: SNSIntegrationTopicArn must be set when IntegrationType is set to Sns
+
+  ValidateSQSIntegrationParams:
+    RuleCondition: !Equals [ !Ref IntegrationType, 'Sqs' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref SQSIntegrationTopicArn, 'arn:aws:sqs:us-east-1:123456789012:placeholder' ] ]
+        AssertDescription: SQSIntegrationTopicArn must be set when IntegrationType is set to Sqs  
+
 Resources:
   Secret:
     Type: 'AWS::SecretsManager::Secret'
@@ -796,7 +816,7 @@ Resources:
         KafkaSubnets: !Ref KafkaSubnets
         KafkaSecurityGroups: !Ref KafkaSecurityGroups
         S3KeyPrefix: !If
-          - S3SuffixIsSet
+          - S3KeyPrefixIsSet
           - !Ref S3KeySuffix
           - !If
             - UseAWSDefaultCloudTrailSuffix
@@ -806,7 +826,7 @@ Resources:
               - '.log.gz'
               - ""
         S3KeySuffix: !If
-          - S3KeyPrefixIsSet
+          - S3SuffixIsSet
           - !Ref S3KeyPrefix
           - !If
             - UseAWSDefaultPrefix
@@ -899,44 +919,56 @@ Resources:
 ##################################
 
   SQSEventSourceMapping:
-    Condition: UseSQSTopicARN
+    Condition: SQSIsSet
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       BatchSize: 10
-      EventSourceArn: !Ref SQSIntegrationTopicArn
       FunctionName: !GetAtt LambdaFunction.Arn
       StartingPosition: LATEST
+      EventSourceArn: !If
+        - IsSQSIntegration
+        - !Ref SQSIntegrationTopicArn
+        - !Ref SQSTopicArn
 
 
   SQSEventPermission:
-    Condition: UseSQSTopicARN
+    Condition: SQSIsSet
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt LambdaFunction.Arn
       Principal: sns.amazonaws.com
-      SourceArn: !Ref SQSIntegrationTopicArn
+      SourceArn: !If
+        - IsSQSIntegration
+        - !Ref SQSIntegrationTopicArn
+        - !Ref SQSTopicArn
   
 ##################################
 # ------------ SNS-- ------------#
 ##################################
 
   SNSSubscription:
-    Condition: IsSNSIntegration
+    Condition: SNSIsSet
     Type: AWS::SNS::Subscription
     Properties:
       Protocol: lambda
       Endpoint: !GetAtt LambdaFunction.Arn
-      TopicArn: !Ref SNSIntegrationTopicArn
+      TopicArn: !If
+        - IsSNSIntegration
+        - !Ref SNSIntegrationTopicArn
+        - !Ref SNSTopicArn
 
   SNSEventPermission:
-    Condition: IsSNSIntegration
+    Condition: SNSIsSet
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt LambdaFunction.Arn
       Principal: sns.amazonaws.com
-      SourceArn: !Ref SNSIntegrationTopicArn
+      SourceArn: !If
+        - IsSNSIntegration
+        - !Ref SNSIntegrationTopicArn
+        - !Ref SNSTopicArn
 
 
 ##################################
