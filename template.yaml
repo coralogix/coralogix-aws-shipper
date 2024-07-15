@@ -817,7 +817,7 @@ Resources:
         KafkaSecurityGroups: !Ref KafkaSecurityGroups
         S3KeyPrefix: !If
           - S3KeyPrefixIsSet
-          - !Ref S3KeySuffix
+          - !Ref S3KeyPrefix
           - !If
             - UseAWSDefaultCloudTrailSuffix
             - '.json.gz'
@@ -827,7 +827,7 @@ Resources:
               - ""
         S3KeySuffix: !If
           - S3SuffixIsSet
-          - !Ref S3KeyPrefix
+          - !Ref S3KeySuffix
           - !If
             - UseAWSDefaultPrefix
             - 'AWSLogs/'
@@ -1033,14 +1033,14 @@ Resources:
           - lambda:*
           Resource: !GetAtt LambdaFunction.Arn
       - Statement:
-        - Sid: listEventSourceMappings
+        - Sid: EventSourceMappings
           Effect: Allow
           Action:
           - lambda:ListEventSourceMappings
           - lambda:CreateEventSourceMapping
           - lambda:DeleteEventSourceMapping
           - lambda:UpdateEventSourceMapping
-          Resource: !GetAtt LambdaFunction.Arn
+          Resource: '*'
       - Statement:
         - Sid: S3NotificationPolicy
           Effect: Allow
