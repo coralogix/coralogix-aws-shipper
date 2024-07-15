@@ -1016,12 +1016,6 @@ Resources:
       Timeout: 900
       Policies:
       - Statement:
-        - Sid: IAMAccess
-          Effect: Allow
-          Action:
-          - iam:*
-          Resource: '*'
-      - Statement:
         - Sid: EC2Access
           Effect: Allow
           Action:
@@ -1031,18 +1025,6 @@ Resources:
             - 'ec2:DeleteNetworkInterface'
             - 'ec2:DescribeSubnets'
             - 'ec2:DescribeSecurityGroups'
-          Resource: '*'
-      - Statement:
-        - Sid: SQSAccess
-          Effect: Allow
-          Action:
-          - sqs:*
-          Resource: '*'
-      - Statement:
-        - Sid: SNSAccess
-          Effect: Allow
-          Action:
-          - sns:*
           Resource: '*'
       - Statement:
         - Sid: LambdaAccess
@@ -1058,7 +1040,7 @@ Resources:
           - lambda:CreateEventSourceMapping
           - lambda:DeleteEventSourceMapping
           - lambda:UpdateEventSourceMapping
-          Resource: '*'
+          Resource: !GetAtt LambdaFunction.Arn
       - Statement:
         - Sid: S3NotificationPolicy
           Effect: Allow
