@@ -230,8 +230,8 @@ class ConfigureS3Integration:
                 err = self.update()
             case 'Delete':
                 err = self.delete()
-                if 'ResourceNotFoundException' in err:
-                    err = None
+                if err:
+                    if 'ResourceNotFoundException' in err: err = None
                 
         if err:
             print(f"[ConfigureS3Trigger] failed to process: {err}")
@@ -340,6 +340,8 @@ class ConfigureKafkaIntegration:
                 err = self.update()
             case 'Delete':
                 err = self.delete()
+                if err:
+                    if 'ResourceNotFoundException' in err: err = None
                 
         if err:
             print(f"[ConfigureKafka/MSKIntegration] failed to process: {err}")
@@ -457,6 +459,8 @@ class ConfigureCloudwatchIntegration:
             responseStatus,
             physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)  
         )
+        
+
 
 def lambda_handler(event, context):
     '''
