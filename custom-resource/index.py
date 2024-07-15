@@ -478,9 +478,8 @@ def lambda_handler(event, context):
                 raise Exception(err)
             
         match integration_type:
-            case 'S3':
+            case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail':
                 ConfigureS3Integration(event, context, cfn).handle()
-                pass
             case 'Kafka':
                 ConfigureKafkaIntegration(event, context, cfn).handle()
             case 'CloudWatch':
@@ -488,7 +487,6 @@ def lambda_handler(event, context):
             case 'Kinesis' | 'MSK' | 'Sqs' | 'Sns' | 'EcrScan':
                 cfn.send(cfn.SUCCESS, response_data={}, physical_resource_id=None, no_echo=False, reason=None)
                 return
-                pass
             case _:
                 raise ValueError(f"invalid or unsupported integration type: {integration_type}")
             
