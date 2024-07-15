@@ -223,15 +223,30 @@ class ConfigureS3Integration:
           
     def handle(self):
         responseStatus = self.cfn.SUCCESS
-        match self.event['RequestType']:
-            case 'Create':
-                err = self.create()
-            case 'Update':
-                err = self.update()
-            case 'Delete':
-                err = self.delete()
-                if err:
-                    if 'ResourceNotFoundException' in err: err = None
+        on_sns_or_sqs = False
+        
+        # Skip S3 trigger configuration if SQS Topic ARN is not a placeholder or empty
+        if all([
+            self.params.SNSTopicArn != 'arn:aws:sns:us-east-1:123456789012:placeholder',
+            self.params.SNSTopicArn != ''
+        ]): on_sns_or_sqs = True
+            
+        if all([
+            self.params.SQSTopicArn != 'arn:aws:sqs:us-east-1:123456789012:placeholder',
+            self.params.SQSTopicArn != ''
+        ]): on_sns_or_sqs = True
+        
+        err = None
+        if not on_sns_or_sqs:
+            match self.event['RequestType']:
+                case 'Create':
+                    err = self.create()
+                case 'Update':
+                    err = self.update()
+                case 'Delete':
+                    err = self.delete()
+                    if err:
+                        if 'ResourceNotFoundException' in err: err = None
                 
         if err:
             print(f"[ConfigureS3Trigger] failed to process: {err}")
@@ -460,7 +475,6 @@ class ConfigureCloudwatchIntegration:
             physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)  
         )
         
-
 
 def lambda_handler(event, context):
     '''
