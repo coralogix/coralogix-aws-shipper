@@ -462,7 +462,7 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
         AssertDescription: CloudWatchLogGroupName must be set when IntegrationType is set to cloudwatch
-      - Assert: !Equals [ !Ref S3BucketName, '' ]
+      - Assert: !Equals [ !Ref S3BucketName, 'none' ]
         AssertDescription: S3Bucket parameter must be empty when IntegrationType is set to cloudwatch 
 
   ValidateCustomDomain:
@@ -497,6 +497,16 @@ Rules:
         - !Not [ !Equals [ !Ref LambdaSubnetID, '' ] ]
         - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
         AssertDescription: Subnet ID and Security Group ID must be set when UsePrivateLink is set to true
+  
+  ValidationS3Integrations:
+    RuleCondition: !Or
+      - !Equals [ !Ref IntegrationType, 'S3' ]
+      - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
+      - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
+      - !Equals [ !Ref IntegrationType, 'S3Csv' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
+        AssertDescription: S3BucketName must be set when IntegrationType is set to S3, CloudTrail, VpcFlow or S3Csv
 
   ValidateKafkaIntegrationParams:
     RuleCondition: !Equals [ !Ref IntegrationType, 'Kafka' ]
