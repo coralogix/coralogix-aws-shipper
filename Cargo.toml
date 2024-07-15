@@ -35,7 +35,7 @@ aws-sdk-sqs = "1.18.0"
 chrono = "0.4.37"
 async-recursion = "1.1.0"
 md5 = "0.7.0"
-anyhow = "1.0.81"
+anyhow = "1.0.86"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
