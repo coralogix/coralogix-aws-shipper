@@ -453,6 +453,7 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref DLQS3Bucket, 'none' ] ]
         AssertDescription: DLQS3Bucket must be set when EnableDLQ is set to true
+        
   ValidateCloudWatchLogs:
     RuleCondition: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
     Assertions:
@@ -466,26 +467,6 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref CustomDomain, '' ] ]
         AssertDescription: CustomDomain must be set when CoralogixRegion is set to Custom
-
-  ValidateSQSTopicArnParam:
-    RuleCondition: !And
-      - !Not [ !Equals [ !Ref SQSTopicArn, '' ] ]
-      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-    Assertions:
-      - Assert: !And 
-          - !Equals [ !Ref S3KeyPrefix, '' ]
-          - !Equals [ !Ref S3KeySuffix, '' ]
-        AssertDescription: S3Prefix and S3Suffix must be empty when SQSTopicArn is set
-
-  ValidateSNSTopicArnParam:
-    RuleCondition: !And
-      - !Not [ !Equals [ !Ref SNSTopicArn, '' ] ]
-      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-    Assertions:
-      - Assert: !And 
-          - !Equals [ !Ref S3KeyPrefix, '' ]
-          - !Equals [ !Ref S3KeySuffix, '' ]
-        AssertDescription: S3Prefix and S3Suffix must be empty when SNSTopicArn is set
 
   ValidatePrivateLinkConfig:
     RuleCondition: !Equals [ !Ref UsePrivateLink, 'true']
@@ -931,7 +912,7 @@ Resources:
     Properties:
       BatchSize: 10
       FunctionName: !GetAtt LambdaFunction.Arn
-      StartingPosition: LATEST
+      # StartingPosition: LATEST
       EventSourceArn: !If
         - IsSQSIntegration
         - !Ref SQSIntegrationTopicArn
