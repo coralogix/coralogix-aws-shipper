@@ -558,7 +558,14 @@ Resources:
         - !If
           - SQSIsSet
           - SQSPollerPolicy:
-              QueueName: !Select [5, !Split [":", !Ref SQSIntegrationTopicArn]]
+              QueueName: !Select
+                - 5
+                - !Split
+                  - ":"
+                  - !If
+                    - IsSQSIntegration
+                    - !Ref SQSIntegrationTopicArn
+                    - !Ref SQSTopicArn
           - !Ref AWS::NoValue
 
         # if kafka/msk integration is set, add policy
