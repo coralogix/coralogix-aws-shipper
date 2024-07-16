@@ -453,7 +453,7 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref DLQS3Bucket, 'none' ] ]
         AssertDescription: DLQS3Bucket must be set when EnableDLQ is set to true
-        
+
   ValidateCloudWatchLogs:
     RuleCondition: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
     Assertions:
@@ -556,7 +556,7 @@ Resources:
 
         # if SQS topic ARN is set, add policy
         - !If
-          - IsSQSIntegration
+          - SQSIsSet
           - SQSPollerPolicy:
               QueueName: !Select [5, !Split [":", !Ref SQSIntegrationTopicArn]]
           - !Ref AWS::NoValue
@@ -807,19 +807,19 @@ Resources:
           - S3KeyPrefixIsSet
           - !Ref S3KeyPrefix
           - !If
+            - UseAWSDefaultPrefix
+            - 'AWSLogs/'
+            - ''
+        S3KeySuffix: !If
+          - S3SuffixIsSet
+          - !Ref S3KeySuffix
+          - !If
             - UseAWSDefaultCloudTrailSuffix
             - '.json.gz'
             - !If
               - UseAWSDefaultVpcFlowSuffix
               - '.log.gz'
               - ""
-        S3KeySuffix: !If
-          - S3SuffixIsSet
-          - !Ref S3KeySuffix
-          - !If
-            - UseAWSDefaultPrefix
-            - 'AWSLogs/'
-            - ''
         CoralogixEndpoint: !If
           - IsCustomDomain
           - !If
