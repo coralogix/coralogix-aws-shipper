@@ -454,8 +454,7 @@ Rules:
       - Assert: !Not [ !Equals [ !Ref DLQS3Bucket, 'none' ] ]
         AssertDescription: DLQS3Bucket must be set when EnableDLQ is set to true
   ValidateCloudWatchLogs:
-    RuleCondition: !And 
-      - !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
+    RuleCondition: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
     Assertions:
       - Assert: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
         AssertDescription: CloudWatchLogGroupName must be set when IntegrationType is set to cloudwatch
@@ -467,7 +466,7 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref CustomDomain, '' ] ]
         AssertDescription: CustomDomain must be set when CoralogixRegion is set to Custom
-        
+
   ValidateSQSTopicArnParam:
     RuleCondition: !And
       - !Not [ !Equals [ !Ref SQSTopicArn, '' ] ]
