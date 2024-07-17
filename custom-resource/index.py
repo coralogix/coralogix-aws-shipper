@@ -32,7 +32,8 @@ def configure_dlq(event):
     
     aws_lambda = boto3.client("lambda")
     lambda_arn = event['ResourceProperties']['LambdaArn']
-    dlq_arn = event['ResourceProperties']['DLQ']['DLQArn']             
+    dlq_arn = event['ResourceProperties']['DLQ']['DLQArn']  
+           
     aws_lambda.update_function_configuration(
         FunctionName=lambda_arn,
         DeadLetterConfig={
@@ -40,6 +41,20 @@ def configure_dlq(event):
         },
     )
     
+    if event['RequestType'] == 'Update':
+        print('updating dlq event source mapping...')
+        # remove mapping and recreate it on update
+        mappings = aws_lambda.list_event_source_mappings(
+            FunctionName=lambda_arn,
+        )["EventSourceMappings"]
+        
+        for mapping in mappings:
+            if mapping["EventSourceArn"] == dlq_arn:
+                print('deleting previous dlq event source mapping...')
+                aws_lambda.delete_event_source_mapping(UUID=mapping["UUID"])
+        
+        time.sleep(15) # give the change a little time to propagate
+
     # Create event source mapping
     aws_lambda.create_event_source_mapping(
         EventSourceArn=dlq_arn,
@@ -184,7 +199,8 @@ class ConfigureS3Integration:
         err = self.delete()
         if err:
             raise Exception(err)
-            
+        
+        time.sleep(15)    
         return self.create()
     
     @handle_exceptions
@@ -325,6 +341,7 @@ class ConfigureKafkaIntegration:
         err = self.delete()
         if err:
             raise Exception(err)
+        time.sleep(15)
         return self.create()
     
     @handle_exceptions
@@ -430,6 +447,7 @@ class ConfigureCloudwatchIntegration:
         err = self.delete()
         if err:
             raise Exception(err)
+        time.sleep(15)
         return self.create()
     
     @handle_exceptions
