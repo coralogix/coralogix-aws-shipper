@@ -599,6 +599,7 @@ Resources:
                   - 'kafka:DescribeCluster'
                   - 'kafka:GetBootstrapBrokers'
                   - 'kafka:DescribeClusterV2'
+                  - 'ec2:DescribeSecurityGroups'
                 Resource: !Ref MSKClusterArn
           - !Ref AWS::NoValue
         - !If
