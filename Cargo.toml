@@ -4,15 +4,16 @@ version = "1.0.8"
 edition = "2021"
 
 [dependencies]
-aws_lambda_events = { version = "0.13.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan"] }
-aws-config = "1.0.3"
-aws-sdk-s3 = "1.5.0"
-aws-sdk-ecr = "1.10.0"
-aws-sdk-secretsmanager = "1.4.0"
+aws-smithy-runtime-api = "1.7.1"
+aws_lambda_events = { version = "0.15.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan"] }
+aws-config = "1.5.4"
+aws-sdk-s3 = "1.41.0"
+aws-sdk-ecr = "1.35.0"
+aws-sdk-secretsmanager = "1.39.0"
 cx_sdk_rest_logs = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false, features=["rustls"] }
 cx_sdk_core = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false}
 derive_more = "0.99.17"
-fancy-regex ="0.12.0"
+fancy-regex ="0.13.0"
 flate2 = "1.0"
 futures = "0.3.17"
 http = "1.1.0"
