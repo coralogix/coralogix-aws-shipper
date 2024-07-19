@@ -601,6 +601,15 @@ Resources:
                   - 'kafka:DescribeClusterV2'
                   - 'ec2:DescribeSecurityGroups'
                 Resource: !Ref MSKClusterArn
+              - Effect: Allow
+                Action:
+                  - 'ec2:CreateNetworkInterface'
+                  - 'ec2:DescribeNetworkInterfaces'
+                  - 'ec2:DescribeVpcs'
+                  - 'ec2:DeleteNetworkInterface'
+                  - 'ec2:DescribeSubnets'
+                  - 'ec2:DescribeSecurityGroups'
+                Resource: '*'
           - !Ref AWS::NoValue
         - !If
           - ApiKeyIsArn
