@@ -888,7 +888,7 @@ Resources:
     Condition: DLQEnabled
     Type: AWS::SQS::Queue
     Properties: 
-      QueueName: coralogix-aws-shipper-dlq
+      QueueName: !Sub coralogix-aws-shipper-dlq-${AWS::StackName}
       DelaySeconds: !Ref DLQRetryDelay
       MessageRetentionPeriod: 1209600
       VisibilityTimeout: !Ref FunctionTimeout
