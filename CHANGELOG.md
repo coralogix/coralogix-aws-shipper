@@ -1,4 +1,8 @@
 # Changelog
+## v1.0.9 / 2024-07-22
+### 💡 Enhancements 💡
+- Improved gzip process to support truncanted gzip files.
+
 ## v1.0.8 / 2024-05-13
 ### 💡 Enhancements 💡
 - Disabled ANSI characters in tracing crate logs
