@@ -1,4 +1,5 @@
 # Changelog
+
 ## v1.0.9 / 2024-07-22
 ### 💡 Enhancements 💡
 - Improved gzip process to support truncanted gzip files.
