@@ -233,9 +233,8 @@ impl LogExporter for FailingLogExporter {
     where
         B: Serialize + Send + Sync,
     {
-        Err(cx_sdk_rest_logs::Error::ServerError {
+        Err(cx_sdk_rest_logs::Error::Server {
             source: anyhow::Error::msg("FailingLogExporter always fails..."),
-            status: None,
         })
     }
 
@@ -248,9 +247,8 @@ impl LogExporter for FailingLogExporter {
         B: Serialize + Send + Sync,
     {
         println!("called");
-        Err(cx_sdk_rest_logs::Error::ServerError {
+        Err(cx_sdk_rest_logs::Error::Server {
             source: anyhow::Error::msg("FailingLogExporter always fails..."),
-            status: None,
         })
     }
 }
@@ -993,7 +991,7 @@ async fn test_blocking_and_newline_pattern() {
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("S3")),
             ("BLOCKING_PATTERN", Some("ERROR")), // blocking pattern
-            ("NEWLINE_PATTERN", Some(r"\<\|\>")), // newline pattern
+            ("NEWLINE_PATTERN", Some(r"<\|>")), // newline pattern
         ],
         run_blocking_and_newline_pattern(),
     )

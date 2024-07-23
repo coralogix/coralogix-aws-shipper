@@ -55,13 +55,16 @@ pub fn set_up_coralogix_exporter(config: &Config) -> Result<DynLogExporter, Erro
         "X-Coralogix-Data-Source".to_owned(),
         config.integration_type.to_string(),
     );
-
     let config = LogExporterConfig {
         url: config.endpoint.clone(),
         request_timeout: Duration::from_secs(30),
         backoff_config: backoff,
         user_agent: None,
         additional_headers: headers,
+        request_body_size_limit: None,
+        keep_alive_interval: None,
+        keep_alive_timeout: None,
+        keep_alive_while_idle: None,
     };
     let exporter = Arc::new(RestLogExporter::builder().with_config(config).build()?);
 
