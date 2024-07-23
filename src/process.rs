@@ -644,8 +644,35 @@ pub async fn kafka_logs(
 
     Ok(())
 }
-
 fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
+    if compressed_data.is_empty() {
+        tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
+        return Ok(Vec::new());
+    }
+    let mut decoder = MultiGzDecoder::new(&compressed_data[..]);
+    
+    let mut output = Vec::new();
+    let mut chunk = [0; 8192];
+    loop {
+        match decoder.read(&mut chunk) {
+            Ok(bytes_read) => {
+                if bytes_read == 0 {
+                    break;
+                }
+                output.extend_from_slice(&chunk[..bytes_read]);
+            },
+            Err(err) => {
+                println!("Problem decompressing data after {} bytes: {:?}", output.len(), err);
+                tracing::warn!(?err, "Problem decompressing data after {} bytes", output.len());
+                return Ok(output);
+            },
+        }
+    }
+
+    Ok(output)
+}
+
+fn ungzip_old(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
     if compressed_data.is_empty() {
         tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
         return Ok(Vec::new());
