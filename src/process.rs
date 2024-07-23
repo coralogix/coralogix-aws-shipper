@@ -662,34 +662,16 @@ fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
                 output.extend_from_slice(&chunk[..bytes_read]);
             },
             Err(err) => {
-                println!("Problem decompressing data after {} bytes: {:?}", output.len(), err);
                 tracing::warn!(?err, "Problem decompressing data after {} bytes", output.len());
                 return Ok(output);
             },
         }
     }
-
+    if output.is_empty() {
+        tracing::warn!("Uncompressed failed. zero-file result");
+        return Err(Error::from("Uncompressed Failed, zero-file result"));
+    }
     Ok(output)
-}
-
-fn ungzip_old(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
-    if compressed_data.is_empty() {
-        tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
-        return Ok(Vec::new());
-    }
-    let mut d = MultiGzDecoder::new(&compressed_data[..]);
-    let mut v = Vec::new();
-    match d.read_to_end(&mut v) {
-        Ok(_) => Ok(v),
-        Err(e) => {
-            tracing::error!(
-                "Failed to ungzip data from  Key_Path: {}. Error: {}",
-                key,
-                e
-            );
-            Err(Box::new(e))
-        }
-    }
 }
 
 fn parse_records(
