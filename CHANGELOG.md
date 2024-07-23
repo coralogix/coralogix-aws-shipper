@@ -1,4 +1,8 @@
 # Changelog
+## v1.0.10 / 2024-07-23
+### 💡 Enhancements 💡
+- Improved tamplate.yaml
+
 ## v1.0.9 / 2024-07-22
 ### 💡 Enhancements 💡
 - Improved gzip process to support truncanted gzip files.
