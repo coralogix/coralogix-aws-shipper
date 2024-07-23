@@ -35,6 +35,8 @@ pub async fn s3(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -138,6 +140,8 @@ pub struct Metadata {
     pub log_group: String,
     pub bucket_name: String,
     pub key_name: String,
+    pub topic_name: String,
+    pub broker_name: String,
 }
 
 impl Default for Metadata {
@@ -147,6 +151,8 @@ impl Default for Metadata {
             log_group: String::new(),
             bucket_name: String::new(),
             key_name: String::new(),
+            topic_name: String::new(),
+            broker_name: String::new(),
         }
     }
 }
@@ -160,11 +166,13 @@ pub async fn kinesis_logs(
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
+    let mut metadata_instance = Metadata {
         stream_name: String::new(),
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -221,6 +229,8 @@ pub async fn sqs_logs(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -254,6 +264,8 @@ pub async fn sns_logs(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -287,6 +299,8 @@ pub async fn cloudwatch_logs(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -341,6 +355,8 @@ pub async fn ecr_scan_logs(
         log_group: String::new(),
         bucket_name: String::new(),
         key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
     };
     let defined_app_name = config
         .app_name
@@ -584,6 +600,14 @@ pub async fn kafka_logs(
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
+    let mut metadata_instance = Metadata {
+        stream_name: String::new(),
+        log_group: String::new(),
+        bucket_name: String::new(),
+        key_name: String::new(),
+        topic_name: String::new(),
+        broker_name: String::new(),
+    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -599,14 +623,14 @@ pub async fn kafka_logs(
         if let Some(value) = record.value {
             // check if value is base64 encoded
             if let Ok(message) = BASE64_STANDARD.decode(&value) {
+                metadata_instance.topic_name = record.topic.expect("Topic name is missing");
                 batch.push(String::from_utf8(message)?);
             } else {
+                metadata_instance.topic_name = record.topic.expect("Topic name is missing");
                 batch.push(value);
             }
         }
     }
-
-    let metadata_instance = Metadata::default();
 
     coralogix::process_batches(
         batch,
@@ -620,6 +644,7 @@ pub async fn kafka_logs(
 
     Ok(())
 }
+
 fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
     if compressed_data.is_empty() {
         tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
@@ -638,13 +663,15 @@ fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
                 output.extend_from_slice(&chunk[..bytes_read]);
             },
             Err(err) => {
-                println!("Problem decompressing data after {} bytes: {:?}", output.len(), err);
                 tracing::warn!(?err, "Problem decompressing data after {} bytes", output.len());
                 return Ok(output);
             },
         }
     }
-
+    if output.is_empty() {
+        tracing::warn!("Uncompressed failed. zero-file result");
+        return Err(Error::from("Uncompressed Failed, zero-file result"));
+    }
     Ok(output)
 }
 
@@ -653,19 +680,29 @@ fn ungzip_old(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
         tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
         return Ok(Vec::new());
     }
-    let mut d = MultiGzDecoder::new(&compressed_data[..]);
-    let mut v = Vec::new();
-    match d.read_to_end(&mut v) {
-        Ok(_) => Ok(v),
-        Err(e) => {
-            tracing::error!(
-                "Failed to ungzip data from  Key_Path: {}. Error: {}",
-                key,
-                e
-            );
-            Err(Box::new(e))
+    let mut decoder = MultiGzDecoder::new(&compressed_data[..]);
+    
+    let mut output = Vec::new();
+    let mut chunk = [0; 8192];
+    loop {
+        match decoder.read(&mut chunk) {
+            Ok(bytes_read) => {
+                if bytes_read == 0 {
+                    break;
+                }
+                output.extend_from_slice(&chunk[..bytes_read]);
+            },
+            Err(err) => {
+                tracing::warn!(?err, "Problem decompressing data after {} bytes", output.len());
+                return Ok(output);
+            },
         }
     }
+    if output.is_empty() {
+        tracing::warn!("Uncompressed failed. zero-file result");
+        return Err(Error::from("Uncompressed Failed, zero-file result"));
+    }
+    Ok(output)
 }
 
 fn parse_records(

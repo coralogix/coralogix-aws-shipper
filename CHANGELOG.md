@@ -1,7 +1,15 @@
 # Changelog
+## v1.0.10 / 2024-07-23
+### 💡 Enhancements 💡
+- Improved tamplate.yaml
+
 ## v1.0.9 / 2024-07-22
 ### 💡 Enhancements 💡
 - Improved gzip process to support truncanted gzip files.
+
+### 🚀 New components 🚀
+- Added topic_name as option for Add_Metadata
+- Allow user to pass S3 Object URL as topic name or CloudWatchLogGroup, the code will ge the parameter value from this file.
 
 ## v1.0.8 / 2024-05-13
 ### 💡 Enhancements 💡
