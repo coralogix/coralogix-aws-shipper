@@ -993,7 +993,7 @@ async fn test_blocking_and_newline_pattern() {
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("S3")),
             ("BLOCKING_PATTERN", Some("ERROR")), // blocking pattern
-            ("NEWLINE_PATTERN", Some(r"\<\|\>")), // newline pattern
+            ("NEWLINE_PATTERN", Some(r"<\|>")), // newline pattern
         ],
         run_blocking_and_newline_pattern(),
     )
