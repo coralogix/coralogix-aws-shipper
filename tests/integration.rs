@@ -233,9 +233,8 @@ impl LogExporter for FailingLogExporter {
     where
         B: Serialize + Send + Sync,
     {
-        Err(cx_sdk_rest_logs::Error::ServerError {
+        Err(cx_sdk_rest_logs::Error::Server {
             source: anyhow::Error::msg("FailingLogExporter always fails..."),
-            status: None,
         })
     }
 
@@ -248,9 +247,8 @@ impl LogExporter for FailingLogExporter {
         B: Serialize + Send + Sync,
     {
         println!("called");
-        Err(cx_sdk_rest_logs::Error::ServerError {
+        Err(cx_sdk_rest_logs::Error::Server {
             source: anyhow::Error::msg("FailingLogExporter always fails..."),
-            status: None,
         })
     }
 }
@@ -993,7 +991,7 @@ async fn test_blocking_and_newline_pattern() {
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("S3")),
             ("BLOCKING_PATTERN", Some("ERROR")), // blocking pattern
-            ("NEWLINE_PATTERN", Some(r"\<\|\>")), // newline pattern
+            ("NEWLINE_PATTERN", Some(r"<\|>")), // newline pattern
         ],
         run_blocking_and_newline_pattern(),
     )
@@ -1571,7 +1569,7 @@ async fn run_kafka_event() {
             }
          }"#,
     )
-    .expect("failed to parse kinesis_event");
+    .expect("failed to parse kafka_event");
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
@@ -1701,7 +1699,7 @@ async fn run_kafka_event_with_base64() {
     );
 }
 
-#[tokio::test]
+#[test_log::test(tokio::test)]
 async fn test_kafka_event() {
     temp_env::async_with_vars(
         [
@@ -1712,6 +1710,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("MSK")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event(),
     )
@@ -1726,6 +1725,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("Kafka")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event(),
     )
@@ -1740,6 +1740,7 @@ async fn test_kafka_event() {
             ("SUB_NAME", Some("lambda")),
             ("AWS_REGION", Some("eu-central-1")),
             ("INTEGRATION_TYPE", Some("Kafka")),
+            ("RUST_LOG", Some("debug")),
         ],
         run_kafka_event_with_base64(),
     )

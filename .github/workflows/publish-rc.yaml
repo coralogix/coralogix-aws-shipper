@@ -110,3 +110,8 @@ jobs:
             $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}/coralogix-aws-shipper.zip
 
+          # upload custom resource
+          aws s3 cp \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | to_entries | .[] | select(.key == "CodeUri") | .value' packaged.yaml) \
+            s3://${{ env.AWS_SERVERLESS_BUCKET }}/coralogix-aws-shipper-custom-resource.zip
+

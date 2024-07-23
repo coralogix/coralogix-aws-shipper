@@ -126,7 +126,7 @@ To receive SNS messages directly to Coralogix, use the `SNSIntegrationTopicARN` 
 
 | Parameter | Description  | Default Value | Required |
 |-----------|--------------|---------------|----------|
-| SNSIntegrationTopicARN | Provide the ARN of the SNS topic to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
+| SNSIntegrationTopicArn | Provide the ARN of the SNS topic to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
 
 ### SQS Configuration
 
@@ -134,7 +134,7 @@ To receive SQS messages directly to Coralogix, use the `SQSIntegrationTopicARN` 
 
 | Parameter | Description | Default Value | Required |
 |-----------|-------------|---------------|----------|
-| SQSIntegrationTopicARN | Provide the ARN of the SQS queue to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
+| SQSIntegrationTopicArn | Provide the ARN of the SQS queue to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
 
 ### Kinesis Configuration
 
@@ -142,7 +142,7 @@ We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data fro
 
 | Parameter | Description | Default Value | Required |
 |-----------|-------------|---------------|----------|
-| KinesisStreamARN | Provide the ARN of the Kinesis Stream to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
+| KinesisStreamArn | Provide the ARN of the Kinesis Stream to which you want to subscribe for retrieving messages. | | :heavy_check_mark: |
 
 ### Kafka Configuration
 
@@ -172,7 +172,7 @@ These are optional parameters if you wish to receive notification emails, exclud
 | NotificationEmail | A failure notification will be sent to this email address.| | |
 | BlockingPattern | Enter a regular expression to identify lines excluded from being sent to Coralogix. For example, use `MainActivity.java:\d{3}` to match log lines with `MainActivity` followed by exactly three digits. | | |
 | SamplingRate | Send messages at a specific rate, such as 1 out of every N logs. For example, if your value is 10, a message will be sent for every 10th log.| 1 | :heavy_check_mark: |
-| AddMetadata | Add metadata to the log message. Expects comma separated values. Options for S3 are `bucket_name`,`key_name`. For CloudWatch use `stream_name`, `loggroup_name` .| |
+| AddMetadata | Add aws event metadata to the log message. Expects comma separated values. Options for S3 are `bucket_name`,`key_name`. For CloudWatch use `stream_name`, `loggroup_name` . For Kafka/MSK use `topic_name` | |
 | CustomMetadata | Add custom metadata to the log message. Expects comma separated values. Options are key1=value1,key2=value2 | | |
 
 ### Lambda Configuration (Optional)
@@ -231,6 +231,9 @@ The DLQ workflow for the Coralogix AWS Shipper is as follows:
 
 ## Troubleshooting
 
+**Parameter max value**
+If you tried to deploy the integration and got this error `length is greater than 4094`, then you can upload the value of the parameter to an S3 bucket as txt and pass the file URL as the parameter value ( this option is available for `KafkaTopic` and `CloudWatchLogGroupName` parameters).
+
 **Timeout errors**
 
 If you see “Task timed out after”, you need to increase the Lambda Timeout value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
@@ -242,6 +245,9 @@ If you see “Task out of memory”, you should increase the Lambda maximum Memo
 **Verbose logs**
 
 To add more verbosity to your function logs, set RUST_LOG to DEBUG.
+
+**Trigger Failed on Deployment**
+If Deployment is failing while asigning the trigger, please check that S3 Bucket notifications has no notifications enabled. If Using Cloudwatch max number of notificactions per LogGroup is 2.
 
 > **Warning:** Remember to change it back to WARN after troubleshooting.
 

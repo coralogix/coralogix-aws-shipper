@@ -111,6 +111,8 @@ struct JsonMessage {
     bucket_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     key_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topic_name: Option<String>,
     #[serde(flatten)]
     custom_metadata: HashMap<String, String>,
 }
@@ -137,6 +139,7 @@ fn convert_to_log_entry(
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
+    let topic_name = metadata_instance.topic_name.clone();
     // let loggroup_name = metadata_instance.log_group.clone();
     tracing::debug!("Severity: {:?}", severity);
 
@@ -151,6 +154,7 @@ fn convert_to_log_entry(
         loggroup_name: None,
         bucket_name: None,
         key_name: None,
+        topic_name: None,
         custom_metadata: HashMap::new(),
     };
 
@@ -176,6 +180,10 @@ fn convert_to_log_entry(
             "key_name" => {
                 message.key_name = Some(metadata_instance.key_name.clone());
                 tracing::debug!("Assigned key_name: {}", metadata_instance.key_name);
+            }
+            "topic_name" => {
+                message.topic_name = Some(metadata_instance.topic_name.clone());
+                tracing::debug!("Assigned topic_name: {}", metadata_instance.topic_name);
             }
             _ => {
                 tracing::debug!(
@@ -209,7 +217,7 @@ fn convert_to_log_entry(
         }
     }
     debug!("Message metadata: {:?}", message.custom_metadata);
-    let body =  if message.stream_name.is_some() || message.loggroup_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() || !message.custom_metadata.is_empty() {
+    let body =  if message.stream_name.is_some() || message.loggroup_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() || message.topic_name.is_some()|| !message.custom_metadata.is_empty() {
         serde_json::to_value(&message).unwrap_or(message.message)
     } else {
         message.message
@@ -236,6 +244,7 @@ async fn send_logs(
 ) -> Result<(), Error> {
     let number_of_logs = resource_logs.len();
     let start_time = Instant::now();
+    tracing::debug!("Logs to send: {:?}", resource_logs);
     let request = LogSinglesRequest {
         entries: resource_logs,
     };
