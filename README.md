@@ -120,6 +120,9 @@ Coralogix can be configured to receive data directly from your CloudWatch log gr
 | CloudWatchLogGroupName | Provide a comma-separated list of CloudWatch log group names to monitor, for example, (`log-group1`, `log-group2`, `log-group3`). | | :heavy_check_mark: |
 | CloudWatchLogGroupPrefix | Prefix of the CloudWatch log groups that will trigger the lambda, in case that your log groups are `log-group1, log-group2, log-group3` then you can set the value to `log-group`. When using this variable you will not be able to see the log groups as trigger for the lambda. The parameter dose not replace **CloudWatchLogGroupName** parameter | | |
 
+In case your log group name is longer than 70, than in the lambda function you will see the permission for that log group as:
+`allow-trigger-from-<the log group first 65 characters and the last 5 characters>` this is because of length limit in AWS for permission name.
+
 ### SNS Configuration
 
 To receive SNS messages directly to Coralogix, use the `SNSIntegrationTopicARN` parameter. This differs from the above use of `SNSTopicArn`, which notifies based on S3 events.
