@@ -1,4 +1,9 @@
 # Changelog
+
+## v1.0.11 / 2024-07-30
+### 🧰 Bug fixes 🧰
+- fix bug when trying to deploy CloudWatch integration with log group, with a name longer than 70 letters.
+
 ## v1.0.10 / 2024-07-23
 ### 💡 Enhancements 💡
 - Improved tamplate.yaml
