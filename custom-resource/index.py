@@ -409,10 +409,11 @@ class ConfigureCloudwatchIntegration:
 
         if LambdaPremissionPrefix and LambdaPremissionPrefix != [""]:
             for prefix in LambdaPremissionPrefix:
+                replaced_prefix =  self.check_statmentid_length(prefix)
                 try:
                     self.aws_lambda.add_permission(
                     FunctionName=lambda_arn,
-                    StatementId=f'allow-trigger-from-{prefix.replace("/", "-")}-log-groups',
+                    StatementId=f'allow-trigger-from-{replaced_prefix.replace("/", "-")}-log-groups',
                     Action='lambda:InvokeFunction',
                     Principal='logs.amazonaws.com',
                     SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{prefix}*:*',
@@ -427,9 +428,10 @@ class ConfigureCloudwatchIntegration:
             )
             if not LambdaPremissionPrefix or LambdaPremissionPrefix == [""]:
                 if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
+                    replaced_prefix =  self.check_statmentid_length(log_group)
                     response = self.aws_lambda.add_permission(
                         FunctionName=lambda_arn,
-                        StatementId=f'allow-trigger-from-{log_group.replace("/", "-")}',
+                        StatementId=f'allow-trigger-from-{replaced_prefix.replace("/", "-")}',
                         Action='lambda:InvokeFunction',
                         Principal='logs.amazonaws.com',
                         SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
@@ -441,6 +443,12 @@ class ConfigureCloudwatchIntegration:
                 filterPattern='',
                 logGroupName=log_group
             )
+
+    def check_statmentid_length(self, statmentid_prefix):
+        updated_prefix = statmentid_prefix
+        if len(statmentid_prefix) >= 70: # StatementId length limit is 100
+            updated_prefix = statmentid_prefix[:65] + statmentid_prefix[-5:]
+        return updated_prefix
 
     @handle_exceptions
     def update(self):
@@ -466,9 +474,10 @@ class ConfigureCloudwatchIntegration:
                         logGroupName=log_group
                     )
                 if not LambdaPremissionPrefix:
+                    replaced_prefix =  self.check_statmentid_length(log_group)
                     response = self.aws_lambda.remove_permission(
                         FunctionName=lambda_arn,
-                        StatementId=f'allow-trigger-from-{log_group.replace("/", "-")}'
+                        StatementId=f'allow-trigger-from-{replaced_prefix.replace("/", "-")}'
                     )
 
     def handle(self):
