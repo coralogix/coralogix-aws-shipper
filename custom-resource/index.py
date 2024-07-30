@@ -449,6 +449,9 @@ class ConfigureCloudwatchIntegration:
         updated_prefix = statmentid_prefix
         if len(statmentid_prefix) >= 70: # StatementId length limit is 100
             updated_prefix = statmentid_prefix[:65] + statmentid_prefix[-5:]
+        return updated_prefix
+        if len(statmentid_prefix) >= 70: # StatementId length limit is 100
+            updated_prefix = statmentid_prefix[:65] + statmentid_prefix[-5:]
         else:
             updated_prefix = statmentid_prefix
         return updated_prefix
