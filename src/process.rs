@@ -1,4 +1,5 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
+use aws_lambda_events::cloudwatch_logs::LogData;
 use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::encodings::Base64Data;
 use aws_lambda_events::kafka::KafkaRecord;
@@ -129,11 +130,6 @@ pub async fn s3(
     Ok(())
 }
 
-trait MetadataTrait {
-    fn get_stream_name(&self) -> String;
-    fn get_bucket_name(&self) -> String;
-    fn get_key_name(&self) -> String;
-}
 
 pub struct Metadata {
     pub stream_name: String,
@@ -183,13 +179,18 @@ pub async fn kinesis_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let v = &kinesis_message.0;
-    let string_data = Vec::new();
+    let mut batches = Vec::new();
     if config.integration_type == IntegrationType::CloudWatch {
         tracing::debug!("CloudWatch IntegrationType Detected");
-        let cloudwatch_payload = ungzip(v.clone(), String::new());
+        
+        let cloudwatch_payload = ungzip(v.clone(), String::new())?;
         tracing::debug!("CloudWatch Payload {:?}", cloudwatch_payload);
+        let string_cw = String::from_utf8(cloudwatch_payload)?;
+
+        let log_data: LogData = serde_json::from_str(&string_cw)?;
+        batches = process_cloudwatch_logs(log_data, config.sampling, &config.blocking_pattern).await?
     } else {
-        if is_gzipped(v) {
+        let ungzipped_data = if is_gzipped(v) {
             // It looks like gzip, attempt to ungzip
             match ungzip(v.clone(), String::new()) {
                 Ok(un_v) => un_v,
@@ -202,18 +203,19 @@ pub async fn kinesis_logs(
             // Not gzip, treat as UTF-8
             v.clone()
         };
+        batches = match String::from_utf8(ungzipped_data) {
+            Ok(s) => {
+                tracing::debug!("Kinesis Message: {:?}", s);
+                vec![s]
+            }
+            Err(error) => {
+                tracing::error!(?error, "Failed to decode data");
+                Vec::new()
+            }
+        };
     };
 
-    let batches = match String::from_utf8(string_data) {
-        Ok(s) => {
-            tracing::debug!("Kinesis Message: {:?}", s);
-            vec![s]
-        }
-        Err(error) => {
-            tracing::error!(?error, "Failed to decode data");
-            Vec::new()
-        }
-    };
+    
     coralogix::process_batches(
         batches,
         &defined_app_name,
@@ -327,7 +329,7 @@ pub async fn cloudwatch_logs(
         IntegrationType::CloudWatch => {
             metadata_instance.stream_name = cloudwatch_event_log.data.log_stream.clone();
             metadata_instance.log_group = cloudwatch_event_log.data.log_group.clone();
-            process_cloudwatch_logs(cloudwatch_event_log, config.sampling, &config.blocking_pattern).await?
+            process_cloudwatch_logs(cloudwatch_event_log.data, config.sampling, &config.blocking_pattern).await?
         }
         _ => {
             tracing::warn!(
@@ -424,9 +426,9 @@ pub async fn get_bytes_from_s3(
     Ok(data)
 }
 
-async fn process_cloudwatch_logs(cw_event: AwsLogs, sampling: usize, blocking_pattern: &str) -> Result<Vec<String>, Error> {
+
+async fn process_cloudwatch_logs(cw_event: LogData, sampling: usize, blocking_pattern: &str) -> Result<Vec<String>, Error> {
     let log_entries: Vec<String> = cw_event
-        .data
         .log_events
         .into_iter()
         .map(|entry| entry.message)
