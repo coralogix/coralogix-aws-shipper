@@ -183,18 +183,25 @@ pub async fn kinesis_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let v = &kinesis_message.0;
-    let string_data: Vec<u8> = if is_gzipped(v) {
-        // It looks like gzip, attempt to ungzip
-        match ungzip(v.clone(), String::new()) {
-            Ok(un_v) => un_v,
-            Err(_) => {
-                tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
-                v.clone()
-            }
-        }
+    let string_data = Vec::new();
+    if config.integration_type == IntegrationType::CloudWatch {
+        tracing::debug!("CloudWatch IntegrationType Detected");
+        let cloudwatch_payload = ungzip(v.clone(), String::new());
+        tracing::debug!("CloudWatch Payload {:?}", cloudwatch_payload);
     } else {
-        // Not gzip, treat as UTF-8
-        v.clone()
+        if is_gzipped(v) {
+            // It looks like gzip, attempt to ungzip
+            match ungzip(v.clone(), String::new()) {
+                Ok(un_v) => un_v,
+                Err(_) => {
+                    tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
+                    v.clone()
+                }
+            }
+        } else {
+            // Not gzip, treat as UTF-8
+            v.clone()
+        };
     };
 
     let batches = match String::from_utf8(string_data) {
@@ -675,35 +682,6 @@ fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
     Ok(output)
 }
 
-fn ungzip_old(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
-    if compressed_data.is_empty() {
-        tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
-        return Ok(Vec::new());
-    }
-    let mut decoder = MultiGzDecoder::new(&compressed_data[..]);
-    
-    let mut output = Vec::new();
-    let mut chunk = [0; 8192];
-    loop {
-        match decoder.read(&mut chunk) {
-            Ok(bytes_read) => {
-                if bytes_read == 0 {
-                    break;
-                }
-                output.extend_from_slice(&chunk[..bytes_read]);
-            },
-            Err(err) => {
-                tracing::warn!(?err, "Problem decompressing data after {} bytes", output.len());
-                return Ok(output);
-            },
-        }
-    }
-    if output.is_empty() {
-        tracing::warn!("Uncompressed failed. zero-file result");
-        return Err(Error::from("Uncompressed Failed, zero-file result"));
-    }
-    Ok(output)
-}
 
 fn parse_records(
     flow_header: &[&str],
