@@ -178,32 +178,32 @@ pub async fn kinesis_logs(
         .sub_name
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
-    let v = &kinesis_message.0;
-    let mut batches = Vec::new();
-    if config.integration_type == IntegrationType::CloudWatch {
+    let v = kinesis_message.0;
+    
+    let batches = if config.integration_type == IntegrationType::CloudWatch {
         tracing::debug!("CloudWatch IntegrationType Detected");
         
-        let cloudwatch_payload = ungzip(v.clone(), String::new())?;
-        tracing::debug!("CloudWatch Payload {:?}", cloudwatch_payload);
+        let cloudwatch_payload = ungzip(v, String::new())?;
+        
         let string_cw = String::from_utf8(cloudwatch_payload)?;
-
+        tracing::debug!("CloudWatch Payload {:?}", string_cw);
         let log_data: LogData = serde_json::from_str(&string_cw)?;
-        batches = process_cloudwatch_logs(log_data, config.sampling, &config.blocking_pattern).await?
+        process_cloudwatch_logs(log_data, config.sampling, &config.blocking_pattern).await?
     } else {
-        let ungzipped_data = if is_gzipped(v) {
+        let ungzipped_data = if is_gzipped(&v) {
             // It looks like gzip, attempt to ungzip
             match ungzip(v.clone(), String::new()) {
                 Ok(un_v) => un_v,
                 Err(_) => {
                     tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
-                    v.clone()
+                    v
                 }
             }
         } else {
             // Not gzip, treat as UTF-8
             v.clone()
         };
-        batches = match String::from_utf8(ungzipped_data) {
+        match String::from_utf8(ungzipped_data) {
             Ok(s) => {
                 tracing::debug!("Kinesis Message: {:?}", s);
                 vec![s]
@@ -212,7 +212,7 @@ pub async fn kinesis_logs(
                 tracing::error!(?error, "Failed to decode data");
                 Vec::new()
             }
-        };
+        }
     };
 
     
