@@ -1,5 +1,5 @@
 # Changelog
-## v1.0.12 / 
+## v1.0.12 / 2024-08-02
 ### 💡 Enhancements 💡
 - Added support for CloudWatch over Kinesis Stream
 ## v1.0.11 / 2024-07-30
