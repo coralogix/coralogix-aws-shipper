@@ -147,11 +147,13 @@ Parameters:
     Description: |
       Add metadata to the log message. Expects comma separated values. Options are bucket_name,key_name,stream_name
     Default: ''
+
   CustomMetadata:
     Type: String
     Description: |
       Add custom metadata to the log message. Expects comma separated values. Options are key1=value1,key2=value2
     Default: ''
+
   BlockingPattern:
     Type: String
     Description: Regular expression to detect lines that should be excluded from sent to Coralogix
@@ -219,30 +221,43 @@ Parameters:
     MaxValue: 900
     Default: 300
   
+  FunctionRunTime:
+    Type: String
+    Description: Type of runtime for the lambda, allowd values are provided.al2023 or provided.al2
+    Default: provided.al2023
+    AllowedValues:
+      - provided.al2023
+      - provided.al2
+
   SNSTopicArn:
     Type: String
     Description: The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3
     # placeholder value to avoid cfn-lint issues
     Default: 'arn:aws:sns:us-east-1:123456789012:placeholder'
+
   SQSTopicArn:
     Type: String
     Description: The ARN for the SQS topic that contains the SQS subscription responsible for retrieving logs from Amazon S3
     # placeholder value to avoid cfn-lint issues
     Default: 'arn:aws:sqs:us-east-1:123456789012:placeholder'
+
   SQSIntegrationTopicArn:
     Type: String
     Description: The ARN of SQS topic to subscribe to retrieving messages
     # placeholder value to avoid cfn-lint issues
     Default: 'arn:aws:sqs:us-east-1:123456789012:placeholder'
+
   SNSIntegrationTopicArn:
     Type: String
     Description: The ARN of SNS topic to subscribe to retrieving messages
     # placeholder value to avoid cfn-lint issues
     Default: 'arn:aws:sns:us-east-1:123456789012:placeholder'
+
   KinesisStreamArn:
     Type: String
     Description: The ARN of Kinesis stream to subscribe to retrieving messages
     Default: ''
+
   IntegrationType:
     Type: String
     Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront, Kafka, MSK, EcrScan'
@@ -538,10 +553,11 @@ Resources:
     Type: AWS::Serverless::Function
     Metadata:
       SamResourceId: LambdaFunction
+      BuildMethod: makefile
     Properties:
       Description: Send logs to Coralogix.
       Handler: bootstrap
-      Runtime: provided.al2023
+      Runtime: !Ref FunctionRunTime
       Architectures: 
         - arm64
       MemorySize: !Ref FunctionMemorySize
