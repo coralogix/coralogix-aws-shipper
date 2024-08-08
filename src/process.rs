@@ -162,7 +162,7 @@ pub async fn kinesis_logs(
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let mut metadata_instance = Metadata {
+    let metadata_instance = Metadata {
         stream_name: String::new(),
         log_group: String::new(),
         bucket_name: String::new(),
