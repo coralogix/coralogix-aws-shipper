@@ -91,6 +91,8 @@ Metadata:
           - FunctionTimeout
           - LogLevel
           - LambdaLogRetention
+          - FunctionRunTime
+          - FunctionArchitectures
       - Label:
           default: VPC configuration Optional
         Parameters:
@@ -228,6 +230,14 @@ Parameters:
     AllowedValues:
       - provided.al2023
       - provided.al2
+
+  FunctionArchitectures:
+    Type: String
+    Description: Architectures for the lambda function, allowd values are arm64 or x86_64
+    Default: 'arm64'
+    AllowedValues:
+      - arm64
+      - x86_64
 
   SNSTopicArn:
     Type: String
@@ -559,7 +569,7 @@ Resources:
       Handler: bootstrap
       Runtime: !Ref FunctionRunTime
       Architectures: 
-        - arm64
+        - !Ref FunctionArchitectures
       MemorySize: !Ref FunctionMemorySize
       Timeout: !Ref FunctionTimeout
       CodeUri: .
