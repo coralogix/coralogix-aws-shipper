@@ -1,7 +1,13 @@
 # Changelog
+
+## v1.0.13 / 2024-11-08
+### 🧰 Bug fixes 🧰
+- Allow the lambda to use the runtime `provided.al2`, by changing the binary build of cargo to a version that will support it in the Makefile. Add a parameter `FunctionRunTime` to allow users to choose the function runtime
+
 ## v1.0.12 / 2024-08-02
 ### 💡 Enhancements 💡
 - Added support for CloudWatch over Kinesis Stream
+
 ## v1.0.11 / 2024-07-30
 ### 🧰 Bug fixes 🧰
 - fix bug when trying to deploy CloudWatch integration. deploy with log group, with a name longer than 70 letters hit a limit with aws permission length, update the function so in case that the name is longer than 70 letters it will take the first 65 letters and the last 5.
