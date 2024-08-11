@@ -10,7 +10,7 @@ ARCH_SPLIT = $(subst -, ,$(ARCH))
 # 	set +xv
 
 build-LambdaFunction:
-	cargo lambda build --release --locked --target aarch64-unknown-linux-gnu.2.17
+	cargo lambda build --release --target aarch64-unknown-linux-gnu.2.17
 	cp ./target/lambda/coralogix-aws-shipper/bootstrap $(ARTIFACTS_DIR)
 
 delete:
