@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.14 / 2024-01-10
+### 🧰 Bug fixes 🧰
+- Allow matches with arn of aws secretmanager in govcloud, previously only matched with public cloud secretmanager arn
+
 ## v1.0.13 / 2024-11-08
 ### 🧰 Bug fixes 🧰
 - Allow the lambda to use the runtime `provided.al2`, by changing the binary build of cargo to a version that will support it in the Makefile. Add a parameter `FunctionRunTime` to allow users to choose the function runtime

@@ -20,7 +20,7 @@ async fn main() -> Result<(), Error> {
 
     // if APIKey provided is an ARN, get the APIKey from Secrets Manager
     let api_key_value = config.api_key.token().to_string();
-    if api_key_value.starts_with("arn:aws:secretsmanager:") {
+    if api_key_value.starts_with("arn:aws") && api_key_value.contains(":secretsmanager") {
         config.api_key = config::get_api_key_from_secrets_manager(&aws_config, api_key_value)
             .await
             .map_err(|e| e.to_string())?;
