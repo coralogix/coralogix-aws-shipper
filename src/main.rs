@@ -1,4 +1,5 @@
 pub mod logs;
+pub mod metrics;
 pub mod clients;
 pub mod events;
 
@@ -48,18 +49,22 @@ async fn main() -> Result<(), Error> {
 
     let aws_config = aws_config::load_defaults(BehaviorVersion::v2024_03_28()).await;
     let aws_clients = clients::AwsClients::new(&aws_config);
-    // let mut config = config::Config::load_from_env()?;
-
 
     match mode {
-        TelemetryMode::Metrics => {
-            warn!("metrics telemetry mode not implemented");
-            Ok(())
-        }
-
         TelemetryMode::Traces => {
             warn!("traces telemetry mode not implemented");
             Ok(())
+        }
+
+        TelemetryMode::Metrics => {
+            warn!("metrics telemetry mode not implemented");
+            // TODO: implement metrics
+            run(service_fn(|request: LambdaEvent<Combined>| {
+                metrics::handler(
+                    &aws_clients,
+                    request,
+                )
+            })).await
         }
 
         // default to logs telemetry mode
@@ -75,7 +80,7 @@ async fn main() -> Result<(), Error> {
 
             let coralogix_exporter = crate::logs::set_up_coralogix_exporter(&conf)?;
             run(service_fn(|request: LambdaEvent<Combined>| {
-                logs::function_handler(
+                logs::handler(
                     &aws_clients,
                     coralogix_exporter.clone(),
                     &conf,
