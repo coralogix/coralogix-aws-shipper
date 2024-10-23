@@ -57,7 +57,7 @@ pub fn set_up_coralogix_exporter(config: &config::Config) -> Result<DynLogExport
 
 #[async_recursion]
 // lambda handler
-pub async fn function_handler(
+pub async fn handler(
     clients: &AwsClients,
     coralogix_exporter: DynLogExporter,
     config: &config::Config,
@@ -111,7 +111,7 @@ pub async fn function_handler(
                         // note that there is no risk of hitting the recursion stack limit
                         // here as recursiion will only be called as many times as there are nested
                         // events in an SQS message
-                        let result = function_handler(
+                        let result = handler(
                             clients,
                             coralogix_exporter.clone(),
                             config,
