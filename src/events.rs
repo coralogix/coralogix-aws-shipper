@@ -10,7 +10,7 @@ use serde_json::Value;
 use tracing::debug;
 
 #[derive(Debug)]
-pub enum CombinedEvent {
+pub enum Combined {
     S3(S3Event),
     Sns(SnsEvent),
     CloudWatchLogs(LogsEvent),
@@ -20,7 +20,7 @@ pub enum CombinedEvent {
     EcrScan(EcrScanEvent),
 }
 
-impl<'de> Deserialize<'de> for CombinedEvent {
+impl<'de> Deserialize<'de> for Combined {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -29,31 +29,31 @@ impl<'de> Deserialize<'de> for CombinedEvent {
         debug!("raw_value: {:?}", raw_value);
         if let Ok(event) = S3Event::deserialize(&raw_value) {
             tracing::info!("s3 event detected");
-            return Ok(CombinedEvent::S3(event));
+            return Ok(Combined::S3(event));
         }
 
         if let Ok(event) = SnsEvent::deserialize(&raw_value) {
             tracing::info!("sns event detected");
-            return Ok(CombinedEvent::Sns(event));
+            return Ok(Combined::Sns(event));
         }
         if let Ok(event) = EcrScanEvent::deserialize(&raw_value) {
             tracing::info!("ecr scan event detected");
-            return Ok(CombinedEvent::EcrScan(event));
+            return Ok(Combined::EcrScan(event));
         }
 
         if let Ok(event) = LogsEvent::deserialize(&raw_value) {
             tracing::info!("cloudwatch event detected");
-            return Ok(CombinedEvent::CloudWatchLogs(event));
+            return Ok(Combined::CloudWatchLogs(event));
         }
 
         if let Ok(event) = KinesisEvent::deserialize(&raw_value) {
             tracing::info!("kinesis event detected");
-            return Ok(CombinedEvent::Kinesis(event));
+            return Ok(Combined::Kinesis(event));
         }
 
         if let Ok(event) = SqsEvent::deserialize(&raw_value) {
             tracing::info!("sqs event detected");
-            return Ok(CombinedEvent::Sqs(event));
+            return Ok(Combined::Sqs(event));
         }
 
         // IMPORTANT: kafka must be evaluated last as it uses an arbitrary map to evaluate records.
@@ -69,7 +69,7 @@ impl<'de> Deserialize<'de> for CombinedEvent {
                     "unsupported or bad event type: {raw_value}"
                 )));
             }
-            return Ok(CombinedEvent::Kafka(event));
+            return Ok(Combined::Kafka(event));
         }
 
         Err(de::Error::custom(format!(

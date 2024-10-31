@@ -1,6 +1,5 @@
-use crate::config::Config;
-use crate::process::Metadata;
-use crate::*;
+use crate::logs::config::Config;
+use crate::logs::process::Metadata;
 use cx_sdk_rest_logs::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
 use cx_sdk_rest_logs::DynLogExporter;
@@ -8,19 +7,21 @@ use futures::stream::{StreamExt, TryStreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::env;
 use std::iter::IntoIterator;
 use std::time::Instant;
 use std::vec::Vec;
 use time::OffsetDateTime;
-use tracing::{error, info};
-use std::env;
+use tracing::{error, info, debug};
+use std::collections::HashMap;
+use crate::logs::*;
 
 pub async fn process_batches(
     logs: Vec<String>,
     configured_app_name: &str,
     configured_sub_name: &str,
     config: &Config,
-    metadata_instance: &process::Metadata,
+    metadata_instance: &Metadata,
     exporter: DynLogExporter,
 ) -> Result<(), Error> {
     let logs: Vec<String> = logs
@@ -139,7 +140,7 @@ fn convert_to_log_entry(
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
-    let topic_name = metadata_instance.topic_name.clone();
+    // let topic_name = metadata_instance.topic_name.clone();
     // let loggroup_name = metadata_instance.log_group.clone();
     tracing::debug!("Severity: {:?}", severity);
 
@@ -197,27 +198,33 @@ fn convert_to_log_entry(
         debug!("Custom metadata STR: {}", custom_metadata_str);
         let mut metadata = HashMap::new();
         let pairs = custom_metadata_str.split(',');
-    
+
         for pair in pairs {
             let split_pair: Vec<&str> = pair.split('=').collect();
             match split_pair.as_slice() {
                 [key, value] => {
                     metadata.insert(key.to_string(), value.to_string());
-                },
+                }
                 _ => {
                     error!("Failed to split key-value pair: {}", pair);
                     continue;
                 }
             }
         }
-    
+
         if !metadata.is_empty() {
             debug!("Custom metadata: {:?}", metadata);
             message.custom_metadata = metadata;
         }
     }
     debug!("Message metadata: {:?}", message.custom_metadata);
-    let body =  if message.stream_name.is_some() || message.loggroup_name.is_some() || message.bucket_name.is_some() || message.key_name.is_some() || message.topic_name.is_some()|| !message.custom_metadata.is_empty() {
+    let body = if message.stream_name.is_some()
+        || message.loggroup_name.is_some()
+        || message.bucket_name.is_some()
+        || message.key_name.is_some()
+        || message.topic_name.is_some()
+        || !message.custom_metadata.is_empty()
+    {
         serde_json::to_value(&message).unwrap_or(message.message)
     } else {
         message.message
@@ -331,7 +338,7 @@ fn get_severity_level(message: &str) -> Severity {
 #[cfg(test)]
 mod test {
 
-    use crate::coralogix::dynamic_metadata_for_log;
+    use crate::logs::coralogix::dynamic_metadata_for_log;
 
     #[test]
     fn test_nondynamic_app_name() {
