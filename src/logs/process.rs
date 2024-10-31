@@ -20,9 +20,9 @@ use std::time::Instant;
 use tracing::{debug, info};
 use std::env;
 
-use crate::config::{Config, IntegrationType};
-use crate::coralogix;
-use crate::ecr;
+use crate::logs::config::{Config, IntegrationType};
+use crate::logs::coralogix;
+use crate::logs::ecr;
 
 pub async fn s3(
     s3_client: &Client,
@@ -654,7 +654,7 @@ pub async fn kafka_logs(
     Ok(())
 }
 
-fn ungzip(compressed_data: Vec<u8>, key: String) -> Result<Vec<u8>, Error> {
+fn ungzip(compressed_data: Vec<u8>, _: String) -> Result<Vec<u8>, Error> {
     if compressed_data.is_empty() {
         tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
         return Ok(Vec::new());
@@ -757,7 +757,7 @@ mod test {
     use fancy_regex::Regex;
     use itertools::Itertools;
 
-    use crate::process::{block, sample, split};
+    use crate::logs::process::{block, sample, split};
 
     #[test]
     fn test() {

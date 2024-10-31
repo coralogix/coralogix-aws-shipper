@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::logs::config::Config;
 use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_sdk_ecr::types::ImageIdentifier;
 use aws_sdk_ecr::Client as EcrClient;

@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.15 / 2024-01-24
+### 💡 Enhancements 💡
+- Internal code refactoring to isolate logs workflow from additional telemetry workflows to come.
+
 ## v1.0.14 / 2024-01-10
 ### 🧰 Bug fixes 🧰
 - Allow matches with arn of aws secretmanager in govcloud, previously only matched with public cloud secretmanager arn
