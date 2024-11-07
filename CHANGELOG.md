@@ -1,6 +1,10 @@
 # Changelog
 
-## v1.0.15 / 2024-01-24
+## v1.0.15 / 2024-11-07
+### 💡 Enhancements 💡
+- Add new parameter `LambdaAssumeRoleARN` which accept role arn, that the lambda will use for Execution role.
+
+## v1.0.14 / 2024-01-24
 ### 💡 Enhancements 💡
 - Internal code refactoring to isolate logs workflow from additional telemetry workflows to come.
 
