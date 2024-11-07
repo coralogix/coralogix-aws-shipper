@@ -25,7 +25,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.0.14
+    SemanticVersion: 1.0.15
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -93,6 +93,7 @@ Metadata:
           - LambdaLogRetention
           - FunctionRunTime
           - FunctionArchitectures
+          - LambdaAssumeRoleARN
       - Label:
           default: VPC configuration Optional
         Parameters:
@@ -238,6 +239,11 @@ Parameters:
     AllowedValues:
       - arm64
       - x86_64
+
+  LambdaAssumeRoleARN:
+    Type: String
+    Description: The ARN of the role that the lambda function will assume
+    Default: ''
 
   SNSTopicArn:
     Type: String
@@ -471,6 +477,7 @@ Conditions:
     - !Equals [ !Ref IntegrationType, 'MSK' ]
 
   S3BucketNameIsSet: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
+  IsLambdaAssumeRoleEnable: !Not [!Equals [!Ref LambdaAssumeRoleARN, '']]
 
 Rules:
   ValidateDLQ:
@@ -765,6 +772,7 @@ Resources:
             - !Ref CSVDelimiter
             - !Ref AWS::NoValue
 
+          ASSUME_ROLE_ARN: !Ref LambdaAssumeRoleARN
           DLQ_RETRY_LIMIT: !Ref DLQRetryLimit
           DLQ_ARN: !If
             - DLQEnabled
@@ -781,6 +789,7 @@ Resources:
             - !Ref AWS::NoValue
 
   SNSNotificationSubscription:
+    DependsOn: CustomResourceFunction
     Type: AWS::SNS::Subscription
     Condition: IsNotificationEnabled
     Properties:
@@ -816,6 +825,7 @@ Resources:
           - StoreAPIKeyInSecretsManager
           - !Ref Secret
           - !Ref ApiKey
+        AssumeRoleArn: !Ref LambdaAssumeRoleARN
         ApplicationName: !Ref ApplicationName
         SubsystemName: !Ref SubsystemName
         AddMetadata: !Ref AddMetadata
@@ -897,6 +907,7 @@ Resources:
       SamResourceId: ConfigureLambda
 
   LambdaLogGroup:
+    DependsOn: CustomResourceFunction
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Type: 'AWS::Logs::LogGroup'
@@ -909,6 +920,7 @@ Resources:
 ##################################
 
   DeadLetterQueue:
+    DependsOn: CustomResourceFunction
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Condition: DLQEnabled
@@ -925,6 +937,7 @@ Resources:
 
   KinesisEventSourceMapping:
     Condition: UseKinesisStreamARN
+    DependsOn: CustomResourceFunction
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       BatchSize: 100
@@ -939,6 +952,7 @@ Resources:
 
   MSKEventSourceMapping:
     Condition: UseMSK
+    DependsOn: CustomResourceFunction
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       BatchSize: !Ref KafkaBatchSize
@@ -953,6 +967,7 @@ Resources:
 
   SQSEventSourceMapping:
     Condition: SQSIsSet
+    DependsOn: CustomResourceFunction
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       BatchSize: 10
@@ -966,6 +981,7 @@ Resources:
 
   SQSEventPermission:
     Condition: SQSIsSet
+    DependsOn: CustomResourceFunction
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
@@ -982,6 +998,7 @@ Resources:
 
   SNSSubscription:
     Condition: SNSIsSet
+    DependsOn: CustomResourceFunction
     Type: AWS::SNS::Subscription
     Properties:
       Protocol: lambda
@@ -993,6 +1010,7 @@ Resources:
 
   SNSEventPermission:
     Condition: SNSIsSet
+    DependsOn: CustomResourceFunction
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
@@ -1010,6 +1028,7 @@ Resources:
 
   LambdaFunctionEcrInvokePermission:
     Condition: UseECRScan
+    DependsOn: CustomResourceFunction
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !GetAtt LambdaFunction.Arn
@@ -1020,6 +1039,7 @@ Resources:
 
   ECRScanTrigger:
     Condition: UseECRScan
+    DependsOn: CustomResourceFunction
     Type: AWS::Events::Rule
     Properties:
       Description: "Trigger for ECR image scan completion"
