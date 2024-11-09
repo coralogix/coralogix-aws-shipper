@@ -94,6 +94,7 @@ Metadata:
           - FunctionRunTime
           - FunctionArchitectures
           - LambdaAssumeRoleARN
+          - ReservedConcurrentExecutions
       - Label:
           default: VPC configuration Optional
         Parameters:
@@ -409,6 +410,11 @@ Parameters:
     # placeholder value to avoid cfn-lint issues
     Default: 'none'
 
+  ReservedConcurrentExecutions:
+    Type: Number
+    Description: The number of concurrent executions that are reserved for this function
+    Default: 1000
+
 Mappings:
   CoralogixRegionMap:
     EU1:
@@ -579,8 +585,18 @@ Resources:
         - !Ref FunctionArchitectures
       MemorySize: !Ref FunctionMemorySize
       Timeout: !Ref FunctionTimeout
+      ReservedConcurrentExecutions: !Ref ReservedConcurrentExecutions
       CodeUri: .
       Policies:
+        - !If
+          - IsLambdaAssumeRoleEnable
+          - Statement:
+            - Effect: Allow
+              Action:
+                - 'sts:AssumeRole'
+              Resource: !Ref LambdaAssumeRoleARN
+          - !Ref AWS::NoValue
+
         - !If 
           - S3BucketNameIsSet
           - S3ReadPolicy: 
@@ -787,6 +803,10 @@ Resources:
             - DLQEnabled
             - !Ref DLQS3Bucket
             - !Ref AWS::NoValue
+          LAMBDA_ASSUME_ROLE: !If
+            - IsLambdaAssumeRoleEnable
+            - !Ref LambdaAssumeRoleARN
+            - !Ref AWS::NoValue
 
   SNSNotificationSubscription:
     DependsOn: CustomResourceFunction
@@ -920,7 +940,6 @@ Resources:
 ##################################
 
   DeadLetterQueue:
-    DependsOn: CustomResourceFunction
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Condition: DLQEnabled
