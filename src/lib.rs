@@ -1,9 +1,9 @@
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-pub mod logs;
 pub mod clients;
 pub mod events;
+pub mod logs;
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()
