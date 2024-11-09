@@ -1,8 +1,11 @@
 # Changelog
 
-## v1.0.15 / 2024-11-07
+## v1.0.15 / 2024-11-09
 ### 💡 Enhancements 💡
 - Add new parameter `LambdaAssumeRoleARN` which accept role arn, that the lambda will use for Execution role.
+- Update internal code to support the new parameter `LambdaAssumeRoleARN`.
+- Add new parameter ReservedConcurrentExecutions to the lambda function.
+- Removed circular dependency between DeadLetterQueue and CustomResourceFunction
 
 ## v1.0.14 / 2024-01-24
 ### 💡 Enhancements 💡
