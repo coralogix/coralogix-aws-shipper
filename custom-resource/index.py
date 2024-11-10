@@ -501,24 +501,8 @@ class ConfigureCloudwatchIntegration:
             responseStatus,
             physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)  
         )
-        
-
-def lambda_assume_role(self):
-    '''
-    lambda_assume_role function used to add to the lambda function a role using the given role arn
-    '''
-    lambda_client = boto3.client('lambda')
-    role_arn = self.params.AssumeRoleArn
-    sts_client = boto3.client('sts')
-    assumed_role = sts_client.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName='YourSessionName'
-    )
 
 def lambda_update_reserved_concurrent_executions(event):
-    '''
-    lambda_assume_role function used to add to the lambda function a role using the given role arn
-    '''
     lambda_client = boto3.client('lambda')
     reserved_concurrent_executions_value = int(event['ResourceProperties']['Parameters']['ReservedConcurrentExecutions'])
     if  reserved_concurrent_executions_value > 0:
