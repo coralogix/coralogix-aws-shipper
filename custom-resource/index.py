@@ -515,12 +515,25 @@ def lambda_assume_role(self):
         RoleSessionName='YourSessionName'
     )
 
+def lambda_update_reserved_concurrent_executions(event):
+    '''
+    lambda_assume_role function used to add to the lambda function a role using the given role arn
+    '''
+    lambda_client = boto3.client('lambda')
+    reserved_concurrent_executions_value = int(event['ResourceProperties']['Parameters']['ReservedConcurrentExecutions'])
+    if  reserved_concurrent_executions_value > 0:
+        response = lambda_client.put_function_concurrency(
+            FunctionName=event['ResourceProperties']['LambdaArn'],
+            ReservedConcurrentExecutions=reserved_concurrent_executions_value
+        )
+
 def lambda_handler(event, context):
     '''
     AWS Lambda handler function
     '''
     print("Received event:", event)
     cfn = CFNResponse(event, context)
+    lambda_update_reserved_concurrent_executions(event)
 
     integration_type = event['ResourceProperties']['Parameters']['IntegrationType']
     dlq_enabled = event['ResourceProperties']['DLQ'].get('EnableDLQ', False)

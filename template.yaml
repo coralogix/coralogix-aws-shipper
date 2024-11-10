@@ -413,7 +413,7 @@ Parameters:
   ReservedConcurrentExecutions:
     Type: Number
     Description: The number of concurrent executions that are reserved for this function
-    Default: 1000
+    Default: 0
 
 Mappings:
   CoralogixRegionMap:
@@ -585,7 +585,6 @@ Resources:
         - !Ref FunctionArchitectures
       MemorySize: !Ref FunctionMemorySize
       Timeout: !Ref FunctionTimeout
-      ReservedConcurrentExecutions: !Ref ReservedConcurrentExecutions
       CodeUri: .
       Policies:
         - !If
@@ -839,6 +838,7 @@ Resources:
           - !Ref DeadLetterQueue
           - !Ref AWS::NoValue
       Parameters:
+        ReservedConcurrentExecutions: !Ref ReservedConcurrentExecutions
         CoralogixRegion: !Ref CoralogixRegion
         CustomDomain: !Ref CustomDomain
         ApiKey: !If
