@@ -586,6 +586,7 @@ Resources:
       MemorySize: !Ref FunctionMemorySize
       Timeout: !Ref FunctionTimeout
       CodeUri: .
+      # Role: !Ref LambdaAssumeRoleARN
       Policies:
         - !If
           - IsLambdaAssumeRoleEnable
@@ -839,6 +840,7 @@ Resources:
           - !Ref AWS::NoValue
       Parameters:
         ReservedConcurrentExecutions: !Ref ReservedConcurrentExecutions
+        LambdaAssumeRoleARN: !Ref LambdaAssumeRoleARN
         CoralogixRegion: !Ref CoralogixRegion
         CustomDomain: !Ref CustomDomain
         ApiKey: !If
@@ -1087,6 +1089,12 @@ Resources:
       Runtime: python3.12
       Timeout: 900
       Policies:
+      - Statement:
+        - Sid: IAMaccess
+          Effect: Allow
+          Action:
+            - 'iam:*'
+          Resource: '*'
       - Statement:
         - Sid: EC2Access
           Effect: Allow
