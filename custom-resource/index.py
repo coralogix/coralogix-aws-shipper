@@ -511,45 +511,6 @@ def lambda_update_reserved_concurrent_executions(event):
             ReservedConcurrentExecutions=reserved_concurrent_executions_value
         )
 
-def update_lambda_role(event):
-    lambda_client = boto3.client('lambda')
-    lambda_role_arn = event['ResourceProperties']['Parameters']['LambdaAssumeRoleARN']
-    
-    if lambda_role_arn:
-        # Update the Lambda function configuration with the new role
-        try:
-            response = lambda_client.update_function_configuration(
-                FunctionName=event['ResourceProperties']['LambdaArn'],
-                Role=lambda_role_arn,
-            )
-            print("sleep")
-            time.sleep(120)
-            print('Updated Lambda role:', response)
-        except Exception as e:
-            print(f"Error updating Lambda role: {e}")
-            raise
-
-        retries = 5
-        for attempt in range(retries):
-            try:
-                config = lambda_client.get_function_configuration(
-                    FunctionName=event['ResourceProperties']['LambdaArn']
-                )
-                
-                if config['State'] == 'Active':
-                    print("Lambda function is in 'Active' state.")
-                    time.sleep(120)
-                    break
-                else:
-                    print(f"Attempt {attempt + 1}: Lambda function is in '{config['State']}' state. Waiting...")
-                    time.sleep(30)
-            except Exception as e:
-                print(f"Error checking Lambda state: {e}")
-                raise
-        else:
-            raise Exception("Lambda function did not reach 'Active' state after multiple attempts.")
-
-
 def lambda_handler(event, context):
     '''
     AWS Lambda handler function
@@ -568,7 +529,6 @@ def lambda_handler(event, context):
             err = configure_dlq(event)
             if err:
                 raise Exception(err)
-        # update_lambda_role(event)
             
         match integration_type:
             case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail':

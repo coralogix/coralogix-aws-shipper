@@ -663,7 +663,12 @@ Resources:
             - UseKinesisStreamARN
             - Effect: Allow
               Action:
+                - 'kinesis:DescribeStream'
                 - 'kinesis:GetRecords'
+                - 'kinesis:GetShardIterator'
+                - 'kinesis:ListStreams'
+                - 'kinesis:DescribeStreamSummary'
+                - 'kinesis:ListShards'
               Resource: !Ref KinesisStreamArn
             - !Ref AWS::NoValue
 
