@@ -415,6 +415,11 @@ Parameters:
     Description: The number of concurrent executions that are reserved for this function
     Default: 0
 
+  ExecutionRoleARN:
+    Type: String
+    Description: The arn of a user defined role that will be used as the execution role for the lambda function
+    Default: ''
+
 Mappings:
   CoralogixRegionMap:
     EU1:
@@ -444,7 +449,7 @@ Conditions:
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
   UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
-  IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
+  # IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
   IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
   IsCustomDomain: !Equals [ !Ref CoralogixRegion, Custom ]
   S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
@@ -474,6 +479,7 @@ Conditions:
   UseKinesisStreamARN: !And 
       - !Not [ !Equals [ !Ref KinesisStreamArn, '' ] ]
       - !Equals [ !Ref CloudWatchLogGroupName, '' ]
+      - !Equals [ !Ref IntegrationType, 'Kinesis' ]
   UseVpcConfig: !And 
     - !Not [ !Equals [ !Ref LambdaSubnetID, '' ] ]
     - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
@@ -484,6 +490,8 @@ Conditions:
 
   S3BucketNameIsSet: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
   IsLambdaAssumeRoleEnable: !Not [!Equals [!Ref LambdaAssumeRoleARN, '']]
+  ExecutionRoleARNIsSet: !Not [!Equals [!Ref ExecutionRoleARN, '']]
+  ReservedConcurrentExecutionsIsSet: !Not [!Equals [!Ref ReservedConcurrentExecutions, 0]]
 
 Rules:
   ValidateDLQ:
@@ -572,8 +580,151 @@ Resources:
                         - ":"
                         - !Ref "AWS::StackId"          
 
+  # Define the IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      # RoleName: "LambdaExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+
+  # Define the IAM Policy
+  LambdaExecutionPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "LambdaExecutionPolicy"
+      Roles: !If
+        - ExecutionRoleARNIsSet
+        - - !Select [1, !Split ["/", !Select [5, !Split [":", !Ref ExecutionRoleARN]]]]
+        - - !Ref LambdaExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Assume Role Policy
+          - !If
+            - IsLambdaAssumeRoleEnable
+            - Effect: Allow
+              Action:
+                - 'sts:AssumeRole'
+              Resource: !Ref LambdaAssumeRoleARN
+            - !Ref AWS::NoValue
+
+          # add SNS
+          - Effect: Allow
+            Action:
+              - 'sns:Publish'
+            Resource: !Sub 'arn:aws:sns:${AWS::Region}:${AWS::AccountId}:*'
+
+
+          # S3 Policy
+          - !If 
+            - S3BucketNameIsSet
+            - Effect: Allow
+              Action:
+                - 's3:GetObject'
+              Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+            - !Ref AWS::NoValue
+
+          # SQS Policy
+          - !If
+            - SQSIsSet
+            - Effect: Allow
+              Action:
+                - 'sqs:ReceiveMessage'
+                - 'sqs:DeleteMessage'
+                - 'sqs:GetQueueAttributes'
+              Resource: !If
+                - IsSQSIntegration
+                - !Ref SQSIntegrationTopicArn
+                - !Ref SQSTopicArn
+            - !Ref AWS::NoValue
+
+          # Kafka Integration Policy
+          - !If
+            - IsKafkaIntegration
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+              Resource: '*'
+            - !Ref AWS::NoValue
+
+          # Kinesis Integration Policy
+          - !If
+            - UseKinesisStreamARN
+            - Effect: Allow
+              Action:
+                - 'kinesis:GetRecords'
+              Resource: !Ref KinesisStreamArn
+            - !Ref AWS::NoValue
+
+          # MSK Integration Policy
+          - !If
+            - UseMSK
+            - Effect: Allow
+              Action:
+                - 'kafka:DescribeCluster'
+                - 'kafka:GetBootstrapBrokers'
+                - 'kafka:DescribeClusterV2'
+              Resource: !Ref MSKClusterArn
+            - !Ref AWS::NoValue
+
+          # Secrets Manager Access
+          - !If
+            - ApiKeyIsArn
+            - Effect: Allow
+              Action:
+                - 'secretsmanager:GetSecretValue'
+              Resource: !Ref ApiKey
+          
+            - !If
+              - StoreAPIKeyInSecretsManager
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource: !Ref Secret
+              - !Ref AWS::NoValue
+
+            # ECR Scan Policy
+          - !If
+            - UseECRScan
+            - Effect: Allow
+              Action:
+                - 'ecr:DescribeImageScanFindings'
+              Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*'
+            - !Ref AWS::NoValue
+
+          # DLQ Policy
+          - !If
+            - DLQEnabled
+            - Effect: Allow
+              Action:
+                - 'sqs:SendMessage'
+                - 'sqs:GetQueueAttributes'
+                - 'sqs:ReceiveMessage'
+                - 'sqs:DeleteMessage'
+              Resource: !GetAtt DeadLetterQueue.Arn
+            - !Ref AWS::NoValue
+
+  WaitAfterRoleUpdate:
+    Type: Custom::Waiter
+    DependsOn: LambdaExecutionPolicy
+    Properties:
+      ServiceToken: !GetAtt CustomResourceWaiter.Arn
+      Wait: 10
+
   LambdaFunction:
     Type: AWS::Serverless::Function
+    DependsOn: WaitAfterRoleUpdate
     Metadata:
       SamResourceId: LambdaFunction
       BuildMethod: makefile
@@ -581,147 +732,20 @@ Resources:
       Description: Send logs to Coralogix.
       Handler: bootstrap
       Runtime: !Ref FunctionRunTime
+      ReservedConcurrentExecutions: !If
+        - ReservedConcurrentExecutionsIsSet
+        - !Ref ReservedConcurrentExecutions
+        - !Ref AWS::NoValue
       Architectures: 
         - !Ref FunctionArchitectures
       MemorySize: !Ref FunctionMemorySize
       Timeout: !Ref FunctionTimeout
       CodeUri: .
-      # Role: !Ref LambdaAssumeRoleARN
-      Policies:
-        - !If
-          - IsLambdaAssumeRoleEnable
-          - Statement:
-            - Effect: Allow
-              Action:
-                - 'sts:AssumeRole'
-              Resource: !Ref LambdaAssumeRoleARN
-          - !Ref AWS::NoValue
+      Role: !If
+        - ExecutionRoleARNIsSet
+        - !Ref ExecutionRoleARN
+        - !GetAtt LambdaExecutionRole.Arn
 
-        - !If 
-          - S3BucketNameIsSet
-          - S3ReadPolicy: 
-              BucketName: !Ref S3BucketName
-          - !Ref AWS::NoValue
-
-        # if SQS topic ARN is set, add policy
-        - !If
-          - SQSIsSet
-          - SQSPollerPolicy:
-              QueueName: !Select
-                - 5
-                - !Split
-                  - ":"
-                  - !If
-                    - IsSQSIntegration
-                    - !Ref SQSIntegrationTopicArn
-                    - !Ref SQSTopicArn
-          - !Ref AWS::NoValue
-
-        # if kafka/msk integration is set, add policy
-        - !If
-          - IsKafkaIntegration
-          - Statement:
-              - Effect: Allow
-                Action:
-                  - 'ec2:CreateNetworkInterface'
-                  - 'ec2:DescribeNetworkInterfaces'
-                  - 'ec2:DescribeVpcs'
-                  - 'ec2:DeleteNetworkInterface'
-                  - 'ec2:DescribeSubnets'
-                  - 'ec2:DescribeSecurityGroups'
-                Resource: '*'
-          - !Ref AWS::NoValue
-          
-        # if kinesis integration is set, add policy
-        - !If
-          - IsKinesisIntegration
-          - KinesisStreamReadPolicy:
-              StreamName: !Select [1, !Split ["/", !Select [5, !Split [":", !Ref KinesisStreamArn]]]]
-          - !Ref AWS::NoValue
-
-        # if msk integration is set, add policy
-        - !If
-          - UseMSK
-          - Statement:
-              - Effect: Allow
-                Action:
-                  - 'kafka:DescribeCluster'
-                  - 'kafka:GetBootstrapBrokers'
-                  - 'kafka:DescribeClusterV2'
-                  - 'ec2:DescribeSecurityGroups'
-                Resource: !Ref MSKClusterArn
-              - Effect: Allow
-                Action:
-                  - 'ec2:CreateNetworkInterface'
-                  - 'ec2:DescribeNetworkInterfaces'
-                  - 'ec2:DescribeVpcs'
-                  - 'ec2:DeleteNetworkInterface'
-                  - 'ec2:DescribeSubnets'
-                  - 'ec2:DescribeSecurityGroups'
-                Resource: '*'
-          - !Ref AWS::NoValue
-        - !If
-          - ApiKeyIsArn
-          - Statement:
-              - Effect: Allow
-                Action:
-                  - 'secretsmanager:GetSecretValue'
-                Resource: !Ref ApiKey
-          - !If
-            - StoreAPIKeyInSecretsManager
-            - Statement:
-                - Effect: Allow
-                  Action:
-                    - 'secretsmanager:GetSecretValue'
-                  Resource: !Ref Secret
-            # Note, this is a hack to get around the fact that you can't have a condition on a policy
-            # If the Apikey is not an ARn or we are not storing the key in secrets manager, then we don't need access
-            # to secrets manager
-            - Statement:
-                - Effect: Deny
-                  Action:
-                    - 'secretsmanager:GetSecretValue'
-                  Resource: '*'
-
-        # if ecrscan is enabled, add policy
-        - !If
-          - UseECRScan
-          - Statement:
-            - Effect: Allow
-              Action:
-                - 'ecr:DescribeImageScanFindings'
-              Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*'
-            - Effect: Allow
-              Action:
-                - 'events:PutEvents'
-              Resource: "*"
-          - !Ref AWS::NoValue
-
-        # if dlq is enabled, add policy
-        - !If
-          - DLQEnabled
-          - Statement:
-              - Effect: Allow
-                Action:
-                  - 'sqs:SendMessage'
-                  - 'sqs:GetQueueAttributes'
-                  - 'sqs:GetQueueUrl'
-                  - 'sqs:ReceiveMessage'
-                  - 'sqs:DeleteMessage'
-                Resource: !GetAtt DeadLetterQueue.Arn
-              - Effect: Allow
-                Action:
-                  - 's3:PutObject'
-                  - 's3:PutObjectAcl'
-                  - 's3:AbortMultipartUpload'
-                  - 's3:DeleteObject'
-                  - 's3:PutObjectTagging'
-                  - 's3:PutObjectVersionTagging'
-                Resource: 
-                  - !Sub arn:aws:s3:::${DLQS3Bucket}
-                  - !Sub arn:aws:s3:::${DLQS3Bucket}/*
-          - !Ref AWS::NoValue
-    
       VpcConfig: !If
         - UseVpcConfig
         - SecurityGroupIds:
@@ -988,7 +1012,6 @@ Resources:
 
   SQSEventSourceMapping:
     Condition: SQSIsSet
-    DependsOn: CustomResourceFunction
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       BatchSize: 10
@@ -1002,7 +1025,6 @@ Resources:
 
   SQSEventPermission:
     Condition: SQSIsSet
-    DependsOn: CustomResourceFunction
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
@@ -1137,3 +1159,28 @@ Resources:
           - logs:DescribeSubscriptionFilters
           Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*
       CodeUri: custom-resource/
+
+  CustomResourceWaiter:
+    Type: AWS::Serverless::Function
+    Metadata:
+      SamResourceId: CustomResourceWaiter
+      Description: |
+        Custom Resource used to introduce a delay in the stack 
+        creation process for specific components
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Timeout: 900
+      CodeUri: custom-resource/
+      InlineCode: |
+        import json
+        import time
+        import cfnresponse
+
+        def lambda_handler(event, context):
+            print(event)
+            wait_secs = int(event["ResourceProperties"]["Wait"])
+            if event['RequestType'] == 'Create':
+                time.sleep(wait_secs)
+                print('waited for {} seconds'.format(wait_secs))
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
