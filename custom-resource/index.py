@@ -549,14 +549,14 @@ def update_lambda_role(event):
         else:
             raise Exception("Lambda function did not reach 'Active' state after multiple attempts.")
 
+
 def lambda_handler(event, context):
     '''
     AWS Lambda handler function
     '''
     print("Received event:", event)
     cfn = CFNResponse(event, context)
-    lambda_update_reserved_concurrent_executions(event)
-
+    
     integration_type = event['ResourceProperties']['Parameters']['IntegrationType']
     dlq_enabled = event['ResourceProperties']['DLQ'].get('EnableDLQ', False)
     if dlq_enabled  == 'false':
@@ -568,7 +568,7 @@ def lambda_handler(event, context):
             err = configure_dlq(event)
             if err:
                 raise Exception(err)
-        update_lambda_role(event)
+        # update_lambda_role(event)
             
         match integration_type:
             case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail':
