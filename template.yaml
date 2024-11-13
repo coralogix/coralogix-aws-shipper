@@ -605,6 +605,7 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+
           # Create and write to log group for the lambda logs
           - Effect: Allow
             Action:
@@ -613,7 +614,16 @@ Resources:
               - 'logs:PutLogEvents'
             Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*' 
 
-          # Assume Role Policy
+          # use privateLink
+          - !If
+            - IsPrivateLink
+            - Effect: Allow
+              Action:
+                - "EC2:CreateNetworkInterface"
+              Resource: "*"
+            - !Ref AWS::NoValue
+
+            # Assume Role Policy
           - !If
             - IsLambdaAssumeRoleEnable
             - Effect: Allow
@@ -727,6 +737,17 @@ Resources:
                 - 'sqs:DeleteMessage'
               Resource: !GetAtt DeadLetterQueue.Arn
             - !Ref AWS::NoValue
+            - Effect: Allow
+              Action:
+                - 's3:PutObject'
+                - 's3:PutObjectAcl'
+                - 's3:AbortMultipartUpload'
+                - 's3:DeleteObject'
+                - 's3:PutObjectTagging'
+                - 's3:PutObjectVersionTagging'
+              Resource: 
+                - !Sub arn:aws:s3:::${DLQS3Bucket}
+                - !Sub arn:aws:s3:::${DLQS3Bucket}/*
 
   WaitAfterRoleUpdate:
     Type: Custom::Waiter
@@ -966,7 +987,6 @@ Resources:
       SamResourceId: ConfigureLambda
 
   LambdaLogGroup:
-    DependsOn: CustomResourceFunction
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Type: 'AWS::Logs::LogGroup'
