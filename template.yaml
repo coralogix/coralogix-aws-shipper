@@ -729,26 +729,26 @@ Resources:
           # DLQ Policy
           - !If
             - DLQEnabled
-            - Statement:
-                - Effect: Allow
-                  Action:
-                    - 'sqs:SendMessage'
-                    - 'sqs:GetQueueAttributes'
-                    - 'sqs:GetQueueUrl'
-                    - 'sqs:ReceiveMessage'
-                    - 'sqs:DeleteMessage'
-                  Resource: !GetAtt DeadLetterQueue.Arn
-                - Effect: Allow
-                  Action:
-                    - 's3:PutObject'
-                    - 's3:PutObjectAcl'
-                    - 's3:AbortMultipartUpload'
-                    - 's3:DeleteObject'
-                    - 's3:PutObjectTagging'
-                    - 's3:PutObjectVersionTagging'
-                  Resource: 
-                    - !Sub arn:aws:s3:::${DLQS3Bucket}
-                    - !Sub arn:aws:s3:::${DLQS3Bucket}/*
+            - 
+              - Effect: Allow
+                Action:
+                  - 'sqs:SendMessage'
+                  - 'sqs:GetQueueAttributes'
+                  - 'sqs:GetQueueUrl'
+                  - 'sqs:ReceiveMessage'
+                  - 'sqs:DeleteMessage'
+                Resource: !GetAtt DeadLetterQueue.Arn
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:PutObjectAcl'
+                  - 's3:AbortMultipartUpload'
+                  - 's3:DeleteObject'
+                  - 's3:PutObjectTagging'
+                  - 's3:PutObjectVersionTagging'
+                Resource: 
+                  - !Sub arn:aws:s3:::${DLQS3Bucket}
+                  - !Sub arn:aws:s3:::${DLQS3Bucket}/*
             - !Ref AWS::NoValue
 
 
