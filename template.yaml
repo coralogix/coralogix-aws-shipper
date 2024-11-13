@@ -619,7 +619,12 @@ Resources:
             - IsPrivateLink
             - Effect: Allow
               Action:
-                - "EC2:CreateNetworkInterface"
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
               Resource: "*"
             - !Ref AWS::NoValue
 
@@ -701,6 +706,19 @@ Resources:
               Resource: !Ref MSKClusterArn
             - !Ref AWS::NoValue
 
+          - !If
+            - UseMSK
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+              Resource: "*"
+            - !Ref AWS::NoValue
+
           # Secrets Manager Access
           - !If
             - ApiKeyIsArn
@@ -733,10 +751,13 @@ Resources:
               Action:
                 - 'sqs:SendMessage'
                 - 'sqs:GetQueueAttributes'
+                - 'sqs:GetQueueUrl'
                 - 'sqs:ReceiveMessage'
                 - 'sqs:DeleteMessage'
               Resource: !GetAtt DeadLetterQueue.Arn
             - !Ref AWS::NoValue
+          - !If
+            - DLQEnabled
             - Effect: Allow
               Action:
                 - 's3:PutObject'
@@ -748,6 +769,7 @@ Resources:
               Resource: 
                 - !Sub arn:aws:s3:::${DLQS3Bucket}
                 - !Sub arn:aws:s3:::${DLQS3Bucket}/*
+            - !Ref AWS::NoValue
 
   WaitAfterRoleUpdate:
     Type: Custom::Waiter
