@@ -502,15 +502,6 @@ class ConfigureCloudwatchIntegration:
             physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)  
         )
 
-def lambda_update_reserved_concurrent_executions(event):
-    lambda_client = boto3.client('lambda')
-    reserved_concurrent_executions_value = int(event['ResourceProperties']['Parameters']['ReservedConcurrentExecutions'])
-    if  reserved_concurrent_executions_value > 0:
-        response = lambda_client.put_function_concurrency(
-            FunctionName=event['ResourceProperties']['LambdaArn'],
-            ReservedConcurrentExecutions=reserved_concurrent_executions_value
-        )
-
 def lambda_handler(event, context):
     '''
     AWS Lambda handler function
