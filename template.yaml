@@ -450,7 +450,6 @@ Conditions:
   IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
   UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
-  # IsKinesisIntegration: !Equals [ !Ref IntegrationType, 'Kinesis' ]
   IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
   IsCustomDomain: !Equals [ !Ref CoralogixRegion, Custom ]
   S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
