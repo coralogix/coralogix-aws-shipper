@@ -4,7 +4,6 @@ use aws_sdk_ecr::config::Credentials as EcrCredentials;
 use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_s3::config::Credentials as S3Credentials;
 use aws_sdk_s3::Client as S3Client;
-use aws_sdk_sqs::config::Credentials as SqsCredentials;
 use aws_sdk_sqs::Client as SqsClient;
 use aws_sdk_sts::{Client as StsClient, Error as StsError};
 
