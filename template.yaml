@@ -94,6 +94,7 @@ Metadata:
           - FunctionRunTime
           - FunctionArchitectures
           - LambdaAssumeRoleARN
+          - ExecutionRoleARN
           - ReservedConcurrentExecutions
       - Label:
           default: VPC configuration Optional
