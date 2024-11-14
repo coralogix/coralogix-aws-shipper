@@ -92,6 +92,25 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 
 > **Note:** `EcrScan` doesn't need any extra configuration.
 
+#### Working with Roles
+
+In some cases special or more fine tuned IAM permissions are required. The AWS Shipper supports more granular IAM control using 2 parameters:
+
+- __LambdaAssumeRoleARN__: This parameter allows you to specify a Role ARN, enabling the Lambda function to assume the role. The assumed role will only affect S3 and ECR API calls, as these are the only services invoked by the Lambda function at the code level.
+
+
+- __ExecutionRoleARN__: This parameter lets you specify the Execution Role for the AWS Shipper Lambda. The provided role must have basic Lambda execution permissions, and any additional permissions required for the Lambda’s operation will be automatically added during deployment.
+
+Basic lambda execution role permission:
+
+```yaml
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+```
+
 ### S3/CloudTrail/VpcFlow/S3Csv Configuration
 
 This is the most flexible type of integration, as it is based on receiving log files to Amazon S3. First, your bucket can receive log files from all kinds of other services, such as CloudTrail, VPC Flow Logs, Redshift, Network Firewall or different types of load balancers (ALB/NLB/ELB). Once the data is in the bucket, a pre-made Lambda function will then transmit it to your Coralogix account.
