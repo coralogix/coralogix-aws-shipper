@@ -1,10 +1,10 @@
-pub mod logs;
-pub mod metrics;
 pub mod clients;
 pub mod events;
+pub mod logs;
+pub mod metrics;
 
-use aws_config::BehaviorVersion;
 use crate::events::Combined;
+use aws_config::BehaviorVersion;
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use tracing::{info, warn};
 
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Error> {
     );
 
     let aws_config = aws_config::load_defaults(BehaviorVersion::v2024_03_28()).await;
-    let aws_clients = clients::AwsClients::new(&aws_config);
+    let mut aws_clients = clients::AwsClients::new(&aws_config);
 
     match mode {
         TelemetryMode::Traces => {
@@ -60,11 +60,9 @@ async fn main() -> Result<(), Error> {
             warn!("metrics telemetry mode not implemented");
             // TODO: implement metrics
             run(service_fn(|request: LambdaEvent<Combined>| {
-                metrics::handler(
-                    &aws_clients,
-                    request,
-                )
-            })).await
+                metrics::handler(&aws_clients, request)
+            }))
+            .await
         }
 
         // default to logs telemetry mode
@@ -73,19 +71,22 @@ async fn main() -> Result<(), Error> {
             let mut conf = crate::logs::config::Config::load_from_env()?;
             let api_key_value = conf.api_key.token().to_string();
             if api_key_value.starts_with("arn:aws") && api_key_value.contains(":secretsmanager") {
-                conf.api_key = crate::logs::config::get_api_key_from_secrets_manager(&aws_config, api_key_value)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                conf.api_key = crate::logs::config::get_api_key_from_secrets_manager(
+                    &aws_config,
+                    api_key_value,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
             };
+
+            // override config if using assume role
+            if let Some(role_arn) = conf.lambda_assume_role.as_ref() {
+                aws_clients = clients::AwsClients::new_assume_role(&aws_config, role_arn).await?;
+            }
 
             let coralogix_exporter = crate::logs::set_up_coralogix_exporter(&conf)?;
             run(service_fn(|request: LambdaEvent<Combined>| {
-                logs::handler(
-                    &aws_clients,
-                    coralogix_exporter.clone(),
-                    &conf,
-                    request,
-                )
+                logs::handler(&aws_clients, coralogix_exporter.clone(), &conf, request)
             }))
             .await
         }

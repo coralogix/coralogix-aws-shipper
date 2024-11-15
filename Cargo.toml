@@ -1,6 +1,6 @@
 [package]
 name = "coralogix-aws-shipper"
-version = "1.0.14"
+version = "1.0.15"
 edition = "2021"
 
 [dependencies]
@@ -37,6 +37,7 @@ chrono = "0.4.37"
 async-recursion = "1.1.0"
 md5 = "0.7.0"
 anyhow = "1.0.86"
+aws-sdk-sts = "1.49.0"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"

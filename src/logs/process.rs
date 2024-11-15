@@ -11,6 +11,7 @@ use fancy_regex::Regex;
 use flate2::read::MultiGzDecoder;
 use itertools::Itertools;
 use lambda_runtime::Error;
+use std::env;
 use std::ffi::OsStr;
 use std::io::Read;
 use std::ops::Range;
@@ -18,7 +19,6 @@ use std::path::Path;
 use std::string::String;
 use std::time::Instant;
 use tracing::{debug, info};
-use std::env;
 
 use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
@@ -130,7 +130,6 @@ pub async fn s3(
     Ok(())
 }
 
-
 pub struct Metadata {
     pub stream_name: String,
     pub log_group: String,
@@ -179,12 +178,12 @@ pub async fn kinesis_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let v = kinesis_message.0;
-    
+
     let batches = if config.integration_type == IntegrationType::CloudWatch {
         tracing::debug!("CloudWatch IntegrationType Detected");
-        
+
         let cloudwatch_payload = ungzip(v, String::new())?;
-        
+
         let string_cw = String::from_utf8(cloudwatch_payload)?;
         tracing::debug!("CloudWatch Payload {:?}", string_cw);
         let log_data: LogData = serde_json::from_str(&string_cw)?;
@@ -195,7 +194,9 @@ pub async fn kinesis_logs(
             match ungzip(v.clone(), String::new()) {
                 Ok(un_v) => un_v,
                 Err(_) => {
-                    tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
+                    tracing::error!(
+                        "Data does not appear to be valid gzip format. Treating as UTF-8"
+                    );
                     v
                 }
             }
@@ -215,7 +216,6 @@ pub async fn kinesis_logs(
         }
     };
 
-    
     coralogix::process_batches(
         batches,
         &defined_app_name,
@@ -329,7 +329,12 @@ pub async fn cloudwatch_logs(
         IntegrationType::CloudWatch => {
             metadata_instance.stream_name = cloudwatch_event_log.data.log_stream.clone();
             metadata_instance.log_group = cloudwatch_event_log.data.log_group.clone();
-            process_cloudwatch_logs(cloudwatch_event_log.data, config.sampling, &config.blocking_pattern).await?
+            process_cloudwatch_logs(
+                cloudwatch_event_log.data,
+                config.sampling,
+                &config.blocking_pattern,
+            )
+            .await?
         }
         _ => {
             tracing::warn!(
@@ -426,8 +431,11 @@ pub async fn get_bytes_from_s3(
     Ok(data)
 }
 
-
-async fn process_cloudwatch_logs(cw_event: LogData, sampling: usize, blocking_pattern: &str) -> Result<Vec<String>, Error> {
+async fn process_cloudwatch_logs(
+    cw_event: LogData,
+    sampling: usize,
+    blocking_pattern: &str,
+) -> Result<Vec<String>, Error> {
     let log_entries: Vec<String> = cw_event
         .log_events
         .into_iter()
@@ -438,7 +446,10 @@ async fn process_cloudwatch_logs(cw_event: LogData, sampling: usize, blocking_pa
     //Ok(sample(sampling, log_entries))
     let re_block: Regex = Regex::new(blocking_pattern)?;
     info!("Blocking Pattern: {:?}", blocking_pattern);
-    Ok(sample(sampling, block(re_block, log_entries, blocking_pattern)?))
+    Ok(sample(
+        sampling,
+        block(re_block, log_entries, blocking_pattern)?,
+    ))
 }
 async fn process_vpcflows(
     raw_data: Vec<u8>,
@@ -505,12 +516,12 @@ async fn process_csv(
             .copied()
             .collect_vec()
     } else {
-        if custom_header.len() > 0{
+        if custom_header.len() > 0 {
             flow_header = custom_header.split(csv_delimiter).collect_vec();
         } else {
             flow_header = array_s[0].split(csv_delimiter).collect_vec();
         }
-            tracing::debug!("Flow Header: {:?}", &flow_header);
+        tracing::debug!("Flow Header: {:?}", &flow_header);
         array_s
             .iter()
             .skip(1)
@@ -660,7 +671,7 @@ fn ungzip(compressed_data: Vec<u8>, _: String) -> Result<Vec<u8>, Error> {
         return Ok(Vec::new());
     }
     let mut decoder = MultiGzDecoder::new(&compressed_data[..]);
-    
+
     let mut output = Vec::new();
     let mut chunk = [0; 8192];
     loop {
@@ -670,11 +681,15 @@ fn ungzip(compressed_data: Vec<u8>, _: String) -> Result<Vec<u8>, Error> {
                     break;
                 }
                 output.extend_from_slice(&chunk[..bytes_read]);
-            },
+            }
             Err(err) => {
-                tracing::warn!(?err, "Problem decompressing data after {} bytes", output.len());
+                tracing::warn!(
+                    ?err,
+                    "Problem decompressing data after {} bytes",
+                    output.len()
+                );
                 return Ok(output);
-            },
+            }
         }
     }
     if output.is_empty() {
@@ -683,7 +698,6 @@ fn ungzip(compressed_data: Vec<u8>, _: String) -> Result<Vec<u8>, Error> {
     }
     Ok(output)
 }
-
 
 fn parse_records(
     flow_header: &[&str],

@@ -27,6 +27,7 @@ pub struct Config {
     pub dlq_url: Option<String>,
     pub dlq_retry_limit: Option<String>,
     pub dlq_s3_bucket: Option<String>,
+    pub lambda_assume_role: Option<String>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -119,6 +120,7 @@ impl Config {
             dlq_url: env::var("DLQ_URL").ok(),
             dlq_retry_limit: env::var("DLQ_RETRY_LIMIT").ok(),
             dlq_s3_bucket: env::var("DLQ_S3_BUCKET").ok(),
+            lambda_assume_role: env::var("LAMBDA_ASSUME_ROLE").ok(),
         };
 
         Ok(conf)
