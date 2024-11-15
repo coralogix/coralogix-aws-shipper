@@ -1,27 +1,25 @@
+use crate::clients::AwsClients;
+use crate::events;
+use crate::logs::config::IntegrationType;
 use async_recursion::async_recursion;
-use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
-use lambda_runtime::{Context, Error, LambdaEvent};
 use aws_lambda_events::cloudwatch_logs::LogsEvent;
 use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
-use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
-use tracing::{debug, info};
-use std::time::Duration;
-use std::collections::HashMap;
-use crate::clients::AwsClients;
-use crate::logs::config::IntegrationType;
-use crate::events;
-use http::header::USER_AGENT;
 use aws_lambda_events::event::s3::S3Event;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sqs::types::MessageAttributeValue;
+use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
+use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
+use http::header::USER_AGENT;
+use lambda_runtime::{Context, Error, LambdaEvent};
+use std::collections::HashMap;
 use std::sync::Arc;
-
+use std::time::Duration;
+use tracing::{debug, info};
 
 pub mod config;
-pub mod process;
-pub mod ecr;
 pub mod coralogix;
-
+pub mod ecr;
+pub mod process;
 
 pub fn set_up_coralogix_exporter(config: &config::Config) -> Result<DynLogExporter, Error> {
     let backoff = BackoffConfig {
@@ -82,7 +80,8 @@ pub async fn handler(
                 let s3_event = serde_json::from_str::<S3Event>(message)?;
                 let (bucket, key) = handle_s3_event(s3_event).await?;
                 info!("SNS S3 EVENT Detected");
-                crate::logs::process::s3(&clients.s3, coralogix_exporter, config, bucket, key).await?;
+                crate::logs::process::s3(&clients.s3, coralogix_exporter, config, bucket, key)
+                    .await?;
             } else {
                 info!("SNS TEXT EVENT Detected");
                 crate::logs::process::sns_logs(
@@ -96,8 +95,7 @@ pub async fn handler(
         events::Combined::CloudWatchLogs(logs_event) => {
             info!("CLOUDWATCH EVENT Detected");
             let cloudwatch_event_log = handle_cloudwatch_logs_event(logs_event).await?;
-            process::cloudwatch_logs(cloudwatch_event_log, coralogix_exporter, config)
-                .await?;
+            process::cloudwatch_logs(cloudwatch_event_log, coralogix_exporter, config).await?;
         }
         events::Combined::Sqs(sqs_event) => {
             debug!("SQS Event: {:?}", sqs_event.records[0]);
@@ -111,13 +109,9 @@ pub async fn handler(
                         // note that there is no risk of hitting the recursion stack limit
                         // here as recursiion will only be called as many times as there are nested
                         // events in an SQS message
-                        let result = handler(
-                            clients,
-                            coralogix_exporter.clone(),
-                            config,
-                            internal_event,
-                        )
-                        .await;
+                        let result =
+                            handler(clients, coralogix_exporter.clone(), config, internal_event)
+                                .await;
 
                         if result.is_ok() {
                             continue;
@@ -193,12 +187,8 @@ pub async fn handler(
                         result?;
                     } else {
                         debug!("SQS TEXT EVENT Detected");
-                        process::sqs_logs(
-                            message.clone(),
-                            coralogix_exporter.clone(),
-                            config,
-                        )
-                        .await?;
+                        process::sqs_logs(message.clone(), coralogix_exporter.clone(), config)
+                            .await?;
                     }
                 }
             }
@@ -262,7 +252,6 @@ pub async fn handle_s3_event(s3_event: S3Event) -> Result<(String, String), Erro
         .to_string();
     Ok((bucket, decoded_key))
 }
-
 
 async fn s3_store_failed_event(
     s3client: &S3Client,

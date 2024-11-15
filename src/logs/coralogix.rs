@@ -1,5 +1,6 @@
 use crate::logs::config::Config;
 use crate::logs::process::Metadata;
+use crate::logs::*;
 use cx_sdk_rest_logs::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
 use cx_sdk_rest_logs::DynLogExporter;
@@ -7,14 +8,13 @@ use futures::stream::{StreamExt, TryStreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::env;
 use std::iter::IntoIterator;
 use std::time::Instant;
 use std::vec::Vec;
 use time::OffsetDateTime;
-use tracing::{error, info, debug};
-use std::collections::HashMap;
-use crate::logs::*;
+use tracing::{debug, error, info};
 
 pub async fn process_batches(
     logs: Vec<String>,

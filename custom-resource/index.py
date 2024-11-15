@@ -501,7 +501,6 @@ class ConfigureCloudwatchIntegration:
             responseStatus,
             physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)  
         )
-        
 
 def lambda_handler(event, context):
     '''
@@ -509,7 +508,7 @@ def lambda_handler(event, context):
     '''
     print("Received event:", event)
     cfn = CFNResponse(event, context)
-
+    
     integration_type = event['ResourceProperties']['Parameters']['IntegrationType']
     dlq_enabled = event['ResourceProperties']['DLQ'].get('EnableDLQ', False)
     if dlq_enabled  == 'false':
