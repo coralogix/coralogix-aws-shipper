@@ -1226,7 +1226,6 @@ Resources:
       Handler: index.lambda_handler
       Runtime: python3.12
       Timeout: 900
-      CodeUri: custom-resource/
       InlineCode: |
         import json
         import time
