@@ -1,5 +1,6 @@
 import json
 import boto3
+import os
 import json, time, boto3, time
 from urllib import request, parse, error
 import functools
@@ -402,11 +403,13 @@ class ConfigureCloudwatchIntegration:
     @handle_exceptions
     def create(self):
         lambda_arn = self.event['ResourceProperties']['LambdaArn']
+        custom_lambda_arn = os.environ['AWS_LAMBDA_FUNCTION_NAME']
         region = self.context.invoked_function_arn.split(":")[3]
         account_id = self.context.invoked_function_arn.split(":")[4]
         logGroupNames = self.params.CloudWatchLogGroupName.split(',')
         LambdaPremissionPrefix = self.params.CloudWatchLogGroupPrefix.split(',')
-
+        environment_variables = {'log_groups': self.params.CloudWatchLogGroupName}
+        self.update_custom_lambda_environment_variables(custom_lambda_arn, environment_variables)
         if LambdaPremissionPrefix and LambdaPremissionPrefix != [""]:
             for prefix in LambdaPremissionPrefix:
                 replaced_prefix =  self.check_statmentid_length(prefix)
@@ -429,13 +432,16 @@ class ConfigureCloudwatchIntegration:
             if not LambdaPremissionPrefix or LambdaPremissionPrefix == [""]:
                 if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
                     replaced_prefix =  self.check_statmentid_length(log_group)
-                    response = self.aws_lambda.add_permission(
-                        FunctionName=lambda_arn,
-                        StatementId=f'allow-trigger-from-{replaced_prefix.replace("/", "-")}',
-                        Action='lambda:InvokeFunction',
-                        Principal='logs.amazonaws.com',
-                        SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
-                    )
+                    try:
+                        response = self.aws_lambda.add_permission(
+                            FunctionName=lambda_arn,
+                            StatementId=f'allow-trigger-from-{replaced_prefix.replace("/", "-")}',
+                            Action='lambda:InvokeFunction',
+                            Principal='logs.amazonaws.com',
+                            SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
+                        )
+                    except Exception as e:
+                        print("assuming permission already exists: ", str(e))
                 time.sleep(1)
             self.cloudwatch_logs.put_subscription_filter(
                 destinationArn=self.event['ResourceProperties']['LambdaArn'],
@@ -450,8 +456,45 @@ class ConfigureCloudwatchIntegration:
             updated_prefix = statmentid_prefix[:65] + statmentid_prefix[-5:]
         return updated_prefix
 
+    def update_custom_lambda_environment_variables(self, function_name, new_environment_variables):
+        self.aws_lambda.update_function_configuration(
+            FunctionName=function_name,
+            Environment={
+                'Variables': new_environment_variables
+            }
+        )
+
+    def remove_subscription_filter(self, log_group, lambda_arn):
+        response = self.cloudwatch_logs.describe_subscription_filters(logGroupName=log_group)
+        lambda_arn = self.event['ResourceProperties']['LambdaArn']
+        LambdaPremissionPrefix = self.params.CloudWatchLogGroupPrefix.split(',')
+        for filter in response['subscriptionFilters']:
+            if filter['filterName'] == f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}':
+                self.cloudwatch_logs.delete_subscription_filter(
+                    filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
+                    logGroupName=log_group
+                )
+            if not LambdaPremissionPrefix:
+                replaced_prefix =  self.check_statmentid_length(log_group)
+                response = self.aws_lambda.remove_permission(
+                    FunctionName=lambda_arn,
+                    StatementId=f'allow-trigger-from-{replaced_prefix.replace("/", "-")}'
+                )
+
     @handle_exceptions
     def update(self):
+        custom_lambda_name = os.environ['AWS_LAMBDA_FUNCTION_NAME']
+        new_log_group_names = self.params.CloudWatchLogGroupName.split(',')
+        new_environment_variables = {'log_groups': self.params.CloudWatchLogGroupName}
+
+        old_log_group_names = os.environ.get('log_groups').split(',')
+        for old_log_group in old_log_group_names:
+            if old_log_group not in new_log_group_names:
+                self.remove_subscription_filter(old_log_group, custom_lambda_name)
+
+        self.update_custom_lambda_environment_variables(custom_lambda_name, new_environment_variables)
+        self.create()
+
         err = self.delete()
         if err:
             raise Exception(err)
@@ -461,24 +504,9 @@ class ConfigureCloudwatchIntegration:
     @handle_exceptions
     def delete(self):
         lambda_arn = self.event['ResourceProperties']['LambdaArn']
-        region = self.context.invoked_function_arn.split(":")[3]
-        account_id = self.context.invoked_function_arn.split(":")[4]
         logGroupNames = self.params.CloudWatchLogGroupName.split(',')
-        LambdaPremissionPrefix = self.params.CloudWatchLogGroupPrefix.split(',')
         for log_group in logGroupNames:
-            response = self.cloudwatch_logs.describe_subscription_filters(logGroupName=log_group)
-            for filter in response['subscriptionFilters']:
-                if filter['filterName'] == f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}':
-                    self.cloudwatch_logs.delete_subscription_filter(
-                        filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
-                        logGroupName=log_group
-                    )
-                if not LambdaPremissionPrefix:
-                    replaced_prefix =  self.check_statmentid_length(log_group)
-                    response = self.aws_lambda.remove_permission(
-                        FunctionName=lambda_arn,
-                        StatementId=f'allow-trigger-from-{replaced_prefix.replace("/", "-")}'
-                    )
+            self.remove_subscription_filter(log_group, lambda_arn)
 
     def handle(self):
         responseStatus = self.cfn.SUCCESS
