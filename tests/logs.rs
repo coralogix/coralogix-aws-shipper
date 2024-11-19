@@ -1308,6 +1308,92 @@ async fn test_kinesis_event() {
     .await;
 }
 
+async fn run_kinesis_with_cloudwatch_event() {
+    let config = Config::load_from_env().unwrap();
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "Records": [
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000000000000",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:0000000000:stream/mystream",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::0000000000:role/cargo-lambda-role-0000000-0000-0000-0000-00000000000",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.323,
+                        "data": "eyJvd25lciI6ICIxMTExMTExMTExMTEiLCAibG9nR3JvdXAiOiAiQ2xvdWRUcmFpbC9sb2dzIiwgImxvZ1N0cmVhbSI6ICIxMTExMTExMTExMTFfQ2xvdWRUcmFpbC9sb2dzX3VzLWVhc3QtMSIsICJzdWJzY3JpcHRpb25GaWx0ZXJzIjogWyJEZXN0aW5hdGlvbiJdLCAibWVzc2FnZVR5cGUiOiAiREFUQV9NRVNTQUdFIiwgImxvZ0V2ZW50cyI6IFt7ImlkIjogIjMxOTUzMTA2NjA2OTY2OTgzMzc4ODA5MDI1MDc5ODA0MjExMTQzMjg5NjE1NDI0Mjk4MjIxNTY4IiwgInRpbWVzdGFtcCI6IDE0MzI4MjY4NTUwMDAsICJtZXNzYWdlIjogImhlbGxvIHdvcmxkIn0sIHsiaWQiOiAiMzE5NTMxMDY2MDY5NjY5ODMzNzg4MDkwMjUwNzk4MDQyMTExNDMyODk2MTU0MjQyOTgyMjE1NjkiLCAidGltZXN0YW1wIjogMTQzMjgyNjg1NTAwMCwgIm1lc3NhZ2UiOiAiZ29vZGJ5ZSBkcmVhbXMifV19Cg==",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "partition_key",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808530"
+                    }
+                }
+            ]
+        }"#,
+    )
+    .expect("failed to parse kinesis_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = AwsClients {
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client,
+    };
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 2);
+    let log_lines = vec!["hello world", "goodbye dreams"];
+
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(
+            singles[0].entries[i].body == *log_line,
+            "log line: {}",
+            singles[0].entries[i].body
+        );
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "lambda",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+#[tokio::test]
+async fn test_kinesis_with_cloudwatch_event() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Kinesis")),
+        ],
+        run_kinesis_with_cloudwatch_event(),
+    )
+    .await;
+}
+
 async fn run_cloudfront_s3_event() {
     let s3_client = get_mock_s3client(Some("./tests/fixtures/cloudfront.gz"))
         .expect("failed to create s3 client");
