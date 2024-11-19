@@ -193,14 +193,16 @@ pub async fn kinesis_logs(
 
     // String::from_utf8(decompressed_data.clone())?;
     let batches = match serde_json::from_str(&decoded_data) {
-        Ok(logs) => process_cloudwatch_logs(logs, config.sampling, &config.blocking_pattern).await?,
+        Ok(logs) => {
+            process_cloudwatch_logs(logs, config.sampling, &config.blocking_pattern).await?
+        }
         Err(_) => {
             tracing::error!("Failed to decode data");
-            if  decoded_data.is_empty() {
+            if decoded_data.is_empty() {
                 Vec::new()
             } else {
                 vec![decoded_data]
-            } 
+            }
         }
     };
 
