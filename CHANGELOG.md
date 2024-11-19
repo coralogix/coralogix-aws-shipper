@@ -2,6 +2,7 @@
 
 ## v1.0.16 / 2024-11-09
 ### 🧰 Bug fixes 🧰
+- cds-1690 - Fixed a bug that when you update cloudwatch log group for an existing integraiotn from the CF the stack will fail.
 - cds-1670 - Fixed a bug where Kinesis Integration was not correctly checking for Cloudwatch Formatted Logs in payload.
 
 ## v1.0.15 / 2024-11-09

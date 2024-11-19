@@ -1197,6 +1197,8 @@ Resources:
           - lambda:CreateEventSourceMapping
           - lambda:DeleteEventSourceMapping
           - lambda:UpdateEventSourceMapping
+          - lambda:GetFunctionConfiguration
+          - lambda:UpdateFunctionConfiguration
           Resource: '*'
       - Statement:
         - Sid: S3NotificationPolicy
