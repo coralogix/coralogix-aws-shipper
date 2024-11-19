@@ -152,10 +152,6 @@ impl Default for Metadata {
     }
 }
 
-fn is_gzipped(data: &[u8]) -> bool {
-    // Check the first two bytes for gzip magic numbers
-    data.len() > 1 && data[0] == 0x1f && data[1] == 0x8b
-}
 pub async fn kinesis_logs(
     kinesis_message: Base64Data,
     coralogix_exporter: DynLogExporter,
@@ -179,40 +175,32 @@ pub async fn kinesis_logs(
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let v = kinesis_message.0;
 
-    let batches = if config.integration_type == IntegrationType::CloudWatch {
-        tracing::debug!("CloudWatch IntegrationType Detected");
+    let decompressed_data = match gunzip(v.clone(), String::new()) {
+        Ok(data) => data,
+        Err(_) => {
+            tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
+            v // set decompressed_data to the original data if decompression fails
+        }
+    };
 
-        let cloudwatch_payload = ungzip(v, String::new())?;
+    let decoded_data = match String::from_utf8(decompressed_data) {
+        Ok(s) => s,
+        Err(error) => {
+            tracing::error!(?error, "Failed to decode data");
+            String::new()
+        }
+    };
 
-        let string_cw = String::from_utf8(cloudwatch_payload)?;
-        tracing::debug!("CloudWatch Payload {:?}", string_cw);
-        let log_data: LogData = serde_json::from_str(&string_cw)?;
-        process_cloudwatch_logs(log_data, config.sampling, &config.blocking_pattern).await?
-    } else {
-        let ungzipped_data = if is_gzipped(&v) {
-            // It looks like gzip, attempt to ungzip
-            match ungzip(v.clone(), String::new()) {
-                Ok(un_v) => un_v,
-                Err(_) => {
-                    tracing::error!(
-                        "Data does not appear to be valid gzip format. Treating as UTF-8"
-                    );
-                    v
-                }
-            }
-        } else {
-            // Not gzip, treat as UTF-8
-            v.clone()
-        };
-        match String::from_utf8(ungzipped_data) {
-            Ok(s) => {
-                tracing::debug!("Kinesis Message: {:?}", s);
-                vec![s]
-            }
-            Err(error) => {
-                tracing::error!(?error, "Failed to decode data");
+    // String::from_utf8(decompressed_data.clone())?;
+    let batches = match serde_json::from_str(&decoded_data) {
+        Ok(logs) => process_cloudwatch_logs(logs, config.sampling, &config.blocking_pattern).await?,
+        Err(_) => {
+            tracing::error!("Failed to decode data");
+            if  decoded_data.is_empty() {
                 Vec::new()
-            }
+            } else {
+                vec![decoded_data]
+            } 
         }
     };
 
@@ -458,7 +446,7 @@ async fn process_vpcflows(
     key: String,
 ) -> Result<Vec<String>, Error> {
     info!("VPC Flow Integration Type");
-    let v = ungzip(raw_data, key)?;
+    let v = gunzip(raw_data, key)?;
     let s = String::from_utf8(v)?;
     let array_s = split(Regex::new(r"\n")?, s.as_str())?;
     let flow_header = split(Regex::new(r"\s+")?, array_s[0])?;
@@ -492,7 +480,7 @@ async fn process_csv(
         csv_delimiter = "\t";
     }
     let s = if key_path.extension() == Some(OsStr::new("gz")) {
-        let v = ungzip(raw_data, key)?;
+        let v = gunzip(raw_data, key)?;
         let s = String::from_utf8(v)?;
         debug!("ZIP S3 object: {}", s);
         s
@@ -547,7 +535,7 @@ async fn process_s3(
     key: String,
 ) -> Result<Vec<String>, Error> {
     let s = if key_path.extension() == Some(OsStr::new("gz")) {
-        let v = ungzip(raw_data, key)?;
+        let v = gunzip(raw_data, key)?;
         let s = String::from_utf8(v)?;
         debug!("ZIP S3 object: {}", s);
         s
@@ -587,7 +575,7 @@ async fn process_cloudtrail(
     key: String,
 ) -> Result<Vec<String>, Error> {
     tracing::info!("Cloudtrail Integration Type");
-    let v = ungzip(raw_data, key)?;
+    let v = gunzip(raw_data, key)?;
     let s = String::from_utf8(v)?;
     let mut logs_vec: Vec<String> = Vec::new();
     let array_s = serde_json::from_str::<serde_json::Value>(&s)?;
@@ -665,7 +653,7 @@ pub async fn kafka_logs(
     Ok(())
 }
 
-fn ungzip(compressed_data: Vec<u8>, _: String) -> Result<Vec<u8>, Error> {
+fn gunzip(compressed_data: Vec<u8>, _: String) -> Result<Vec<u8>, Error> {
     if compressed_data.is_empty() {
         tracing::warn!("Input data is empty, cannot ungzip a zero-byte file.");
         return Ok(Vec::new());
@@ -688,7 +676,7 @@ fn ungzip(compressed_data: Vec<u8>, _: String) -> Result<Vec<u8>, Error> {
                     "Problem decompressing data after {} bytes",
                     output.len()
                 );
-                return Ok(output);
+                break;
             }
         }
     }
