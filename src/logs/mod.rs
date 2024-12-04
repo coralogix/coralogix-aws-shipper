@@ -14,7 +14,7 @@ use lambda_runtime::{Context, Error, LambdaEvent};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, error};
 
 pub mod config;
 pub mod coralogix;
@@ -218,6 +218,10 @@ pub async fn handler(
                 config,
             )
             .await?;
+        }
+        events::Combined::Firehose(firehose_event) => {
+            debug!("firehose event: {:?}", firehose_event);
+            error!("firehose event not supported for logs workflow");
         }
     };
 
