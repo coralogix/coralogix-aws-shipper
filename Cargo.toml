@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 aws-smithy-runtime-api = "1.7.1"
-aws_lambda_events = { version = "0.15.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan"] }
+aws_lambda_events = { version = "0.15.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan", "firehose"] }
 aws-config = "1.5.4"
 aws-sdk-s3 = "1.41.0"
 aws-sdk-ecr = "1.35.0"
@@ -38,6 +38,7 @@ async-recursion = "1.1.0"
 md5 = "0.7.0"
 anyhow = "1.0.86"
 aws-sdk-sts = "1.49.0"
+src = "0.0.6"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
