@@ -63,6 +63,8 @@ pub async fn handler(
 ) -> Result<(), Error> {
     info!("Handling lambda invocation");
 
+    let mctx = process::MetadataContext::new();
+
     // TODO this may need to be moved process
     // TODO will this always produce just one bucket/key? (check this)
     debug!("Handling event: {:?}", evt);
@@ -71,7 +73,8 @@ pub async fn handler(
         events::Combined::S3(s3_event) => {
             info!("S3 EVENT Detected");
             let (bucket, key) = handle_s3_event(s3_event).await?;
-            crate::logs::process::s3(&clients.s3, coralogix_exporter, config, bucket, key).await?;
+            crate::logs::process::s3(&mctx, &clients.s3, coralogix_exporter, config, bucket, key)
+                .await?;
         }
         events::Combined::Sns(sns_event) => {
             debug!("SNS Event: {:?}", sns_event);
@@ -80,11 +83,19 @@ pub async fn handler(
                 let s3_event = serde_json::from_str::<S3Event>(message)?;
                 let (bucket, key) = handle_s3_event(s3_event).await?;
                 info!("SNS S3 EVENT Detected");
-                crate::logs::process::s3(&clients.s3, coralogix_exporter, config, bucket, key)
-                    .await?;
+                crate::logs::process::s3(
+                    &mctx,
+                    &clients.s3,
+                    coralogix_exporter,
+                    config,
+                    bucket,
+                    key,
+                )
+                .await?;
             } else {
                 info!("SNS TEXT EVENT Detected");
                 crate::logs::process::sns_logs(
+                    &mctx,
                     sns_event.records[0].sns.message.clone(),
                     coralogix_exporter,
                     config,
@@ -95,7 +106,8 @@ pub async fn handler(
         events::Combined::CloudWatchLogs(logs_event) => {
             info!("CLOUDWATCH EVENT Detected");
             let cloudwatch_event_log = handle_cloudwatch_logs_event(logs_event).await?;
-            process::cloudwatch_logs(cloudwatch_event_log, coralogix_exporter, config).await?;
+            process::cloudwatch_logs(&mctx, cloudwatch_event_log, coralogix_exporter, config)
+                .await?;
         }
         events::Combined::Sqs(sqs_event) => {
             debug!("SQS Event: {:?}", sqs_event.records[0]);
@@ -187,18 +199,43 @@ pub async fn handler(
                         result?;
                     } else {
                         debug!("SQS TEXT EVENT Detected");
-                        process::sqs_logs(message.clone(), coralogix_exporter.clone(), config)
-                            .await?;
+                        process::sqs_logs(
+                            &mctx,
+                            message.clone(),
+                            coralogix_exporter.clone(),
+                            config,
+                        )
+                        .await?;
                     }
                 }
             }
         }
         events::Combined::Kinesis(kinesis_event) => {
             for record in kinesis_event.records {
+                mctx.insert(
+                    "kinesis.event.id".to_string(),
+                    record.event_id.clone().unwrap_or("null".to_string()),
+                );
+                mctx.insert(
+                    "kinesis.event.name".to_string(),
+                    record.event_name.clone().unwrap_or("null".to_string()),
+                );
+                mctx.insert(
+                    "kinesis.event.source".to_string(),
+                    record.event_source.clone().unwrap_or("null".to_string()),
+                );
+                mctx.insert(
+                    "kinesis.event.source_arn".to_string(),
+                    record
+                        .event_source_arn
+                        .clone()
+                        .unwrap_or("null".to_string()),
+                );
+
                 debug!("Kinesis record: {:?}", record);
                 let message = record.kinesis.data;
                 debug!("Kinesis data: {:?}", &message);
-                process::kinesis_logs(message, coralogix_exporter.clone(), config).await?;
+                process::kinesis_logs(&mctx, message, coralogix_exporter.clone(), config).await?;
             }
         }
         events::Combined::Kafka(kafka_event) => {
@@ -207,11 +244,12 @@ pub async fn handler(
                 debug!("Kafka record: {topic_partition:?} --> {records:?}");
                 all_records.append(&mut records)
             }
-            process::kafka_logs(all_records, coralogix_exporter.clone(), config).await?;
+            process::kafka_logs(&mctx, all_records, coralogix_exporter.clone(), config).await?;
         }
         events::Combined::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);
             process::ecr_scan_logs(
+                &mctx,
                 &clients.ecr,
                 ecr_scan_event,
                 coralogix_exporter.clone(),

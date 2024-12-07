@@ -1,11 +1,11 @@
 use crate::logs::config::Config;
-use crate::logs::process::Metadata;
 use crate::logs::*;
 use cx_sdk_rest_logs::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
 use cx_sdk_rest_logs::DynLogExporter;
 use futures::stream::{StreamExt, TryStreamExt};
 use itertools::Itertools;
+use process;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ pub async fn process_batches(
     configured_app_name: &str,
     configured_sub_name: &str,
     config: &Config,
-    metadata_instance: &Metadata,
+    mctx: &process::MetadataContext,
     exporter: DynLogExporter,
 ) -> Result<(), Error> {
     let logs: Vec<String> = logs
@@ -122,21 +122,24 @@ fn convert_to_log_entry(
     log: String,
     configured_app_name: &str,
     configured_sub_name: &str,
-    metadata_instance: &Metadata,
+    mctx: &process::MetadataContext,
     config: &Config,
 ) -> LogSinglesEntry<Value> {
     let now = OffsetDateTime::now_utc();
-    let application_name = dynamic_metadata_for_log(
-        configured_app_name,
-        &log,
-        metadata_instance.key_name.clone(),
-    );
+    
+    let application_name = mctx
+        .evaluate(configured_app_name.to_string())
+        .unwrap_or_else(|e| {
+            tracing::warn!("application name dynamic parsing failed, using: {}", e);
+            configured_app_name.to_owned()
+        });
+
     tracing::debug!("App Name: {}", &application_name);
-    let subsystem_name = dynamic_metadata_for_log(
-        configured_sub_name,
-        &log,
-        metadata_instance.key_name.clone(),
-    );
+    let subsystem_name = mctx.evaluate(configured_sub_name.to_string()).unwrap_or_else(|e| {
+        tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
+        configured_sub_name.to_owned()
+    });
+
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     let stream_name = metadata_instance.stream_name.clone();
@@ -306,6 +309,8 @@ fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<Strin
         Some(app_name.to_string())
     }
 }
+
+fn dynamic_metadata_value(mctx: process::MetadataContext, value: String) -> String {}
 
 fn get_severity_level(message: &str) -> Severity {
     let mut severity: Severity = Severity::Info;
