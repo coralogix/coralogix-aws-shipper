@@ -79,8 +79,9 @@ pub async fn handler(
         events::Combined::Sns(sns_event) => {
             debug!("SNS Event: {:?}", sns_event);
             let message = &sns_event.records[0].sns.message;
-            if config.integration_type != IntegrationType::Sns {
-                let s3_event = serde_json::from_str::<S3Event>(message)?;
+
+            // check for s3 event
+            if let Ok(s3_event) = serde_json::from_str::<S3Event>(message) {
                 let (bucket, key) = handle_s3_event(s3_event).await?;
                 info!("SNS S3 EVENT Detected");
                 crate::logs::process::s3(
@@ -102,6 +103,30 @@ pub async fn handler(
                 )
                 .await?;
             }
+
+            // if config.integration_type != IntegrationType::Sns {
+            //     let s3_event = serde_json::from_str::<S3Event>(message)?;
+            //     let (bucket, key) = handle_s3_event(s3_event).await?;
+            //     info!("SNS S3 EVENT Detected");
+            //     crate::logs::process::s3(
+            //         &mctx,
+            //         &clients.s3,
+            //         coralogix_exporter,
+            //         config,
+            //         bucket,
+            //         key,
+            //     )
+            //     .await?;
+            // } else {
+            //     info!("SNS TEXT EVENT Detected");
+            //     crate::logs::process::sns_logs(
+            //         &mctx,
+            //         sns_event.records[0].sns.message.clone(),
+            //         coralogix_exporter,
+            //         config,
+            //     )
+            //     .await?;
+            // }
         }
         events::Combined::CloudWatchLogs(logs_event) => {
             info!("CLOUDWATCH EVENT Detected");
@@ -112,6 +137,9 @@ pub async fn handler(
         events::Combined::Sqs(sqs_event) => {
             debug!("SQS Event: {:?}", sqs_event.records[0]);
             for record in &sqs_event.records {
+                mctx.insert("sqs.event.id".to_string(), record.message_id.clone());
+                mctx.insert("sqs.event.source".to_string(), record.event_source.clone());
+                
                 if let Some(message) = &record.body {
                     if config.integration_type != IntegrationType::Sqs {
                         let evt: events::Combined = serde_json::from_str(message)?;
@@ -214,23 +242,18 @@ pub async fn handler(
             for record in kinesis_event.records {
                 mctx.insert(
                     "kinesis.event.id".to_string(),
-                    record.event_id.clone().unwrap_or("null".to_string()),
-                );
+                    record.event_id.clone());
                 mctx.insert(
                     "kinesis.event.name".to_string(),
-                    record.event_name.clone().unwrap_or("null".to_string()),
-                );
+                    record.event_name.clone());
                 mctx.insert(
                     "kinesis.event.source".to_string(),
-                    record.event_source.clone().unwrap_or("null".to_string()),
-                );
+                    record.event_source.clone());
                 mctx.insert(
                     "kinesis.event.source_arn".to_string(),
                     record
                         .event_source_arn
-                        .clone()
-                        .unwrap_or("null".to_string()),
-                );
+                        .clone());
 
                 debug!("Kinesis record: {:?}", record);
                 let message = record.kinesis.data;
@@ -248,6 +271,12 @@ pub async fn handler(
         }
         events::Combined::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);
+            mctx.insert("ecr.scan.id".to_string(), ecr_scan_event.id.clone());
+            mctx.insert(
+                "ecr.scan.source".to_string(),
+                ecr_scan_event.source.clone(),
+            );
+
             process::ecr_scan_logs(
                 &mctx,
                 &clients.ecr,
