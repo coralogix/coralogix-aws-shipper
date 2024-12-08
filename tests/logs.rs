@@ -382,7 +382,7 @@ async fn test_folder_s3_event() {
     temp_env::async_with_vars(
         [
             ("CORALOGIX_API_KEY", Some("1234456789X")),
-            ("APP_NAME", Some("{{s3_key.2}}")),
+            ("APP_NAME", Some(r#"$.s3.key|r'[a-z-]+/(\w+)/.*$'"#)),
             ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
             ("SAMPLING", Some("1")),
             ("INTEGRATION_TYPE", Some("S3")),
@@ -580,7 +580,9 @@ async fn run_vpcflowlgos_s3_event() {
 
     for (i, log_line) in log_lines.iter().enumerate() {
         let expected: Value = serde_json::from_str(log_line).unwrap();
-        assert_eq!(singles[0].entries[i].body, expected);
+        let logentry = singles[0].entries[i].body.to_string();
+        let logentry_value: Value = serde_json::from_str(logentry.as_str()).unwrap();
+        assert_eq!(logentry_value, expected);
     }
 
     assert!(
