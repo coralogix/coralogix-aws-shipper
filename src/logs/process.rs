@@ -45,8 +45,8 @@ pub async fn s3(
 
     let key_str = key.clone();
     let key_path = Path::new(&key_str);
-    mctx.insert("s3.bucket".to_string(), bucket.clone());
-    mctx.insert("s3.key".to_string(), key.clone());
+    mctx.insert("s3.bucket".to_string(), Some(bucket.clone()));
+    mctx.insert("s3.key".to_string(), Some(key.clone()));
 
     let batches = match config.integration_type {
         // VPC Flow Logs Needs Prefix and Sufix to be exact AWSLogs/ and .log.gz
@@ -124,7 +124,7 @@ use std::sync::{Arc, RwLock};
 // use std::collections::HashMap;
 
 pub struct MetadataContext {
-    inner: Arc<RwLock<HashMap<String, String>>>,
+    inner: Arc<RwLock<HashMap<String, Option<String>>>>,
 }
 
 impl MetadataContext {
@@ -134,14 +134,18 @@ impl MetadataContext {
         }
     }
 
-    pub fn insert(&self, key: String, value: String) {
+    pub fn insert(&self, key: String, value: Option<String>) {
         let mut inner = self.inner.write().unwrap();
         inner.insert(key, value);
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
         let inner = self.inner.read().unwrap();
-        inner.get(key).cloned()
+        if let Some(v) = inner.get(key).cloned() {
+            v
+        } else {
+            None
+        }
     }
 
     pub fn evaluate(&self, value: String) -> Result<String, String> {
@@ -270,7 +274,7 @@ pub async fn sqs_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let mut batches = Vec::new();
-    tracing::debug!("SNS Message: {:?}", sqs_message);
+    tracing::debug!("SQS Message: {:?}", sqs_message);
     batches.push(sqs_message.clone());
     coralogix::process_batches(
         batches,
@@ -438,9 +442,9 @@ async fn process_cloudwatch_logs(
     blocking_pattern: &str,
 ) -> Result<Vec<String>, Error> {
     // Add CW metadata
-    metadata.insert("cw.log.group".to_string(), cw_event.log_group.clone());
-    metadata.insert("cw.log.stream".to_string(), cw_event.log_stream.clone());
-    metadata.insert("cw.owner".to_string(), cw_event.owner.clone());
+    metadata.insert("cw.log.group".to_string(), Some(cw_event.log_group.clone()));
+    metadata.insert("cw.log.stream".to_string(), Some(cw_event.log_stream.clone()));
+    metadata.insert("cw.owner".to_string(), Some(cw_event.owner.clone()));
 
     let log_entries: Vec<String> = cw_event
         .log_events
@@ -642,7 +646,7 @@ pub async fn kafka_logs(
         if let Some(value) = record.value {
             mctx.insert(
                 "kafka.topic".to_string(),
-                record.topic.clone().expect("Topic name is missing"),
+                record.topic.clone(),
             );
             // check if value is base64 encoded
             if let Ok(message) = BASE64_STANDARD.decode(&value) {
