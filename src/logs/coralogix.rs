@@ -104,7 +104,7 @@ fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec
 #[derive(Serialize, Deserialize, Default)]
 struct JsonMessage {
     message: Value,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "s3.key")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "s3.object.key")]
     s3_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "s3.bucket")]
     s3_bucket: Option<String>,
@@ -152,7 +152,7 @@ impl From<&process::MetadataContext> for JsonMessage {
     fn from(mctx: &process::MetadataContext) -> Self {
         Self {
             message: Value::Null,
-            s3_key: mctx.get("s3.key"),
+            s3_key: mctx.get("s3.object.key"),
             s3_bucket: mctx.get("s3.bucket"),
             cw_log_group:  mctx.get("cw.log.group"),
             cw_log_stream: mctx.get("cw.log.stream"),
@@ -171,7 +171,7 @@ impl From<&process::MetadataContext> for JsonMessage {
             stream_name: mctx.get("cw.log.stream"),
             loggroup_name: mctx.get("cw.log.group"),
             bucket_name: mctx.get("s3.bucket"),
-            key_name: mctx.get("s3.key"),
+            key_name: mctx.get("s3.object.key"),
             topic_name: mctx.get("kafka.topic"),
             custom_metadata: HashMap::new(),
         }
@@ -208,7 +208,7 @@ impl JsonMessage {
     fn with_selected_metadata(mut self, mctx: &process::MetadataContext, selected_metadata_keys: Vec<&str>) -> Self {
         for key in selected_metadata_keys {
             match key {
-                "s3.key" => self.s3_key = mctx.get("s3.key"),
+                "s3.object.key" => self.s3_key = mctx.get("s3.object.key"),
                 "s3.bucket" => self.s3_bucket = mctx.get("s3.bucket"),
                 "cw.log.group" => self.cw_log_group = mctx.get("cw.log.group"),
                 "cw.log.stream" => self.cw_log_stream = mctx.get("cw.log.stream"),
@@ -225,7 +225,7 @@ impl JsonMessage {
                 "stream_name" => self.stream_name = mctx.get("cw.log.stream"),
                 "loggroup_name" => self.loggroup_name = mctx.get("cw.log.group"),
                 "bucket_name" => self.bucket_name = mctx.get("s3.bucket"),
-                "key_name" => self.key_name = mctx.get("s3.key"),
+                "key_name" => self.key_name = mctx.get("s3.object.key"),
                 "topic_name" => self.topic_name = mctx.get("kafka.topic"),
                 _ => {}
             }

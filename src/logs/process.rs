@@ -141,7 +141,7 @@ pub async fn s3(
     let key_str = key.clone();
     let key_path = Path::new(&key_str);
     mctx.insert("s3.bucket".to_string(), Some(bucket.clone()));
-    mctx.insert("s3.key".to_string(), Some(key.clone()));
+    mctx.insert("s3.object.key".to_string(), Some(key.clone()));
 
     let batches = match config.integration_type {
         // VPC Flow Logs Needs Prefix and Sufix to be exact AWSLogs/ and .log.gz
