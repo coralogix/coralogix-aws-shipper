@@ -86,9 +86,9 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | SubsystemName                | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
 | ApiKey                       | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.<br>*Note the parameter expects the API Key in plain text or if stored in secret manager.*                          |               | :heavy_check_mark: |
 | StoreAPIKeyInSecretsManager  | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          | :heavy_check_mark: |
-| ReservedConcurrentExecutions | The number of concurrent executions that are reserved for the function, leave empty so the lambda will use unreserved account concurrency.                                                                                                                                                                                                                                                            | n/a          |                    |
-| LambdaAssumeRoleARN          | A role that the lambda will assume, leave empty to use the default permissions.<br> Note that if this Parameter is used, all __S3__ and __ECR__ API calls from the lambda will be made with the permissions of the Assumed Role.                                                                                                                          |               |                    |
-| ExecutionRoleARN             | The arn of a user defined role that will be used as the execution role for the lambda function                                                                                                                       |               |                    |
+| ReservedConcurrentExecutions | The number of concurrent executions that are reserved for the function, leave empty so the lambda will use unreserved account concurrency.                                                                                                                                                                                         | n/a           |                    |
+| LambdaAssumeRoleARN          | A role that the lambda will assume, leave empty to use the default permissions.<br> Note that if this Parameter is used, all **S3** and **ECR** API calls from the lambda will be made with the permissions of the Assumed Role.                                                                                                   |               |                    |
+| ExecutionRoleARN             | The arn of a user defined role that will be used as the execution role for the lambda function                                                                                                                                                                                                                                     |               |                    |
 
 > **Note:** `EcrScan` doesn't need any extra configuration.
 
@@ -96,10 +96,9 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 
 In some cases special or more fine tuned IAM permissions are required. The AWS Shipper supports more granular IAM control using 2 parameters:
 
-- __LambdaAssumeRoleARN__: This parameter allows you to specify a Role ARN, enabling the Lambda function to assume the role. The assumed role will only affect S3 and ECR API calls, as these are the only services invoked by the Lambda function at the code level.
+- **LambdaAssumeRoleARN**: This parameter allows you to specify a Role ARN, enabling the Lambda function to assume the role. The assumed role will only affect S3 and ECR API calls, as these are the only services invoked by the Lambda function at the code level.
 
-
-- __ExecutionRoleARN__: This parameter lets you specify the Execution Role for the AWS Shipper Lambda. The provided role must have basic Lambda execution permissions, and any additional permissions required for the Lambda’s operation will be automatically added during deployment.
+- **ExecutionRoleARN**: This parameter lets you specify the Execution Role for the AWS Shipper Lambda. The provided role must have basic Lambda execution permissions, and any additional permissions required for the Lambda’s operation will be automatically added during deployment.
 
 Basic lambda execution role permission:
 
@@ -222,6 +221,74 @@ Use the following options if you need to configure a private link with Coralogix
 | LambdaSecurityGroupID | Specify the ID of the Security Group where the integration should be deployed. |               | :heavy_check_mark: |
 | UsePrivateLink        | Set this to true if you will be using AWS PrivateLink.                         | false         | :heavy_check_mark: |
 
+### Metadata
+
+The metadata features decribed below are only available in `coralogix-aws-shipper v1.1.0` and later.
+
+The `AddMetadata` parameter allows you to add metadata to the log message. The metadata is added to the log message as a JSON object. The metadata is specific to the integration type. For example, for S3, the metadata is `s3.object.key` and `s3.bucket`. For CloudWatch, the metadata is `cw.log.group` and `cw.log.stream`. See table below for full list of metadata.
+
+| Integration Type | Metadata Key             | Description                           |
+|------------------|--------------------------|---------------------------------------|
+| S3               | s3.bucket                | The name of the S3 bucket             |
+| S3               | s3.object.key            | The key/path of the S3 object         |
+| CloudWatch       | cw.log.group             | The name of the CloudWatch log group  |
+| CloudWatch       | cw.log.stream            | The name of the CloudWatch log stream |
+| Cloudwatch       | cw.owner                 | The owner of the log group            |
+| Kafka            | kafka.topic              | The name of the Kafka topic           |
+| MSK              | kafka.topic              | The name of the Kafka topic           |
+| Kinesis          | kinesis.event.id         | The kinesis event ID                  |
+| Kinesis          | kinesis.event.name       | The kinesis event name                |
+| kinesis          | kinesis.event.source     | The kinesis event source              |
+| kinesis          | kinesis.event.source_arn | The kinesis event source ARN          |
+| Sqs              | sqs.event.source         | The sqs event source/queue            |
+| Sqs              | sqs.event.id             | The sqs event id                      |
+| Ecr              | ecr.scan.id              | The ecr scan id                       |
+| Ecr              | ecr.scan.source          | The ecr scan source                   |
+
+Note that metadata is not added by default. You must specify the metadata keys you want in the `AddMetadata` parameter.
+
+For example, if you want to add the bucket name and key name to the log message, you would set the `AddMetadata` parameter to `s3.object.key,s3.bucket`.
+
+Some metadata keys will overlap as some integrations share the same metadata. For example, both Kafka and MSK have the same metadata key `kafka.topic` or both Kinesis and Cloudwatch metadata will be added in cases where a Cloudwatch log stream is being ingested from a Kinesis stream.
+
+##### Dynamic Subsystem or Application Name
+
+As of `v1.1.0`,you can use dynamic values for the Application and Subsystem Name parameters based on the internal metadata defined above.
+
+To do accomplish this, you can use the following syntax:
+
+```
+ApplicationName/SubsystemName: {{ metadata.key | r'regex' }}
+```
+
+For example, if you want to use the bucket name as the subsystem name, you would set the `SubsystemName` parameter to:
+
+```
+{{ s3.bucket }}
+```
+
+If you want to use the log group name as the application name, you would set the `ApplicationName` parameter to:
+
+```
+{{ cw.log.group }}
+```
+
+If you only want to use part of the metadata value, you can use a regular expression to extract the desired part. For example, If we have an `s3.object.key` value of `AWSLogs/112322232/ELB1/elb.log` and we want to extract the last part of the key as the Subsystem name, we would use the following:
+
+```
+SubsystemName: {{ s3.object.key | r'AWSLogs\/.+\/(.*)$' }}
+```
+
+This would result in a SubsystemName value of `elb.log` as this is the part of the regex that is captured by the group `(.*)`.
+
+**Important**:
+
+- The regex must be a valid regex pattern.
+- The regex must define a capture group for part of the string you want to use as the value
+- The metadata key must exist in the list defined above and be a part of the integration type that is deployed.
+
+This would extract the last part of the bucket name after the last `/`.
+
 ### Advanced Configuration
 
 **AWS PrivateLink**
@@ -229,6 +296,8 @@ Use the following options if you need to configure a private link with Coralogix
 If you want to bypass using the public internet, you can use AWS PrivateLink to facilitate secure connections between your VPCs and AWS Services. This option is available under the [VPC Configuration](#vpc-configuration-optional) tab. To turn it on, either check off the Use Private Link box in the Coralogix UI or set the parameter to `true`. For additional instructions on AWS PrivateLink, please [follow our dedicated tutorial](https://coralogix.com/docs/coralogix-amazon-web-services-aws-privatelink-endpoints/).
 
 **Dynamic Values**
+
+> Note the following method for using dynamic values will change to the method defined above in `coralogix-aws-shipper v1.1.0` and later. This approach will no longer be supported.
 
 If you wish to use dynamic values for the Application and Subsystem Name parameters, consider the following:
 
