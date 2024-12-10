@@ -19,12 +19,107 @@ use std::ops::Range;
 use std::path::Path;
 use std::string::String;
 use std::time::Instant;
-
+use std::sync::{Arc, RwLock};
 use tracing::{debug, info};
 
 use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
 use crate::logs::ecr;
+
+
+pub struct MetadataContext {
+    inner: Arc<RwLock<HashMap<String, Option<String>>>>,
+}
+
+impl MetadataContext {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn insert(&self, key: String, value: Option<String>) {
+        let mut inner = self.inner.write().unwrap();
+        inner.insert(key, value);
+    }
+
+    pub fn get(&self, key: &str) -> Option<String> {
+        let inner = self.inner.read().unwrap();
+        if let Some(v) = inner.get(key).cloned() {
+            v
+        } else {
+            None
+        }
+    }
+
+    /// evalueate dynamic metadata values for application_name and subsystem_name values.
+    /// values are expected to be in the format of<br>
+    /// `{{key}}` or `{{key|regex}}`, the regex must include a capture group which will be
+    /// used to extract the value. The key is the key in the metadata context map.
+    pub fn evaluate(&self, value: String) -> Result<String, String> {
+        if !value.starts_with("{{") && !value.ends_with("}}") {
+            return Ok(value);
+        };
+
+        let (reg, key) = if value.contains("|") {
+            let r = Regex::new(r#"\{\{\s?(?<key>[a-z\.0-9]+)\s?\|?\s?r'(?<regex>.*)'\s?\}\}"#)
+                .map_err(|e| format!("invalid regex {}", e))?;
+
+            let captures = r
+                .captures(&value)
+                .map_err(|e| format!("capture error: {}", e))?;
+            let captures = captures.ok_or("no captures found")?;
+
+            let key = captures
+                .name("key")
+                .ok_or("key not found")?
+                .as_str()
+                .to_string();
+            let reg = captures
+                .name("regex")
+                .ok_or("regex not found")?
+                .as_str()
+                .to_string();
+            (reg, key)
+        } else {
+            let r = Regex::new(r#"\{\{\s?(?<key>[a-z\.0-9]+)\s?\}\}"#)
+                .map_err(|e| format!("invalid regex {}", e))?;
+
+            let captures = r
+                .captures(&value)
+                .map_err(|e| format!("capture error: {}", e))?;
+            let captures = captures.ok_or("no captures found")?;
+            ("".to_string(), captures
+                .name("key")
+                .ok_or("key not found")?
+                .as_str()
+                .to_string())
+        };
+
+        if let Some(v) = self.get(&key) {
+            if reg.is_empty() {
+                return Ok(v);
+            }
+
+            // apply reg
+            let re = Regex::new(reg.as_str())
+                .map_err(|e| format!("invalid regex for dynamic metadata: {}", e))?;
+            let captures = re
+                .captures(&v)
+                .map_err(|e| format!("regex capture group error: {}", e))?;
+            let captures = captures.ok_or(format!("at least one regex capture group is required for dynamic metadata evaluation, none found in regex: {}", reg))?;
+            return Ok(captures
+                .get(1)
+                .ok_or("capture group not found")?
+                .as_str()
+                .to_string());
+        };
+
+        Err("failed to evaluate dynamic metadata".to_string())
+    }
+}
+
+
 
 pub async fn s3(
     mctx: &MetadataContext,
@@ -118,87 +213,6 @@ pub async fn s3(
     Ok(())
 }
 
-// pub struct MetadataHandler(Rc<RefCell<HashMap<String, String>>>);
-
-use std::sync::{Arc, RwLock};
-// use std::collections::HashMap;
-
-pub struct MetadataContext {
-    inner: Arc<RwLock<HashMap<String, Option<String>>>>,
-}
-
-impl MetadataContext {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-
-    pub fn insert(&self, key: String, value: Option<String>) {
-        let mut inner = self.inner.write().unwrap();
-        inner.insert(key, value);
-    }
-
-    pub fn get(&self, key: &str) -> Option<String> {
-        let inner = self.inner.read().unwrap();
-        if let Some(v) = inner.get(key).cloned() {
-            v
-        } else {
-            None
-        }
-    }
-
-    pub fn evaluate(&self, value: String) -> Result<String, String> {
-        if !value.starts_with("$.") {
-            return Ok(value);
-        };
-
-        let (reg, key) = if value.contains("|") {
-            let r = Regex::new(r#"\$\.(?<key>.*)\s?\|?\s?r'(?<regex>.*)'"#)
-                .map_err(|e| format!("invalid regex {}", e))?;
-
-            let captures = r
-                .captures(&value)
-                .map_err(|e| format!("capture error: {}", e))?;
-            let captures = captures.ok_or("no captures found")?;
-
-            let key = captures
-                .name("key")
-                .ok_or("key not found")?
-                .as_str()
-                .to_string();
-            let reg = captures
-                .name("regex")
-                .ok_or("regex not found")?
-                .as_str()
-                .to_string();
-            (reg, key)
-        } else {
-            (value.replace("$.", "").trim().to_string(), "".to_string())
-        };
-
-        if let Some(v) = self.get(&key) {
-            if reg.is_empty() {
-                return Ok(v);
-            }
-
-            // apply reg
-            let re = Regex::new(reg.as_str())
-                .map_err(|e| format!("invalid regex for dynamic metadata: {}", e))?;
-            let captures = re
-                .captures(&v)
-                .map_err(|e| format!("regex capture group error: {}", e))?;
-            let captures = captures.ok_or(format!("at least one regex capture group is required for dynamic metadata evaluation, none found in regex: {}", reg))?;
-            return Ok(captures
-                .get(1)
-                .ok_or("capture group not found")?
-                .as_str()
-                .to_string());
-        };
-
-        Err("failed to evaluate dynamic metadata".to_string())
-    }
-}
 
 pub async fn kinesis_logs(
     mctx: &MetadataContext,
@@ -779,7 +793,7 @@ mod test {
     use crate::logs::process::{block, sample, split};
 
     #[test]
-    fn test() {
+    fn test_sampling() {
         let log_file_contents = r#"09-24 16:09:07.042: ERROR1 System.out(4844): java.lang.NullPointerException
 at com.temp.ttscancel.MainActivity.onCreate(MainActivity.java:43)
 at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)
@@ -819,4 +833,31 @@ at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#
         //at com.temp.ttscancel.MainActivity.onCreate(MainActivity.java:43)
         //at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#);
     }
+
+    #[test]
+    fn test_metadata_context_and_evaluation() {
+        let metadata = super::MetadataContext::new();
+        metadata.insert("key1".to_string(), Some("hello".to_string()));
+        metadata.insert("key2".to_string(), Some("world".to_string()));
+        assert_eq!(metadata.get("key1").unwrap(), "hello");
+        assert_eq!(metadata.get("key2").unwrap(), "world");
+        assert_eq!(metadata.get("key3"), None);
+
+        // evaluate
+        let r = metadata.evaluate("{{key1}}".to_string()).unwrap();
+        assert_eq!(r, "hello");
+
+        let r = metadata.evaluate(r#"{{key2|r'^(\w).*'}}"#.to_string()).unwrap();
+        assert_eq!(r, "w");
+
+        // with spaces
+        let r = metadata.evaluate(r#"{{ key2 | r'^(\w).*' }}"#.to_string()).unwrap();
+        assert_eq!(r, "w");
+
+        // invalid regex
+        let r = metadata.evaluate(r#"{{ key2 | r'^(\w' }}"#.to_string());
+        assert!(r.is_err());
+    }
+
+
 }
