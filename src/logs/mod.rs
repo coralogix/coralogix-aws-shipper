@@ -9,9 +9,9 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sqs::types::MessageAttributeValue;
 use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
 use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
-use http::header::USER_AGENT;
+// use http::header::USER_AGENT;
 use lambda_runtime::{Context, Error, LambdaEvent};
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info};
@@ -28,25 +28,15 @@ pub fn set_up_coralogix_exporter(config: &config::Config) -> Result<DynLogExport
         max_elapsed_time: Duration::from_secs(config.max_elapsed_time),
     };
 
-    let mut headers: HashMap<String, String> = HashMap::new();
-    headers.insert(
-        USER_AGENT.to_string(),
-        concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),).to_owned(),
-    );
-    headers.insert(
-        "X-Coralogix-Data-Source".to_owned(),
-        config.integration_type.to_string(),
-    );
     let config = LogExporterConfig {
         url: config.endpoint.clone(),
         request_timeout: Duration::from_secs(30),
         backoff_config: backoff,
-        user_agent: None,
-        additional_headers: headers,
+        user_agent: Some(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),).to_owned()),
+        linger: None,
+        strict_mode: None,
+        processing_flow: None,
         request_body_size_limit: None,
-        keep_alive_interval: None,
-        keep_alive_timeout: None,
-        keep_alive_while_idle: None,
     };
     let exporter = Arc::new(RestLogExporter::builder().with_config(config).build()?);
 
@@ -103,30 +93,6 @@ pub async fn handler(
                 )
                 .await?;
             }
-
-            // if config.integration_type != IntegrationType::Sns {
-            //     let s3_event = serde_json::from_str::<S3Event>(message)?;
-            //     let (bucket, key) = handle_s3_event(s3_event).await?;
-            //     info!("SNS S3 EVENT Detected");
-            //     crate::logs::process::s3(
-            //         &mctx,
-            //         &clients.s3,
-            //         coralogix_exporter,
-            //         config,
-            //         bucket,
-            //         key,
-            //     )
-            //     .await?;
-            // } else {
-            //     info!("SNS TEXT EVENT Detected");
-            //     crate::logs::process::sns_logs(
-            //         &mctx,
-            //         sns_event.records[0].sns.message.clone(),
-            //         coralogix_exporter,
-            //         config,
-            //     )
-            //     .await?;
-            // }
         }
         events::Combined::CloudWatchLogs(logs_event) => {
             info!("CLOUDWATCH EVENT Detected");
