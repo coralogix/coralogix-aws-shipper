@@ -1,5 +1,17 @@
 # Changelog
 
+### v1.1.0 / 2025-12-11
+### 💡 Enhancements (Breaking) 💡
+- cds-1705 - updated support for dynamic value allocation of Application and Subsystem names based on internal metadata
+- cds-1706 - updated how metadata is recorded and propagated throughout the function, including adding more metadata fields and updating the names of others.
+    - stream_name --> cw.log.stream
+    - bucket_name --> s3.bucket
+    - key_name --> s3.object.key
+    - topic_name --> kafka.topic
+    - log_group_name --> cw.log.group
+
+- [cds-1707] - Added new syntax for evaluating dynamic allocation fields. `{{ metadata | r'regex' }}`
+
 ## v1.0.16 / 2024-11-20
 ### 🧰 Bug fixes 🧰
 - cds-1690 - Fixed a bug that when you update cloudwatch log group for an existing integraiotn from the CF the stack will fail.

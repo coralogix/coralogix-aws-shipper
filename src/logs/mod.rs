@@ -9,9 +9,9 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sqs::types::MessageAttributeValue;
 use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
 use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
-use http::header::USER_AGENT;
+// use http::header::USER_AGENT;
 use lambda_runtime::{Context, Error, LambdaEvent};
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info};
@@ -28,25 +28,15 @@ pub fn set_up_coralogix_exporter(config: &config::Config) -> Result<DynLogExport
         max_elapsed_time: Duration::from_secs(config.max_elapsed_time),
     };
 
-    let mut headers: HashMap<String, String> = HashMap::new();
-    headers.insert(
-        USER_AGENT.to_string(),
-        concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),).to_owned(),
-    );
-    headers.insert(
-        "X-Coralogix-Data-Source".to_owned(),
-        config.integration_type.to_string(),
-    );
     let config = LogExporterConfig {
         url: config.endpoint.clone(),
         request_timeout: Duration::from_secs(30),
         backoff_config: backoff,
-        user_agent: None,
-        additional_headers: headers,
+        user_agent: Some(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),).to_owned()),
+        linger: None,
+        strict_mode: None,
+        processing_flow: None,
         request_body_size_limit: None,
-        keep_alive_interval: None,
-        keep_alive_timeout: None,
-        keep_alive_while_idle: None,
     };
     let exporter = Arc::new(RestLogExporter::builder().with_config(config).build()?);
 
@@ -63,6 +53,8 @@ pub async fn handler(
 ) -> Result<(), Error> {
     info!("Handling lambda invocation");
 
+    let mctx = process::MetadataContext::new();
+
     // TODO this may need to be moved process
     // TODO will this always produce just one bucket/key? (check this)
     debug!("Handling event: {:?}", evt);
@@ -71,20 +63,30 @@ pub async fn handler(
         events::Combined::S3(s3_event) => {
             info!("S3 EVENT Detected");
             let (bucket, key) = handle_s3_event(s3_event).await?;
-            crate::logs::process::s3(&clients.s3, coralogix_exporter, config, bucket, key).await?;
+            crate::logs::process::s3(&mctx, &clients.s3, coralogix_exporter, config, bucket, key)
+                .await?;
         }
         events::Combined::Sns(sns_event) => {
             debug!("SNS Event: {:?}", sns_event);
             let message = &sns_event.records[0].sns.message;
-            if config.integration_type != IntegrationType::Sns {
-                let s3_event = serde_json::from_str::<S3Event>(message)?;
+
+            // check for s3 event
+            if let Ok(s3_event) = serde_json::from_str::<S3Event>(message) {
                 let (bucket, key) = handle_s3_event(s3_event).await?;
                 info!("SNS S3 EVENT Detected");
-                crate::logs::process::s3(&clients.s3, coralogix_exporter, config, bucket, key)
-                    .await?;
+                crate::logs::process::s3(
+                    &mctx,
+                    &clients.s3,
+                    coralogix_exporter,
+                    config,
+                    bucket,
+                    key,
+                )
+                .await?;
             } else {
                 info!("SNS TEXT EVENT Detected");
                 crate::logs::process::sns_logs(
+                    &mctx,
                     sns_event.records[0].sns.message.clone(),
                     coralogix_exporter,
                     config,
@@ -95,11 +97,15 @@ pub async fn handler(
         events::Combined::CloudWatchLogs(logs_event) => {
             info!("CLOUDWATCH EVENT Detected");
             let cloudwatch_event_log = handle_cloudwatch_logs_event(logs_event).await?;
-            process::cloudwatch_logs(cloudwatch_event_log, coralogix_exporter, config).await?;
+            process::cloudwatch_logs(&mctx, cloudwatch_event_log, coralogix_exporter, config)
+                .await?;
         }
         events::Combined::Sqs(sqs_event) => {
             debug!("SQS Event: {:?}", sqs_event.records[0]);
             for record in &sqs_event.records {
+                mctx.insert("sqs.event.id".to_string(), record.message_id.clone());
+                mctx.insert("sqs.event.source".to_string(), record.event_source.clone());
+                
                 if let Some(message) = &record.body {
                     if config.integration_type != IntegrationType::Sqs {
                         let evt: events::Combined = serde_json::from_str(message)?;
@@ -187,18 +193,38 @@ pub async fn handler(
                         result?;
                     } else {
                         debug!("SQS TEXT EVENT Detected");
-                        process::sqs_logs(message.clone(), coralogix_exporter.clone(), config)
-                            .await?;
+                        process::sqs_logs(
+                            &mctx,
+                            message.to_owned(),
+                            coralogix_exporter.clone(),
+                            config,
+                        )
+                        .await?;
                     }
                 }
             }
         }
         events::Combined::Kinesis(kinesis_event) => {
             for record in kinesis_event.records {
+                mctx.insert(
+                    "kinesis.event.id".to_string(),
+                    record.event_id.clone());
+                mctx.insert(
+                    "kinesis.event.name".to_string(),
+                    record.event_name.clone());
+                mctx.insert(
+                    "kinesis.event.source".to_string(),
+                    record.event_source.clone());
+                mctx.insert(
+                    "kinesis.event.source_arn".to_string(),
+                    record
+                        .event_source_arn
+                        .clone());
+
                 debug!("Kinesis record: {:?}", record);
                 let message = record.kinesis.data;
                 debug!("Kinesis data: {:?}", &message);
-                process::kinesis_logs(message, coralogix_exporter.clone(), config).await?;
+                process::kinesis_logs(&mctx, message, coralogix_exporter.clone(), config).await?;
             }
         }
         events::Combined::Kafka(kafka_event) => {
@@ -207,11 +233,18 @@ pub async fn handler(
                 debug!("Kafka record: {topic_partition:?} --> {records:?}");
                 all_records.append(&mut records)
             }
-            process::kafka_logs(all_records, coralogix_exporter.clone(), config).await?;
+            process::kafka_logs(&mctx, all_records, coralogix_exporter.clone(), config).await?;
         }
         events::Combined::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);
+            mctx.insert("ecr.scan.id".to_string(), ecr_scan_event.id.clone());
+            mctx.insert(
+                "ecr.scan.source".to_string(),
+                ecr_scan_event.source.clone(),
+            );
+
             process::ecr_scan_logs(
+                &mctx,
                 &clients.ecr,
                 ecr_scan_event,
                 coralogix_exporter.clone(),
