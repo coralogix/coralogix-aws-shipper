@@ -195,7 +195,7 @@ pub async fn handler(
                         debug!("SQS TEXT EVENT Detected");
                         process::sqs_logs(
                             &mctx,
-                            message.clone(),
+                            message.to_owned(),
                             coralogix_exporter.clone(),
                             config,
                         )
