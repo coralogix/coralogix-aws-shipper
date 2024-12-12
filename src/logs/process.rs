@@ -21,10 +21,22 @@ use std::string::String;
 use std::time::Instant;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info};
+use once_cell::sync::Lazy;
 
 use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
 use crate::logs::ecr;
+
+// Lazy initialization with once_cell
+static METADATA_EVALUATION_WITH_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\{\{\s?(?<key>[a-z\.0-9_]+)\s?\|?\s?r'(?<regex>.*)'\s?\}\}"#)
+        .expect("Failed to create regex")
+});
+
+static METADATA_EVALUATION_DEFAULT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\{\{\s?(?<key>[a-z\.0-9_]+)\s?\}\}"#)
+        .expect("Failed to create regex")
+});
 
 
 pub struct MetadataContext {
@@ -62,10 +74,7 @@ impl MetadataContext {
         };
 
         let (reg, key) = if value.contains("|") {
-            let r = Regex::new(r#"\{\{\s?(?<key>[a-z\.0-9]+)\s?\|?\s?r'(?<regex>.*)'\s?\}\}"#)
-                .map_err(|e| format!("invalid regex {}", e))?;
-
-            let captures = r
+            let captures = METADATA_EVALUATION_WITH_REGEX
                 .captures(&value)
                 .map_err(|e| format!("capture error: {}", e))?;
             let captures = captures.ok_or("no captures found")?;
@@ -82,10 +91,7 @@ impl MetadataContext {
                 .to_string();
             (reg, key)
         } else {
-            let r = Regex::new(r#"\{\{\s?(?<key>[a-z\.0-9]+)\s?\}\}"#)
-                .map_err(|e| format!("invalid regex {}", e))?;
-
-            let captures = r
+            let captures = METADATA_EVALUATION_DEFAULT
                 .captures(&value)
                 .map_err(|e| format!("capture error: {}", e))?;
             let captures = captures.ok_or("no captures found")?;
@@ -839,6 +845,7 @@ at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#
         let metadata = super::MetadataContext::new();
         metadata.insert("key1".to_string(), Some("hello".to_string()));
         metadata.insert("key2".to_string(), Some("world".to_string()));
+        metadata.insert("key_with_underscore".to_string(), Some("devs".to_string()));
         assert_eq!(metadata.get("key1").unwrap(), "hello");
         assert_eq!(metadata.get("key2").unwrap(), "world");
         assert_eq!(metadata.get("key3"), None);
@@ -849,6 +856,10 @@ at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#
 
         let r = metadata.evaluate(r#"{{key2|r'^(\w).*'}}"#.to_string()).unwrap();
         assert_eq!(r, "w");
+
+        // with underscore
+        let r = metadata.evaluate("{{key_with_underscore}}".to_string()).unwrap();
+        assert_eq!(r, "devs");
 
         // with spaces
         let r = metadata.evaluate(r#"{{ key2 | r'^(\w).*' }}"#.to_string()).unwrap();
