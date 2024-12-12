@@ -258,7 +258,7 @@ As of `v1.1.0`,you can use dynamic values for the Application and Subsystem Name
 To do accomplish this, you can use the following syntax:
 
 ```
-ApplicationName/SubsystemName: {{ metadata.key | r'regex' }}
+{{ metadata.key | r'regex' }}
 ```
 
 For example, if you want to use the bucket name as the subsystem name, you would set the `SubsystemName` parameter to:
@@ -273,10 +273,10 @@ If you want to use the log group name as the application name, you would set the
 {{ cw.log.group }}
 ```
 
-If you only want to use part of the metadata value, you can use a regular expression to extract the desired part. For example, If we have an `s3.object.key` value of `AWSLogs/112322232/ELB1/elb.log` and we want to extract the last part of the key as the Subsystem name, we would use the following:
+If you only want to use part of the metadata value, you can use a regular expression to extract the desired part. For example, If we have an `s3.object.key` value of `AWSLogs/112322232/ELB1/elb.log` and we want to extract the last part of the key as the Subsystem name, we would set the `SubsystemName` parameter to:
 
 ```
-SubsystemName: {{ s3.object.key | r'AWSLogs\/.+\/(.*)$' }}
+{{ s3.object.key | r'AWSLogs\/.+\/(.*)$' }}
 ```
 
 This would result in a SubsystemName value of `elb.log` as this is the part of the regex that is captured by the group `(.*)`.
@@ -287,7 +287,7 @@ This would result in a SubsystemName value of `elb.log` as this is the part of t
 - The regex must define a capture group for part of the string you want to use as the value
 - The metadata key must exist in the list defined above and be a part of the integration type that is deployed.
 
-This would extract the last part of the bucket name after the last `/`.
+Dynamic values are only supported for the `ApplicationName` and `SubsystemName` parameters, the `CustomMetadata` parameter is not supported.
 
 ### Advanced Configuration
 
