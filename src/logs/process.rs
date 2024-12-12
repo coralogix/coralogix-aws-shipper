@@ -29,12 +29,12 @@ use crate::logs::ecr;
 
 // Lazy initialization with once_cell
 static METADATA_EVALUATION_WITH_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\{\{\s?(?<key>[a-z\.0-9_]+)\s?\|?\s?r'(?<regex>.*)'\s?\}\}"#)
+    Regex::new(r#"\{\{\s*(?<key>[a-z\.0-9_]+)\s*\|?\s*r'(?<regex>.*)'\s*\}\}"#)
         .expect("Failed to create regex")
 });
 
 static METADATA_EVALUATION_DEFAULT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\{\{\s?(?<key>[a-z\.0-9_]+)\s?\}\}"#)
+    Regex::new(r#"\{\{\s*(?<key>[a-z\.0-9_]+)\s*\}\}"#)
         .expect("Failed to create regex")
 });
 
@@ -357,8 +357,6 @@ pub async fn cloudwatch_logs(
 
     let logs = match config.integration_type {
         IntegrationType::CloudWatch => {
-            // metadata_instance.stream_name = cloudwatch_event_log.data.log_stream.clone();
-            // metadata_instance.log_group = cloudwatch_event_log.data.log_group.clone();
             process_cloudwatch_logs(
                 &mctx,
                 cloudwatch_event_log.data,
