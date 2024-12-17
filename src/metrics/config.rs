@@ -6,7 +6,7 @@ use std::{env, fmt};
 
 use aws_config::SdkConfig;
 use aws_sdk_secretsmanager::operation::get_secret_value::GetSecretValueError;
-use cx_sdk_rest_logs::auth::ApiKey;
+// use cx_sdk_rest_logs::auth::ApiKey;
 
 
 // let api_key = env::var("CORALOGIX_API_KEY").unwrap_or_default();
@@ -18,7 +18,7 @@ use cx_sdk_rest_logs::auth::ApiKey;
 
 
 pub struct Config {
-    pub api_key: ApiKey,
+    pub api_key: String,
     pub endpoint: String,
     pub app_name: String,
     pub sub_name: String,
@@ -28,7 +28,7 @@ pub struct Config {
 
 impl Config {
     pub fn load_from_env() -> Result<Config, String> {
-        let api_key = env::var("CORALOGIX_API_KEY").unwrap_or_default();
+        let api_key  = env::var("CORALOGIX_API_KEY").map_err(|e| format!("CORALOGIX_API_KEY is not set: {}", e))?;
         let endpoint = env::var("CORALOGIX_DOMAIN").unwrap_or_else(|_| "ingress.private.coralogix.com".to_string());
         let app_name = env::var("APP_NAME").unwrap_or_else(|_| "aws".to_string());
         let sub_name = env::var("SUB_NAME").unwrap_or_else(|_| "metrics".to_string());
