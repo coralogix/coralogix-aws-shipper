@@ -382,7 +382,10 @@ async fn test_folder_s3_event() {
     temp_env::async_with_vars(
         [
             ("CORALOGIX_API_KEY", Some("1234456789X")),
-            ("APP_NAME", Some(r#"{{ s3.object.key | r'[a-z-]+/(\w+)/.*$' }}"#)),
+            (
+                "APP_NAME",
+                Some(r#"{{ s3.object.key | r'[a-z-]+/(\w+)/.*$' }}"#),
+            ),
             ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
             ("SAMPLING", Some("1")),
             ("INTEGRATION_TYPE", Some("S3")),

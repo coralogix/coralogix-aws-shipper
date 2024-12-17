@@ -1,11 +1,11 @@
 use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::event::cloudwatch_logs::LogsEvent;
+use aws_lambda_events::event::firehose::KinesisFirehoseEvent;
 use aws_lambda_events::event::kafka::KafkaEvent;
 use aws_lambda_events::event::kinesis::KinesisEvent;
 use aws_lambda_events::event::s3::S3Event;
 use aws_lambda_events::event::sns::SnsEvent;
 use aws_lambda_events::event::sqs::SqsEvent;
-use aws_lambda_events::event::firehose::KinesisFirehoseEvent;
 
 use serde::de::{self, Deserialize, Deserializer};
 use serde_json::Value;
