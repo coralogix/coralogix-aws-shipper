@@ -1,11 +1,47 @@
-
+use crate::metrics::config::Config;
 use aws_lambda_events::event::firehose::KinesisFirehoseEvent;
 use aws_lambda_events::firehose::KinesisFirehoseResponse;
 use aws_lambda_events::firehose::KinesisFirehoseResponseRecord;
 use aws_lambda_events::firehose::KinesisFirehoseResponseRecordMetadata;
-use crate::metrics::config::Config;
+use lambda_runtime::Error;
+use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
+use opentelemetry_proto::tonic::common::v1::any_value;
+use opentelemetry_proto::tonic::common::v1::AnyValue;
+use opentelemetry_proto::tonic::common::v1::KeyValue;
+use prost::encoding::decode_varint;
+use prost::Message;
+use reqwest;
+use tracing::{debug, error, info};
 
-pub async fn kinesis_firehose(config: &Config,  event: KinesisFirehoseEvent) {
+fn split_length_delimited(data: &[u8]) -> Result<Vec<&[u8]>, String> {
+    let mut chunks = Vec::new();
+    let mut remaining = data;
+
+    while remaining.len() > 0 {
+        // Decode the length prefix (varint)
+        let length = decode_varint(&mut remaining)
+            .map_err(|e| format!("Failed to decode varint: {}", e))? as usize;
+
+        // Ensure the remaining data is enough for the length
+        if length > remaining.len() {
+            return Err("Insufficient data for length-delimited field".to_string());
+        }
+
+        // Extract the length-delimited chunk
+        let chunk = &remaining[0..length];
+        chunks.push(chunk);
+
+        // Move the position forward
+        remaining = &remaining[length..]
+    }
+
+    Ok(chunks)
+}
+
+pub async fn kinesis_firehose(
+    config: &Config,
+    event: KinesisFirehoseEvent,
+) -> Result<KinesisFirehoseResponse, Error> {
     let mut response_records = Vec::new();
 
     // Iterate over all records in the KinesisFirehoseEvent
@@ -37,7 +73,7 @@ pub async fn kinesis_firehose(config: &Config,  event: KinesisFirehoseEvent) {
                 //debug!("Listing Resources: {:?}", resource);
                 for scope_metrics in resource.scope_metrics.iter_mut() {
                     //debug!("Scope Metrics Iter: {:?}", scope_metrics.metrics.iter());
-                    for metric in scope_metrics.metrics.iter_mut() {  
+                    for metric in scope_metrics.metrics.iter_mut() {
                         //metric.unit = curly_braces_re.replace_all(&metric.unit, "").to_string().to_lowercase();
                         metric.unit = "".to_string();
                         debug!("Metric Metadata: {:?}", metric.data);
@@ -79,13 +115,13 @@ pub async fn kinesis_firehose(config: &Config,  event: KinesisFirehoseEvent) {
                                         new_attributes.push(KeyValue {
                                             key: "cx.application.name".to_string(),
                                             value: Some(AnyValue {
-                                                value: Some(any_value::Value::StringValue(app_name.clone())),
+                                                value: Some(any_value::Value::StringValue(config.app_name.clone())),
                                             }),
                                         });
                                         new_attributes.push(KeyValue {
                                             key: "cx.subsystem.name".to_string(),
                                             value: Some(AnyValue {
-                                                value: Some(any_value::Value::StringValue(sub_name.clone())),
+                                                value: Some(any_value::Value::StringValue(config.sub_name.clone())),
                                             }),
 
                                         });
@@ -110,7 +146,7 @@ pub async fn kinesis_firehose(config: &Config,  event: KinesisFirehoseEvent) {
                         }
                     }
                 }
-            };
+            }
 
             let mut modified_message_vec = Vec::new();
             if let Err(e) = decoded_message.encode(&mut modified_message_vec) {
@@ -122,11 +158,14 @@ pub async fn kinesis_firehose(config: &Config,  event: KinesisFirehoseEvent) {
             let mut attempts = 0;
             let res = loop {
                 let res = reqwest::Client::new()
-                    .post(&format!("https://{}/v1/metrics", endpoint))
+                    .post(&format!("https://{}/v1/metrics", config.endpoint))
                     .header("Content-Type", "application/x-protobuf")
-                    .header("Authorization", &format!("Bearer {}", api_key))
-                    .header("cx.application.name", &app_name)
-                    .header("cx.subsystem.name", &sub_name)
+                    .header(
+                        "Authorization",
+                        &format!("Bearer {}", config.api_key.token()),
+                    )
+                    .header("cx.application.name", &config.app_name)
+                    .header("cx.subsystem.name", &config.sub_name)
                     .body(modified_message_vec.clone())
                     .send()
                     .await;
@@ -142,14 +181,14 @@ pub async fn kinesis_firehose(config: &Config,  event: KinesisFirehoseEvent) {
                             attempts
                         );
 
-                        if attempts >= retry_limit {
+                        if attempts >= config.retry_limit {
                             error!("Dropping after {:?} retries", attempts);
                             break Err(Error::from("Request failed after retries"));
                         }
                     }
                     Err(e) => {
                         error!("Request error: {:?}", e);
-                        if attempts >= retry_limit {
+                        if attempts >= config.retry_limit {
                             error!("Dropping after {:?} retries", attempts);
                             break Err(Error::from("Request failed after retries"));
                         }
@@ -157,7 +196,7 @@ pub async fn kinesis_firehose(config: &Config,  event: KinesisFirehoseEvent) {
                 }
 
                 attempts += 1;
-                tokio::time::sleep(std::time::Duration::from_secs(retry_delay)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(config.retry_delay)).await;
             };
 
             match res {
