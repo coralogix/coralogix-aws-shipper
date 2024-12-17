@@ -47,3 +47,4 @@ reqwest = "0.12.9"
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
 test-log = "0.2.16"
+wiremock = "0.6.2"
