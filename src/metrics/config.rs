@@ -1,12 +1,6 @@
-use aws_config::SdkConfig;
-use aws_sdk_secretsmanager::operation::get_secret_value::GetSecretValueError;
 use cx_sdk_rest_logs::auth::ApiKey;
-use prost_types::Api;
-use std::fmt::Debug;
-use std::num::ParseIntError;
-use std::str::FromStr;
 use std::string::String;
-use std::{env, fmt};
+use std::env;
 
 pub struct Config {
     pub api_key: ApiKey,
