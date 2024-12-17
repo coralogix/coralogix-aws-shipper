@@ -11,6 +11,7 @@ use fancy_regex::Regex;
 use flate2::read::MultiGzDecoder;
 use itertools::Itertools;
 use lambda_runtime::Error;
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
 use std::io::Read;
@@ -18,27 +19,122 @@ use std::ops::Range;
 use std::path::Path;
 use std::string::String;
 use std::time::Instant;
+use std::sync::{Arc, RwLock};
 use tracing::{debug, info};
+use once_cell::sync::Lazy;
 
 use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
 use crate::logs::ecr;
 
+// Lazy initialization with once_cell
+static METADATA_EVALUATION_WITH_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\{\{\s*(?<key>[a-z\.0-9_]+)\s*\|?\s*r'(?<regex>.*)'\s*\}\}"#)
+        .expect("Failed to create regex")
+});
+
+static METADATA_EVALUATION_DEFAULT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\{\{\s*(?<key>[a-z\.0-9_]+)\s*\}\}"#)
+        .expect("Failed to create regex")
+});
+
+
+pub struct MetadataContext {
+    inner: Arc<RwLock<HashMap<String, Option<String>>>>,
+}
+
+impl MetadataContext {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn insert(&self, key: String, value: Option<String>) {
+        let mut inner = self.inner.write().unwrap();
+        inner.insert(key, value);
+    }
+
+    pub fn get(&self, key: &str) -> Option<String> {
+        let inner = self.inner.read().unwrap();
+        if let Some(v) = inner.get(key).cloned() {
+            v
+        } else {
+            None
+        }
+    }
+
+    /// evalueate dynamic metadata values for application_name and subsystem_name values.
+    /// values are expected to be in the format of<br>
+    /// `{{key}}` or `{{key|regex}}`, the regex must include a capture group which will be
+    /// used to extract the value. The key is the key in the metadata context map.
+    pub fn evaluate(&self, value: String) -> Result<String, String> {
+        if !value.starts_with("{{") && !value.ends_with("}}") {
+            return Ok(value);
+        };
+
+        let (reg, key) = if value.contains("|") {
+            let captures = METADATA_EVALUATION_WITH_REGEX
+                .captures(&value)
+                .map_err(|e| format!("capture error: {}", e))?;
+            let captures = captures.ok_or("no captures found")?;
+
+            let key = captures
+                .name("key")
+                .ok_or("key not found")?
+                .as_str()
+                .to_string();
+            let reg = captures
+                .name("regex")
+                .ok_or("regex not found")?
+                .as_str()
+                .to_string();
+            (reg, key)
+        } else {
+            let captures = METADATA_EVALUATION_DEFAULT
+                .captures(&value)
+                .map_err(|e| format!("capture error: {}", e))?;
+            let captures = captures.ok_or("no captures found")?;
+            ("".to_string(), captures
+                .name("key")
+                .ok_or("key not found")?
+                .as_str()
+                .to_string())
+        };
+
+        if let Some(v) = self.get(&key) {
+            if reg.is_empty() {
+                return Ok(v);
+            }
+
+            // apply reg
+            let re = Regex::new(reg.as_str())
+                .map_err(|e| format!("invalid regex for dynamic metadata: {}", e))?;
+            let captures = re
+                .captures(&v)
+                .map_err(|e| format!("regex capture group error: {}", e))?;
+            let captures = captures.ok_or(format!("at least one regex capture group is required for dynamic metadata evaluation, none found in regex: {}", reg))?;
+            return Ok(captures
+                .get(1)
+                .ok_or("capture group not found")?
+                .as_str()
+                .to_string());
+        };
+
+        Err("failed to evaluate dynamic metadata".to_string())
+    }
+}
+
+
+
 pub async fn s3(
+    mctx: &MetadataContext,
     s3_client: &Client,
     coralogix_exporter: DynLogExporter,
     config: &Config,
     bucket: String,
     key: String,
 ) -> Result<(), Error> {
-    let mut metadata_instance = Metadata {
-        stream_name: String::new(),
-        log_group: String::new(),
-        bucket_name: String::new(),
-        key_name: String::new(),
-        topic_name: String::new(),
-        broker_name: String::new(),
-    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -50,19 +146,18 @@ pub async fn s3(
 
     let key_str = key.clone();
     let key_path = Path::new(&key_str);
+    mctx.insert("s3.bucket".to_string(), Some(bucket.clone()));
+    mctx.insert("s3.object.key".to_string(), Some(key.clone()));
 
     let batches = match config.integration_type {
         // VPC Flow Logs Needs Prefix and Sufix to be exact AWSLogs/ and .log.gz
         IntegrationType::VpcFlow => {
             let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
-            metadata_instance.key_name = key.clone();
-            metadata_instance.bucket_name = bucket;
+
             process_vpcflows(raw_data, config.sampling, &config.blocking_pattern, key).await?
         }
         IntegrationType::S3Csv => {
             let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
-            metadata_instance.key_name = key.clone();
-            metadata_instance.bucket_name = bucket;
             process_csv(
                 raw_data,
                 config.sampling,
@@ -75,8 +170,6 @@ pub async fn s3(
         }
         IntegrationType::CloudFront => {
             let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
-            metadata_instance.key_name = key.clone();
-            metadata_instance.bucket_name = bucket;
             let cloudfront_delimiter: &str = "\t";
             process_csv(
                 raw_data,
@@ -90,8 +183,6 @@ pub async fn s3(
         }
         IntegrationType::S3 => {
             let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
-            metadata_instance.key_name = key.clone();
-            metadata_instance.bucket_name = bucket;
             process_s3(
                 raw_data,
                 config.sampling,
@@ -104,8 +195,6 @@ pub async fn s3(
         }
         IntegrationType::CloudTrail => {
             let raw_data = get_bytes_from_s3(s3_client, bucket.clone(), key.clone()).await?;
-            metadata_instance.key_name = key.clone();
-            metadata_instance.bucket_name = bucket;
             process_cloudtrail(raw_data, config.sampling, &config.blocking_pattern, key).await?
         }
         _ => {
@@ -122,7 +211,7 @@ pub async fn s3(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &metadata_instance,
+        &mctx,
         coralogix_exporter,
     )
     .await?;
@@ -130,41 +219,13 @@ pub async fn s3(
     Ok(())
 }
 
-pub struct Metadata {
-    pub stream_name: String,
-    pub log_group: String,
-    pub bucket_name: String,
-    pub key_name: String,
-    pub topic_name: String,
-    pub broker_name: String,
-}
-
-impl Default for Metadata {
-    fn default() -> Self {
-        Self {
-            stream_name: String::new(),
-            log_group: String::new(),
-            bucket_name: String::new(),
-            key_name: String::new(),
-            topic_name: String::new(),
-            broker_name: String::new(),
-        }
-    }
-}
 
 pub async fn kinesis_logs(
+    mctx: &MetadataContext,
     kinesis_message: Base64Data,
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
-        stream_name: String::new(),
-        log_group: String::new(),
-        bucket_name: String::new(),
-        key_name: String::new(),
-        topic_name: String::new(),
-        broker_name: String::new(),
-    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -194,7 +255,7 @@ pub async fn kinesis_logs(
     // String::from_utf8(decompressed_data.clone())?;
     let batches = match serde_json::from_str(&decoded_data) {
         Ok(logs) => {
-            process_cloudwatch_logs(logs, config.sampling, &config.blocking_pattern).await?
+            process_cloudwatch_logs(&mctx, logs, config.sampling, &config.blocking_pattern).await?
         }
         Err(_) => {
             tracing::error!("Failed to decode data");
@@ -211,7 +272,7 @@ pub async fn kinesis_logs(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &metadata_instance,
+        &mctx,
         coralogix_exporter,
     )
     .await?;
@@ -219,18 +280,11 @@ pub async fn kinesis_logs(
 }
 
 pub async fn sqs_logs(
+    mctx: &MetadataContext,
     sqs_message: String,
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
-        stream_name: String::new(),
-        log_group: String::new(),
-        bucket_name: String::new(),
-        key_name: String::new(),
-        topic_name: String::new(),
-        broker_name: String::new(),
-    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -240,32 +294,25 @@ pub async fn sqs_logs(
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
     let mut batches = Vec::new();
-    tracing::debug!("SNS Message: {:?}", sqs_message);
+    tracing::debug!("SQS Message: {:?}", sqs_message);
     batches.push(sqs_message.clone());
     coralogix::process_batches(
         batches,
         &defined_app_name,
         &defined_sub_name,
         config,
-        &metadata_instance,
+        &mctx,
         coralogix_exporter,
     )
     .await?;
     Ok(())
 }
 pub async fn sns_logs(
+    mctx: &MetadataContext,
     sns_message: String,
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
-        stream_name: String::new(),
-        log_group: String::new(),
-        bucket_name: String::new(),
-        key_name: String::new(),
-        topic_name: String::new(),
-        broker_name: String::new(),
-    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -282,25 +329,18 @@ pub async fn sns_logs(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &metadata_instance,
+        &mctx,
         coralogix_exporter,
     )
     .await?;
     Ok(())
 }
 pub async fn cloudwatch_logs(
+    mctx: &MetadataContext,
     cloudwatch_event_log: AwsLogs,
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let mut metadata_instance = Metadata {
-        stream_name: String::new(),
-        log_group: String::new(),
-        bucket_name: String::new(),
-        key_name: String::new(),
-        topic_name: String::new(),
-        broker_name: String::new(),
-    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -317,9 +357,8 @@ pub async fn cloudwatch_logs(
 
     let logs = match config.integration_type {
         IntegrationType::CloudWatch => {
-            metadata_instance.stream_name = cloudwatch_event_log.data.log_stream.clone();
-            metadata_instance.log_group = cloudwatch_event_log.data.log_group.clone();
             process_cloudwatch_logs(
+                &mctx,
                 cloudwatch_event_log.data,
                 config.sampling,
                 &config.blocking_pattern,
@@ -340,7 +379,7 @@ pub async fn cloudwatch_logs(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &metadata_instance,
+        &mctx,
         coralogix_exporter,
     )
     .await?;
@@ -349,19 +388,12 @@ pub async fn cloudwatch_logs(
 }
 
 pub async fn ecr_scan_logs(
+    mctx: &MetadataContext,
     ecr_client: &EcrClient,
     ecr_scan_event: EcrScanEvent,
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let metadata_instance = Metadata {
-        stream_name: String::new(),
-        log_group: String::new(),
-        bucket_name: String::new(),
-        key_name: String::new(),
-        topic_name: String::new(),
-        broker_name: String::new(),
-    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -379,7 +411,7 @@ pub async fn ecr_scan_logs(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &metadata_instance,
+        &mctx,
         coralogix_exporter,
     )
     .await?;
@@ -422,10 +454,16 @@ pub async fn get_bytes_from_s3(
 }
 
 async fn process_cloudwatch_logs(
+    metadata: &MetadataContext,
     cw_event: LogData,
     sampling: usize,
     blocking_pattern: &str,
 ) -> Result<Vec<String>, Error> {
+    // Add CW metadata
+    metadata.insert("cw.log.group".to_string(), Some(cw_event.log_group.clone()));
+    metadata.insert("cw.log.stream".to_string(), Some(cw_event.log_stream.clone()));
+    metadata.insert("cw.owner".to_string(), Some(cw_event.owner.clone()));
+
     let log_entries: Vec<String> = cw_event
         .log_events
         .into_iter()
@@ -606,18 +644,11 @@ async fn process_cloudtrail(
 }
 
 pub async fn kafka_logs(
+    mctx: &MetadataContext,
     records: Vec<KafkaRecord>,
     coralogix_exporter: DynLogExporter,
     config: &Config,
 ) -> Result<(), Error> {
-    let mut metadata_instance = Metadata {
-        stream_name: String::new(),
-        log_group: String::new(),
-        bucket_name: String::new(),
-        key_name: String::new(),
-        topic_name: String::new(),
-        broker_name: String::new(),
-    };
     let defined_app_name = config
         .app_name
         .clone()
@@ -631,12 +662,14 @@ pub async fn kafka_logs(
     let mut batch = Vec::new();
     for record in records {
         if let Some(value) = record.value {
+            mctx.insert(
+                "kafka.topic".to_string(),
+                record.topic.clone(),
+            );
             // check if value is base64 encoded
             if let Ok(message) = BASE64_STANDARD.decode(&value) {
-                metadata_instance.topic_name = record.topic.expect("Topic name is missing");
                 batch.push(String::from_utf8(message)?);
             } else {
-                metadata_instance.topic_name = record.topic.expect("Topic name is missing");
                 batch.push(value);
             }
         }
@@ -647,7 +680,7 @@ pub async fn kafka_logs(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &metadata_instance,
+        &mctx,
         coralogix_exporter,
     )
     .await?;
@@ -764,7 +797,7 @@ mod test {
     use crate::logs::process::{block, sample, split};
 
     #[test]
-    fn test() {
+    fn test_sampling() {
         let log_file_contents = r#"09-24 16:09:07.042: ERROR1 System.out(4844): java.lang.NullPointerException
 at com.temp.ttscancel.MainActivity.onCreate(MainActivity.java:43)
 at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)
@@ -804,4 +837,36 @@ at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#
         //at com.temp.ttscancel.MainActivity.onCreate(MainActivity.java:43)
         //at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#);
     }
+
+    #[test]
+    fn test_metadata_context_and_evaluation() {
+        let metadata = super::MetadataContext::new();
+        metadata.insert("key1".to_string(), Some("hello".to_string()));
+        metadata.insert("key2".to_string(), Some("world".to_string()));
+        metadata.insert("key_with_underscore".to_string(), Some("devs".to_string()));
+        assert_eq!(metadata.get("key1").unwrap(), "hello");
+        assert_eq!(metadata.get("key2").unwrap(), "world");
+        assert_eq!(metadata.get("key3"), None);
+
+        // evaluate
+        let r = metadata.evaluate("{{key1}}".to_string()).unwrap();
+        assert_eq!(r, "hello");
+
+        let r = metadata.evaluate(r#"{{key2|r'^(\w).*'}}"#.to_string()).unwrap();
+        assert_eq!(r, "w");
+
+        // with underscore
+        let r = metadata.evaluate("{{key_with_underscore}}".to_string()).unwrap();
+        assert_eq!(r, "devs");
+
+        // with spaces
+        let r = metadata.evaluate(r#"{{ key2 | r'^(\w).*' }}"#.to_string()).unwrap();
+        assert_eq!(r, "w");
+
+        // invalid regex
+        let r = metadata.evaluate(r#"{{ key2 | r'^(\w' }}"#.to_string());
+        assert!(r.is_err());
+    }
+
+
 }

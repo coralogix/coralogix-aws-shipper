@@ -1,11 +1,11 @@
 use crate::logs::config::Config;
-use crate::logs::process::Metadata;
 use crate::logs::*;
 use cx_sdk_rest_logs::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
 use cx_sdk_rest_logs::DynLogExporter;
 use futures::stream::{StreamExt, TryStreamExt};
 use itertools::Itertools;
+use process;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ pub async fn process_batches(
     configured_app_name: &str,
     configured_sub_name: &str,
     config: &Config,
-    metadata_instance: &Metadata,
+    mctx: &process::MetadataContext,
     exporter: DynLogExporter,
 ) -> Result<(), Error> {
     let logs: Vec<String> = logs
@@ -54,7 +54,7 @@ pub async fn process_batches(
                         log,
                         configured_app_name,
                         configured_sub_name,
-                        metadata_instance,
+                        mctx,
                         config,
                     )
                 })
@@ -104,6 +104,36 @@ fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec
 #[derive(Serialize, Deserialize, Default)]
 struct JsonMessage {
     message: Value,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "s3.object.key")]
+    s3_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "s3.bucket")]
+    s3_bucket: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cw.log.group")]
+    cw_log_group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cw.log.stream")]
+    cw_log_stream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cw.owner")]
+    cw_owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "kinesis.event.id")]
+    kinesis_event_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "kinesis.event.name")]
+    kinesis_event_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "kinesis.event.source")]
+    kinesis_event_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "kinesis.event.source_arn")]
+    kinesis_event_source_arn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "kafka.topic")]
+    kafka_topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "ecr.scan.id")]
+    ecr_scan_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "ecr.scan.source")]
+    ecr_scan_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sqs.event.source")]
+    sqs_event_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sqs.event.id")]
+    sqs_event_id: Option<String>,
+
+    // to be deprecated
     #[serde(skip_serializing_if = "Option::is_none")]
     stream_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,82 +148,157 @@ struct JsonMessage {
     custom_metadata: HashMap<String, String>,
 }
 
+impl From<&process::MetadataContext> for JsonMessage {
+    fn from(mctx: &process::MetadataContext) -> Self {
+        Self {
+            message: Value::Null,
+            s3_key: mctx.get("s3.object.key"),
+            s3_bucket: mctx.get("s3.bucket"),
+            cw_log_group:  mctx.get("cw.log.group"),
+            cw_log_stream: mctx.get("cw.log.stream"),
+            cw_owner: mctx.get("cw.owner"),
+            kinesis_event_id: mctx.get("kinesis.event.id"),
+            kinesis_event_name: mctx.get("kinesis.event.name"),
+            kinesis_event_source: mctx.get("kinesis.event.source"),
+            kinesis_event_source_arn: mctx.get("kinesis.event.source_arn"),
+            kafka_topic: mctx.get("kafka.topic"),
+            ecr_scan_id: mctx.get("ecr.scan.id"),
+            ecr_scan_source: mctx.get("ecr.scan.source"),
+            sqs_event_source: mctx.get("sqs.event.source"),
+            sqs_event_id: mctx.get("sqs.event.id"),
+            
+            // to be deprecated
+            stream_name: mctx.get("cw.log.stream"),
+            loggroup_name: mctx.get("cw.log.group"),
+            bucket_name: mctx.get("s3.bucket"),
+            key_name: mctx.get("s3.object.key"),
+            topic_name: mctx.get("kafka.topic"),
+            custom_metadata: HashMap::new(),
+        }
+    }
+}
+
+impl JsonMessage {
+    fn new(message: Value) -> Self {
+        Self {
+            message,
+            s3_key: None,
+            s3_bucket: None,
+            cw_log_group: None,
+            cw_log_stream: None,
+            cw_owner: None,
+            kinesis_event_id: None,
+            kinesis_event_name: None,
+            kinesis_event_source: None,
+            kinesis_event_source_arn: None,
+            kafka_topic: None,
+            ecr_scan_id: None,
+            ecr_scan_source: None,
+            sqs_event_source: None,
+            sqs_event_id: None,
+            stream_name: None,
+            loggroup_name: None,
+            bucket_name: None,
+            key_name: None,
+            topic_name: None,
+            custom_metadata: HashMap::new(),
+        }
+    }
+
+    fn with_selected_metadata(mut self, mctx: &process::MetadataContext, selected_metadata_keys: Vec<&str>) -> Self {
+        for key in selected_metadata_keys {
+            match key {
+                "s3.object.key" => self.s3_key = mctx.get("s3.object.key"),
+                "s3.bucket" => self.s3_bucket = mctx.get("s3.bucket"),
+                "cw.log.group" => self.cw_log_group = mctx.get("cw.log.group"),
+                "cw.log.stream" => self.cw_log_stream = mctx.get("cw.log.stream"),
+                "cw.owner" => self.cw_owner = mctx.get("cw.owner"),
+                "kinesis.event.id" => self.kinesis_event_id = mctx.get("kinesis.event.id"),
+                "kinesis.event.name" =>  self.kinesis_event_name = mctx.get("kinesis.event.name"),
+                "kinesis.event.source" => self.kinesis_event_source = mctx.get("kinesis.event.source"),
+                "kinesis.event.source_arn" => self.kinesis_event_source_arn = mctx.get("kinesis.event.source_arn"),
+                "kafka.topic" => self.kafka_topic = mctx.get("kafka.topic"),
+                "ecr.scan.id" => self.ecr_scan_id = mctx.get("ecr.scan.id"),
+                "ecr.scan.source" => self.ecr_scan_source = mctx.get("ecr.scan.source"),
+                "sqs.event.source" => self.sqs_event_source = mctx.get("sqs.event.source"),
+                "sqs.event.id" => self.sqs_event_id = mctx.get("sqs.event.id"),
+                "stream_name" => self.stream_name = mctx.get("cw.log.stream"),
+                "loggroup_name" => self.loggroup_name = mctx.get("cw.log.group"),
+                "bucket_name" => self.bucket_name = mctx.get("s3.bucket"),
+                "key_name" => self.key_name = mctx.get("s3.object.key"),
+                "topic_name" => self.topic_name = mctx.get("kafka.topic"),
+                _ => {}
+            }
+        }
+        self
+    }
+
+    fn has_metadata(&self) -> bool {
+        self.s3_key.is_some()
+            || self.s3_bucket.is_some()
+            || self.cw_log_group.is_some()
+            || self.cw_log_stream.is_some()
+            || self.cw_owner.is_some()
+            || self.kinesis_event_id.is_some()
+            || self.kinesis_event_name.is_some()
+            || self.kinesis_event_source.is_some()
+            || self.kinesis_event_source_arn.is_some()
+            || self.kafka_topic.is_some()
+            || self.ecr_scan_id.is_some()
+            || self.ecr_scan_source.is_some()
+            || self.sqs_event_source.is_some()
+            || self.sqs_event_id.is_some()
+          
+            // to be deprecated
+            || self.stream_name.is_some()
+            || self.loggroup_name.is_some()
+            || self.bucket_name.is_some()
+            || self.key_name.is_some()
+            || self.topic_name.is_some()
+        
+            || !self.custom_metadata.is_empty()
+    }
+}
+
 fn convert_to_log_entry(
     log: String,
     configured_app_name: &str,
     configured_sub_name: &str,
-    metadata_instance: &Metadata,
+    mctx: &process::MetadataContext,
     config: &Config,
 ) -> LogSinglesEntry<Value> {
     let now = OffsetDateTime::now_utc();
-    let application_name = dynamic_metadata_for_log(
-        configured_app_name,
-        &log,
-        metadata_instance.key_name.clone(),
-    );
+    
+    let application_name = mctx
+        .evaluate(configured_app_name.to_string())
+        .unwrap_or_else(|e| {
+            tracing::warn!("application name dynamic parsing failed, using: {}", e);
+            configured_app_name.to_owned()
+        });
+
     tracing::debug!("App Name: {}", &application_name);
-    let subsystem_name = dynamic_metadata_for_log(
-        configured_sub_name,
-        &log,
-        metadata_instance.key_name.clone(),
-    );
+    let subsystem_name = mctx.evaluate(configured_sub_name.to_string()).unwrap_or_else(|e| {
+        tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
+        configured_sub_name.to_owned()
+    });
+
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
-    let stream_name = metadata_instance.stream_name.clone();
+    // let stream_name = metadata_instance.stream_name.clone();
     // let topic_name = metadata_instance.topic_name.clone();
     // let loggroup_name = metadata_instance.log_group.clone();
     tracing::debug!("Severity: {:?}", severity);
 
-    let message = match serde_json::from_str(&log) {
+    let msg = match serde_json::from_str(&log) {
         Ok(value) => value,
         Err(_) => Value::String(log),
     };
 
-    let mut message = JsonMessage {
-        message,
-        stream_name: None,
-        loggroup_name: None,
-        bucket_name: None,
-        key_name: None,
-        topic_name: None,
-        custom_metadata: HashMap::new(),
-    };
 
     let add_metadata: Vec<&str> = config.add_metadata.split(',').map(|s| s.trim()).collect();
-
     tracing::debug!("add_metadata: {:?}", add_metadata);
+    let mut message = JsonMessage::new(msg).with_selected_metadata(mctx, add_metadata);
 
-    for metadata_field in &add_metadata {
-        tracing::debug!("Processing metadata field: {}", metadata_field);
-        match *metadata_field {
-            "stream_name" => {
-                message.stream_name = Some(metadata_instance.stream_name.clone());
-                tracing::debug!("Assigned stream_name: {}", metadata_instance.stream_name);
-            }
-            "loggroup_name" => {
-                message.loggroup_name = Some(metadata_instance.log_group.clone());
-                tracing::debug!("Assigned loggroup_name: {}", metadata_instance.log_group);
-            }
-            "bucket_name" => {
-                message.bucket_name = Some(metadata_instance.bucket_name.clone());
-                tracing::debug!("Assigned bucket_name: {}", metadata_instance.bucket_name);
-            }
-            "key_name" => {
-                message.key_name = Some(metadata_instance.key_name.clone());
-                tracing::debug!("Assigned key_name: {}", metadata_instance.key_name);
-            }
-            "topic_name" => {
-                message.topic_name = Some(metadata_instance.topic_name.clone());
-                tracing::debug!("Assigned topic_name: {}", metadata_instance.topic_name);
-            }
-            _ => {
-                tracing::debug!(
-                    "No matching metadata field or condition not met for: {}",
-                    metadata_field
-                );
-            }
-        }
-    }
     if let Ok(custom_metadata_str) = env::var("CUSTOM_METADATA") {
         debug!("Custom metadata STR: {}", custom_metadata_str);
         let mut metadata = HashMap::new();
@@ -218,13 +323,7 @@ fn convert_to_log_entry(
         }
     }
     debug!("Message metadata: {:?}", message.custom_metadata);
-    let body = if message.stream_name.is_some()
-        || message.loggroup_name.is_some()
-        || message.bucket_name.is_some()
-        || message.key_name.is_some()
-        || message.topic_name.is_some()
-        || !message.custom_metadata.is_empty()
-    {
+    let body = if message.has_metadata() {
         serde_json::to_value(&message).unwrap_or(message.message)
     } else {
         message.message
@@ -239,7 +338,7 @@ fn convert_to_log_entry(
         timestamp: now,
         class_name: None,
         method_name: None,
-        thread_id: Some(stream_name),
+        thread_id: None,
         category: None,
     }
 }
@@ -267,45 +366,8 @@ async fn send_logs(
     Ok(())
 }
 
-fn dynamic_metadata_for_log(app_name: &str, log: &str, key_name: String) -> String {
-    dynamic_metadata(app_name, log, key_name).unwrap_or_else(|| app_name.to_owned())
-}
 
-fn dynamic_metadata(app_name: &str, log: &str, key_name: String) -> Option<String> {
-    if app_name.starts_with("$.") {
-        let mut json_data = serde_json::from_str::<serde_json::Value>(log).ok()?;
-        for segment in app_name[2..].split('.') {
-            json_data = json_data
-                .as_object_mut()
-                .and_then(|obj| obj.remove(segment))?;
-        }
-        json_data.as_str().map(|str| str.to_owned())
-    } else if app_name.starts_with("{{s3_key") {
-        // Check if there is an index provided
-        let maybe_index_str = app_name
-            .trim_start_matches("{{s3_key")
-            .trim_end_matches('}');
-        debug!("Getting s3 Key from {}", app_name);
-        if let Some('.') = maybe_index_str.chars().next() {
-            // Parse the index
-            let index_str = &maybe_index_str[1..]; // Remove the leading '.'
-            if let Ok(index) = index_str.parse::<usize>() {
-                debug!("Getting index {} from {}", index_str, key_name);
-                let segments: Vec<&str> = key_name.split('/').collect();
-                debug!("Segments: {:?}", segments);
-                if index > 0 && index <= segments.len() {
-                    // Return the directory at the specified index (1-based)
-                    debug!("Returning {}", segments[index - 1]);
-                    return Some(segments[index - 1].to_string());
-                }
-            }
-        }
-        tracing::warn!("Application or Subsystem Name Parsing Failed {}", app_name);
-        Some("default".to_string())
-    } else {
-        Some(app_name.to_string())
-    }
-}
+// fn dynamic_metadata_value(mctx: process::MetadataContext, value: String) -> String {}
 
 fn get_severity_level(message: &str) -> Severity {
     let mut severity: Severity = Severity::Info;
@@ -335,88 +397,88 @@ fn get_severity_level(message: &str) -> Severity {
     severity
 }
 
-#[cfg(test)]
-mod test {
+// #[cfg(test)]
+// mod test {
 
-    use crate::logs::coralogix::dynamic_metadata_for_log;
+//     // use crate::logs::coralogix::dynamic_metadata_for_log;
 
-    #[test]
-    fn test_nondynamic_app_name() {
-        let key_name = "AwsLogs/folder1/folder2";
-        let app_name = "my-app";
-        let log_file_contents = r#"{
-            "timestamp": "09-24 16:09:07.042",
-            "message": "java.lang.NullPointerException",
-        }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-        assert_eq!(dapp, "my-app");
-    }
+//     #[test]
+//     fn test_nondynamic_app_name() {
+//         let key_name = "AwsLogs/folder1/folder2";
+//         let app_name = "my-app";
+//         let log_file_contents = r#"{
+//             "timestamp": "09-24 16:09:07.042",
+//             "message": "java.lang.NullPointerException",
+//         }"#;
+//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
+//         assert_eq!(dapp, "my-app");
+//     }
 
-    #[test]
-    fn test_fall_back_to_app_name_when_dynamic_app_name_is_missing() {
-        let key_name = "AwsLogs/folder1/folder2";
-        let app_name = "$.app_name";
-        let log_file_contents = r#"{
-            "timestamp": "09-24 16:09:07.042",
-            "message": "java.lang.NullPointerException",
-        }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-        assert_eq!(dapp, "$.app_name");
-    }
+//     #[test]
+//     fn test_fall_back_to_app_name_when_dynamic_app_name_is_missing() {
+//         let key_name = "AwsLogs/folder1/folder2";
+//         let app_name = "$.app_name";
+//         let log_file_contents = r#"{
+//             "timestamp": "09-24 16:09:07.042",
+//             "message": "java.lang.NullPointerException",
+//         }"#;
+//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
+//         assert_eq!(dapp, "$.app_name");
+//     }
 
-    #[test]
-    fn test_simple_dynamic_app_name() {
-        let key_name = "AwsLogs/folder1/folder2";
-        let app_name = "$.app_name";
-        let log_file_contents = r#"{
-            "timestamp": "09-24 16:09:07.042",
-            "message": "java.lang.NullPointerException",
-            "app_name": "my-awesome-app"
-        }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-        assert_eq!(dapp, "my-awesome-app");
-    }
+//     #[test]
+//     fn test_simple_dynamic_app_name() {
+//         let key_name = "AwsLogs/folder1/folder2";
+//         let app_name = "$.app_name";
+//         let log_file_contents = r#"{
+//             "timestamp": "09-24 16:09:07.042",
+//             "message": "java.lang.NullPointerException",
+//             "app_name": "my-awesome-app"
+//         }"#;
+//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
+//         assert_eq!(dapp, "my-awesome-app");
+//     }
 
-    #[test]
-    fn test_nested_dynamic_app_name() {
-        let key_name = "AwsLogs/folder1/folder2";
-        let app_name = "$.metadata.app_name";
-        let log_file_contents = r#"{
-            "timestamp": "09-24 16:09:07.042",
-            "message": "java.lang.NullPointerException",
-            "metadata": {
-                "app_name": "my-awesome-app2"
-            }
-        }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-        assert_eq!(dapp, "my-awesome-app2");
-    }
-    #[test]
-    fn test_dynamic_folder_app_name() {
-        let key_name = "AwsLogs/folder1/folder2";
-        let app_name = "{{s3_key.2}}";
-        let log_file_contents = r#"{
-            "timestamp": "09-24 16:09:07.042",
-            "message": "java.lang.NullPointerException",
-            "metadata": {
-                "app_name": "my-awesome-app2"
-            }
-        }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-        assert_eq!(dapp, "folder1");
-    }
-    #[test]
-    fn test_dynamic_folder_app_name_fails() {
-        let key_name = "AwsLogs/folder1/folder2";
-        let app_name = "{{s3_key.8}}";
-        let log_file_contents = r#"{
-            "timestamp": "09-24 16:09:07.042",
-            "message": "java.lang.NullPointerException",
-            "metadata": {
-                "app_name": "my-awesome-app2"
-            }
-        }"#;
-        let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-        assert_eq!(dapp, "default");
-    }
-}
+//     #[test]
+//     fn test_nested_dynamic_app_name() {
+//         let key_name = "AwsLogs/folder1/folder2";
+//         let app_name = "$.metadata.app_name";
+//         let log_file_contents = r#"{
+//             "timestamp": "09-24 16:09:07.042",
+//             "message": "java.lang.NullPointerException",
+//             "metadata": {
+//                 "app_name": "my-awesome-app2"
+//             }
+//         }"#;
+//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
+//         assert_eq!(dapp, "my-awesome-app2");
+//     }
+//     #[test]
+//     fn test_dynamic_folder_app_name() {
+//         let key_name = "AwsLogs/folder1/folder2";
+//         let app_name = "{{s3_key.2}}";
+//         let log_file_contents = r#"{
+//             "timestamp": "09-24 16:09:07.042",
+//             "message": "java.lang.NullPointerException",
+//             "metadata": {
+//                 "app_name": "my-awesome-app2"
+//             }
+//         }"#;
+//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
+//         assert_eq!(dapp, "folder1");
+//     }
+//     #[test]
+//     fn test_dynamic_folder_app_name_fails() {
+//         let key_name = "AwsLogs/folder1/folder2";
+//         let app_name = "{{s3_key.8}}";
+//         let log_file_contents = r#"{
+//             "timestamp": "09-24 16:09:07.042",
+//             "message": "java.lang.NullPointerException",
+//             "metadata": {
+//                 "app_name": "my-awesome-app2"
+//             }
+//         }"#;
+//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
+//         assert_eq!(dapp, "default");
+//     }
+// }
