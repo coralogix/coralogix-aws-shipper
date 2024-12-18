@@ -43,6 +43,7 @@ opentelemetry-proto = "0.27.0"
 prost = "0.13.3"
 prost-types = "0.13.3"
 reqwest = "0.12.9"
+openssl = { version = "0.10.68", features = ["vendored"] }
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
