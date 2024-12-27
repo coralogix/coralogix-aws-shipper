@@ -1,5 +1,9 @@
 # Changelog
 
+### v1.1.1 / 2025-12-27
+### 🧰 Bug fixes 🧰
+- cds-1747 - Removed `iam:*` permissions from Shipper, as they were leftover from older versions as the Custom Resource use to be responsible for editing the policy directly
+
 ### v1.1.0 / 2025-12-11
 ### 💡 Enhancements (Breaking) 💡
 - cds-1705 - updated support for dynamic value allocation of Application and Subsystem names based on internal metadata
