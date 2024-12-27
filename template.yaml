@@ -1167,12 +1167,6 @@ Resources:
       Timeout: 900
       Policies:
       - Statement:
-        - Sid: IAMaccess
-          Effect: Allow
-          Action:
-            - 'iam:*'
-          Resource: '*'
-      - Statement:
         - Sid: EC2Access
           Effect: Allow
           Action:
