@@ -1193,7 +1193,7 @@ Resources:
           - lambda:UpdateEventSourceMapping
           - lambda:GetFunctionConfiguration
           - lambda:UpdateFunctionConfiguration
-          Resource: '*'
+          Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*
       - Statement:
         - Sid: S3NotificationPolicy
           Effect: Allow
