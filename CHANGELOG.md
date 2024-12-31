@@ -1,5 +1,9 @@
 # Changelog
 
+### v1.1.2 / 2025-12-31
+### 🧰 Bug fixes 🧰
+- cds-1756 - Restricted Lambda `EventSourceMapping` permissions used by custom resource function, so it won't have a wildcard/full resource access
+
 ### v1.1.1 / 2025-12-27
 ### 🧰 Bug fixes 🧰
 - cds-1747 - Removed `iam:*` permissions from Shipper, as they were leftover from older versions as the Custom Resource use to be responsible for editing the policy directly
