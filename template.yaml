@@ -650,7 +650,7 @@ Resources:
             - Effect: Allow
               Action:
                 - 's3:GetObject'
-              Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+              Resource: arn:aws:s3:::*
             - !Ref AWS::NoValue
           # SQS Policy
           - !If
@@ -1192,15 +1192,16 @@ Resources:
           - lambda:UpdateEventSourceMapping
           - lambda:GetFunctionConfiguration
           - lambda:UpdateFunctionConfiguration
-          Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*
+          Resource: 
+            - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:* 
+            - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
       - Statement:
         - Sid: S3NotificationPolicy
           Effect: Allow
           Action:
           - s3:GetBucketNotification
           - s3:PutBucketNotification
-          Resource:
-            Fn::Sub: arn:aws:s3:::*
+          Resource: arn:aws:s3:::*
         - Sid: PutSubscriptionFilter
           Effect: Allow
           Action:
