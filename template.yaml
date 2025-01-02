@@ -184,7 +184,7 @@ Parameters:
     Type: String
     Description: |
       The name of the AWS S3 bucket to watch
-    AllowedPattern: '^[0-9A-Za-z\.\-_]*(?<!\.)$'
+    # AllowedPattern: '^[0-9A-Za-z\.\-_]*(?<!\.)$'
     Default: "none"
     MaxLength: 63
 
@@ -652,7 +652,6 @@ Resources:
                 - 's3:GetObject'
               Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
             - !Ref AWS::NoValue
-
           # SQS Policy
           - !If
             - SQSIsSet
@@ -1201,7 +1200,7 @@ Resources:
           - s3:GetBucketNotification
           - s3:PutBucketNotification
           Resource:
-            Fn::Sub: arn:aws:s3:::${S3BucketName}
+            Fn::Sub: arn:aws:s3:::*
         - Sid: PutSubscriptionFilter
           Effect: Allow
           Action:
