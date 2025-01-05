@@ -184,7 +184,7 @@ Parameters:
     Type: String
     Description: |
       The name of the AWS S3 bucket to watch
-    # AllowedPattern: '^[0-9A-Za-z\.\-_]*(?<!\.)$'
+    AllowedPattern: '^([0-9A-Za-z\.\-_]+)(,[0-9A-Za-z\.\-_]+)*$'
     Default: "none"
     MaxLength: 63
 
