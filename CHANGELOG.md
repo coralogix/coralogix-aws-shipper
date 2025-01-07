@@ -1,6 +1,6 @@
 # Changelog
 
-### v1.2.0 / 2025-1-5
+### v1.2.0 / 2025-1-7
 ### 🧰 Bug fixes 🧰
 - Add permissions to custom lambda for `event-source-mapping`
 ### 💡 Enhancements 💡
