@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.2.0 / 2025-1-7
+### 🧰 Bug fixes 🧰
+- Add permissions to custom lambda for `event-source-mapping`
+### 💡 Enhancements 💡
+- Add support to deploy 1 integration with multiple S3 buckets by passing comma seperated list to `S3BucketName` parameter
+
 ### v1.1.2 / 2025-12-31
 ### 🧰 Bug fixes 🧰
 - cds-1756 - Restricted Lambda `EventSourceMapping` permissions used by custom resource function, so it won't have a wildcard/full resource access
