@@ -25,7 +25,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.1.2
+    SemanticVersion: 1.2.0
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -184,7 +184,7 @@ Parameters:
     Type: String
     Description: |
       The name of the AWS S3 bucket to watch
-    AllowedPattern: '^[0-9A-Za-z\.\-_]*(?<!\.)$'
+    AllowedPattern: '^([0-9A-Za-z\.\-_]+)(,[0-9A-Za-z\.\-_]+)*$'
     Default: "none"
     MaxLength: 63
 
@@ -650,9 +650,8 @@ Resources:
             - Effect: Allow
               Action:
                 - 's3:GetObject'
-              Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+              Resource: arn:aws:s3:::*
             - !Ref AWS::NoValue
-
           # SQS Policy
           - !If
             - SQSIsSet
@@ -1193,15 +1192,16 @@ Resources:
           - lambda:UpdateEventSourceMapping
           - lambda:GetFunctionConfiguration
           - lambda:UpdateFunctionConfiguration
-          Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*
+          Resource: 
+            - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:* 
+            - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
       - Statement:
         - Sid: S3NotificationPolicy
           Effect: Allow
           Action:
           - s3:GetBucketNotification
           - s3:PutBucketNotification
-          Resource:
-            Fn::Sub: arn:aws:s3:::${S3BucketName}
+          Resource: arn:aws:s3:::*
         - Sid: PutSubscriptionFilter
           Effect: Allow
           Action:

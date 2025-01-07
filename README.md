@@ -124,7 +124,7 @@ If you don’t want to send data directly as it enters S3, you can also use SNS/
 
 | Parameter      | Description                                                                                                                                                                                       | Default Value                            | Required           |
 |----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------|--------------------|
-| S3BucketName   | Specify the name of the AWS S3 bucket that you want to monitor.                                                                                                                                   |                                          | :heavy_check_mark: |
+| S3BucketName   | Comma-separated list of names for the AWS S3 buckets that you want to monitor.                                                                                                                                   |                                          | :heavy_check_mark: |
 | S3KeyPrefix    | Specify the prefix of the log path within your S3 bucket. This value is ignored if you use the SNSTopicArn/SQSTopicArn parameter.                                                                 | CloudTrail/VpcFlow 'AWSLogs/'            |                    |
 | S3KeySuffix    | Filter for the suffix of the file path in your S3 bucket. This value is ignored if you use the SNSTopicArn/SQSTopicArn parameter.                                                                 | CloudTrail '.json.gz', VpcFlow '.log.gz' |                    |
 | NewlinePattern | Enter a regular expression to detect a new log line for multiline logs, e.g., \n(?=\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}.\d{3}).                                                                         |                                          |                    |
@@ -323,6 +323,9 @@ To enable the DLQ, you must provide the required parameters outlined below.
 | DLQS3Bucket   | An S3 bucket used to store all failure events that have exhausted retries.    |               | :heavy_check_mark: |
 | DLQRetryLimit | The number of times a failed event should be retried before being saved in S3 | 3             | :heavy_check_mark: |
 | DLQRetryDelay | The delay in seconds between retries of failed events                         | 900           | :heavy_check_mark: |
+
+> [!NOTE]
+> In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation, it is not an option to loop through the s3 bucket and specify permissions to each one. After the lambda gets created you can manually change the permissions to only allow access to your S3 buckets.
 
 ## Troubleshooting
 

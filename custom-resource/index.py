@@ -120,77 +120,77 @@ class ConfigureS3Integration:
         self.params = SimpleNamespace(**event['ResourceProperties']['Parameters'])
 
     @handle_exceptions
-    def handle_lambda_permissions(self, bucket_name, lambda_function_arn, function_name, request_type):
-        statement_id = f'allow-s3-invoke-{function_name}'
-        if request_type == 'Delete':
-            response = self.aws_lambda.remove_permission(
+    def handle_lambda_permissions(self, bucket_name_list, lambda_function_arn, function_name, request_type):
+        for bucket_name in bucket_name_list.split(","):
+            statement_id = f'allow-s3-{bucket_name}-invoke-{function_name}'
+            if request_type == 'Delete':
+                response = self.aws_lambda.remove_permission(
+                    FunctionName=lambda_function_arn,
+                    StatementId=statement_id
+                )
+                print("Permission removed from Lambda function:", response)
+                return
+            response = self.aws_lambda.add_permission(
                 FunctionName=lambda_function_arn,
-                StatementId=statement_id
+                StatementId=f'allow-s3-{bucket_name}-invoke',
+                Action='lambda:InvokeFunction',
+                Principal='s3.amazonaws.com',
+                SourceArn=f'arn:aws:s3:::{bucket_name}'
             )
-            print("Permission removed from Lambda function:", response)
-            return
-        
-        response = self.aws_lambda.add_permission(
-            FunctionName=lambda_function_arn,
-            StatementId='allow-s3-invoke',
-            Action='lambda:InvokeFunction',
-            Principal='s3.amazonaws.com',
-            SourceArn=f'arn:aws:s3:::{bucket_name}'
-        )
-        print("Permission added to Lambda function:", response)
+            print("Permission added to Lambda function:", response)
                 
     @handle_exceptions
     def create(self):
         print("Request Type:", self.event['RequestType'])
-        bucket = self.params.S3BucketName
-        function_name = self.event['ResourceProperties']['LambdaArn'].split(':')[-1]
-        BucketNotificationConfiguration = self.s3.get_bucket_notification_configuration(
-            Bucket=bucket
-        )
-        BucketNotificationConfiguration.pop('ResponseMetadata')
-        BucketNotificationConfiguration.setdefault('LambdaFunctionConfigurations', [])
-
-        BucketNotificationConfiguration['LambdaFunctionConfigurations'].append({
-            'Id': self.event.get('PhysicalResourceId', self.context.aws_request_id),
-            'LambdaFunctionArn': self.event['ResourceProperties']['LambdaArn'],
-            'Filter': {
-                'Key': {
-                    'FilterRules': [
-                        {
-                            'Name': 'prefix',
-                            'Value': self.params.S3KeyPrefix
-                        },
-                        {
-                            'Name': 'suffix',
-                            'Value': self.params.S3KeySuffix
-                        },
-                    ]
-                }
-            },
-            'Events': [
-                's3:ObjectCreated:*'
-            ]
-        })
-        if len(BucketNotificationConfiguration['LambdaFunctionConfigurations']) == 0:
-            BucketNotificationConfiguration.pop('LambdaFunctionConfigurations')
-        print(f'nofication configuration: {BucketNotificationConfiguration}')
-        
-        err = self.handle_lambda_permissions(
-            bucket, 
-            self.event['ResourceProperties']['LambdaArn'],
-            function_name,
-            self.event['RequestType']
-        )
-        
-        if err:
-            raise Exception(err)
-        
-        if self.event['RequestType'] != 'Delete':
-            print('creating bucket notification configuration...')
-            self.s3.put_bucket_notification_configuration(
-                Bucket=bucket,
-                NotificationConfiguration=BucketNotificationConfiguration
+        for bucket in self.params.S3BucketName.split(","):
+            function_name = self.event['ResourceProperties']['LambdaArn'].split(':')[-1]
+            BucketNotificationConfiguration = self.s3.get_bucket_notification_configuration(
+                Bucket=bucket
             )
+            BucketNotificationConfiguration.pop('ResponseMetadata')
+            BucketNotificationConfiguration.setdefault('LambdaFunctionConfigurations', [])
+
+            BucketNotificationConfiguration['LambdaFunctionConfigurations'].append({
+                'Id': self.event.get('PhysicalResourceId', self.context.aws_request_id),
+                'LambdaFunctionArn': self.event['ResourceProperties']['LambdaArn'],
+                'Filter': {
+                    'Key': {
+                        'FilterRules': [
+                            {
+                                'Name': 'prefix',
+                                'Value': self.params.S3KeyPrefix
+                            },
+                            {
+                                'Name': 'suffix',
+                                'Value': self.params.S3KeySuffix
+                            },
+                        ]
+                    }
+                },
+                'Events': [
+                    's3:ObjectCreated:*'
+                ]
+            })
+            if len(BucketNotificationConfiguration['LambdaFunctionConfigurations']) == 0:
+                BucketNotificationConfiguration.pop('LambdaFunctionConfigurations')
+            print(f'nofication configuration: {BucketNotificationConfiguration}')
+        
+            err = self.handle_lambda_permissions(
+                bucket, 
+                self.event['ResourceProperties']['LambdaArn'],
+                function_name,
+                self.event['RequestType']
+            )
+        
+            if err:
+                raise Exception(err)
+            
+            if self.event['RequestType'] != 'Delete':
+                print('creating bucket notification configuration...')
+                self.s3.put_bucket_notification_configuration(
+                    Bucket=bucket,
+                    NotificationConfiguration=BucketNotificationConfiguration
+                )
         
         # responseStatus = self.cfn.SUCCESS
         print(self.event['RequestType'], "request completed....")   
@@ -207,36 +207,35 @@ class ConfigureS3Integration:
     @handle_exceptions
     def delete(self):
         lambda_function_arn = self.event['ResourceProperties']['LambdaArn']
-        bucket = self.params.S3BucketName
+        for bucket in self.params.S3BucketName.split(","):
+            # Get the current notification configuration for the bucket
+            response = self.s3.get_bucket_notification_configuration(Bucket=bucket)
 
-        # Get the current notification configuration for the bucket
-        response = self.s3.get_bucket_notification_configuration(Bucket=bucket)
+            # Remove Lambda function triggers from the notification configuration
+            configs = response.get('LambdaFunctionConfigurations', [])
+            if len(configs) == 0:
+                print('no previous notification configurations found...')
+                return
+            
+            updated_configuration = {
+                'LambdaFunctionConfigurations': [
+                    config for config in configs
+                    if config['LambdaFunctionArn'] != lambda_function_arn
+                ],
+                # Preserve other configurations (if any)
+                'TopicConfigurations': response.get('TopicConfigurations', []),
+                'QueueConfigurations': response.get('QueueConfigurations', [])
+            }
+            
+            print("Updated Configuration:", updated_configuration)
 
-        # Remove Lambda function triggers from the notification configuration
-        configs = response.get('LambdaFunctionConfigurations', [])
-        if len(configs) == 0:
-            print('no previous notification configurations found...')
-            return
-        
-        updated_configuration = {
-            'LambdaFunctionConfigurations': [
-                config for config in configs
-                if config['LambdaFunctionArn'] != lambda_function_arn
-            ],
-            # Preserve other configurations (if any)
-            'TopicConfigurations': response.get('TopicConfigurations', []),
-            'QueueConfigurations': response.get('QueueConfigurations', [])
-        }
-        
-        print("Updated Configuration:", updated_configuration)
+            # Update the bucket's notification configuration
+            self.s3.put_bucket_notification_configuration(
+                Bucket=bucket,
+                NotificationConfiguration=updated_configuration
+            )
 
-        # Update the bucket's notification configuration
-        self.s3.put_bucket_notification_configuration(
-            Bucket=bucket,
-            NotificationConfiguration=updated_configuration
-        )
-
-        print(f"Removed Lambda function {lambda_function_arn} trigger from S3 bucket {bucket}.")
+            print(f"Removed Lambda function {lambda_function_arn} trigger from S3 bucket {bucket}.")
           
     def handle(self):
         responseStatus = self.cfn.SUCCESS
