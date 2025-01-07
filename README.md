@@ -325,7 +325,7 @@ To enable the DLQ, you must provide the required parameters outlined below.
 | DLQRetryDelay | The delay in seconds between retries of failed events                         | 900           | :heavy_check_mark: |
 
 > [!NOTE]
-> In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation, it is not an option to loop through the s3 bucket and specify permissions to each one.
+> In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation, it is not an option to loop through the s3 bucket and specify permissions to each one. After the lambda gets created you can manually change the permissions to only allow access to your S3 buckets.
 
 ## Troubleshooting
 

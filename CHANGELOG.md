@@ -2,7 +2,7 @@
 
 ### v1.2.0 / 2025-1-5
 ### 🧰 Bug fixes 🧰
-- Add permissions to custome lambda for `event-source-mapping`
+- Add permissions to custom lambda for `event-source-mapping`
 ### 💡 Enhancements 💡
 - Add support to deploy 1 integration with multiple S3 buckets by passing comma seperated list to `S3BucketName` parameter
 
