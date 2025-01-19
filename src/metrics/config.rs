@@ -16,8 +16,8 @@ impl Config {
         let api_key = env::var("CORALOGIX_API_KEY")
             .map_err(|e| format!("CORALOGIX_API_KEY is not set: {}", e))?
             .into();
-        let endpoint = env::var("CORALOGIX_DOMAIN")
-            .unwrap_or_else(|_| "ingress.private.coralogix.com".to_string());
+        let endpoint = env::var("CORALOGIX_ENDPOINT")
+            .unwrap_or_else(|_| "https://ingress.private.coralogix.com".to_string());
         let app_name = env::var("APP_NAME").unwrap_or_else(|_| "aws".to_string());
         let sub_name = env::var("SUB_NAME").unwrap_or_else(|_| "metrics".to_string());
         let retry_limit: usize = env::var("RETRY_LIMIT")
@@ -37,5 +37,19 @@ impl Config {
             retry_limit,
             retry_delay,
         })
+    }
+}
+
+
+impl Clone for Config {
+    fn clone(&self) -> Self {
+        Config {
+            api_key: self.api_key.clone(),
+            endpoint: self.endpoint.clone(),
+            app_name: self.app_name.clone(),
+            sub_name: self.sub_name.clone(),
+            retry_limit: self.retry_limit.clone(),
+            retry_delay: self.retry_delay.clone(),
+        }
     }
 }
