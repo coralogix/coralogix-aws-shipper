@@ -348,6 +348,18 @@ To add more verbosity to your function logs, set RUST_LOG to DEBUG.
 
 Set the MAX_ELAPSED_TIME variable for default change (default = 250). Set BATCHES_MAX_SIZE (in MB) sets batch max size before sending to Coralogix. This value is limited by the max payload accepted by the Coralogix endpoint (default = 4). Set BATCHES_MAX_CONCURRENCY sets the maximum amount of concurrent batches that can be sent.
 
+# Cloudwatch Metrics Stream via Firehose (PrivateLink)
+
+As of version `v1.3.0`, the Coralogix AWS Shipper supports streaming __Cloudwatch Metrics to Coralogix via Firehose over a PrivateLink__. 
+
+This workflow is specifically for use cases where it is required to stream metrics from a Cloudwatch Metrics stream to Coralogix via a PrivateLink endpoint.
+
+### Why?
+
+PrivateLink endpoints are not supported as a destination in Firehose, this is because in order to reach a  endpoint, the service must be connected to a VPC; Firehose cannot be connected to a VPC. To address this, the Coralogix AWS Shipper instead functions as a transform function attached to a an instance of Firehose that receives the metrics from the stream and forwards them to Coralogix over a given PrivateLink.
+
+
+
 ## Support
 
 **Need help?**
