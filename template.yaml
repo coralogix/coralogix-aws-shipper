@@ -192,7 +192,7 @@ Parameters:
       The name of the AWS S3 bucket to watch. 
       If the TelemetryMode is set to metrics, this bucket is used as the
       destination for failed metric data via firehose.
-    AllowedPattern: '^[0-9A-Za-z\.\-_]*(?<!\.)$'
+    AllowedPattern: '^([0-9A-Za-z\.\-_]+)(,[0-9A-Za-z\.\-_]+)*$'
     Default: "none"
     MaxLength: 63
 
@@ -674,9 +674,8 @@ Resources:
             - Effect: Allow
               Action:
                 - 's3:GetObject'
-              Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+              Resource: arn:aws:s3:::*
             - !Ref AWS::NoValue
-
           # SQS Policy
           - !If
             - SQSIsSet
@@ -1320,12 +1319,6 @@ Resources:
       Timeout: 900
       Policies:
       - Statement:
-        - Sid: IAMaccess
-          Effect: Allow
-          Action:
-            - 'iam:*'
-          Resource: '*'
-      - Statement:
         - Sid: EC2Access
           Effect: Allow
           Action:
@@ -1346,21 +1339,22 @@ Resources:
         - Sid: EventSourceMappings
           Effect: Allow
           Action:
-            - lambda:ListEventSourceMappings
-            - lambda:CreateEventSourceMapping
-            - lambda:DeleteEventSourceMapping
-            - lambda:UpdateEventSourceMapping
-            - lambda:GetFunctionConfiguration
-            - lambda:UpdateFunctionConfiguration
-          Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*'
+          - lambda:ListEventSourceMappings
+          - lambda:CreateEventSourceMapping
+          - lambda:DeleteEventSourceMapping
+          - lambda:UpdateEventSourceMapping
+          - lambda:GetFunctionConfiguration
+          - lambda:UpdateFunctionConfiguration
+          Resource: 
+            - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:* 
+            - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
       - Statement:
         - Sid: S3NotificationPolicy
           Effect: Allow
           Action:
           - s3:GetBucketNotification
           - s3:PutBucketNotification
-          Resource:
-            Fn::Sub: arn:aws:s3:::${S3BucketName}
+          Resource: arn:aws:s3:::*
         - Sid: PutSubscriptionFilter
           Effect: Allow
           Action:

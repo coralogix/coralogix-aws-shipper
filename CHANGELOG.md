@@ -1,5 +1,23 @@
 # Changelog
 
+### v1.3.0 / 2025-01-20
+### 💡 Enhancements 💡
+- New intergration workflow added for ingesting Cloudwatch Stream Metrics via Firehose over PrivateLink
+
+### v1.2.0 / 2025-01-7
+### 🧰 Bug fixes 🧰
+- Add permissions to custom lambda for `event-source-mapping`
+### 💡 Enhancements 💡
+- Add support to deploy 1 integration with multiple S3 buckets by passing comma seperated list to `S3BucketName` parameter
+
+### v1.1.2 / 2025-12-31
+### 🧰 Bug fixes 🧰
+- cds-1756 - Restricted Lambda `EventSourceMapping` permissions used by custom resource function, so it won't have a wildcard/full resource access
+
+### v1.1.1 / 2025-12-27
+### 🧰 Bug fixes 🧰
+- cds-1747 - Removed `iam:*` permissions from Shipper, as they were leftover from older versions as the Custom Resource use to be responsible for editing the policy directly
+
 ### v1.1.0 / 2025-12-11
 ### 💡 Enhancements (Breaking) 💡
 - cds-1705 - updated support for dynamic value allocation of Application and Subsystem names based on internal metadata
