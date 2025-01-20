@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.2.0
+    SemanticVersion: 1.3.0
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -104,6 +104,10 @@ Metadata:
           - LambdaSubnetID
           - LambdaSecurityGroupID
           - UsePrivateLink
+      - Label:
+          default: Cloudwatch Metrics Stream via PrivateLink
+        Parameters:
+          - TelemetryMode
 
 Parameters:
   CoralogixRegion:
@@ -432,20 +436,6 @@ Parameters:
       - logs
       - metrics
 
-  CWStreamSendingRetryLimit:
-    Type: Number
-    Description: The maximum number of times to retry sending metrics to coralogix
-    MinValue: 0
-    MaxValue: 5
-    Default: 3
-
-  CWStreamSendingRetryDelay:
-    Type: Number
-    Description: The delay in seconds between retries
-    MinValue: 0
-    MaxValue: 5
-    Default: 3
-
 Mappings:
   CoralogixRegionMap:
     EU1:
@@ -524,7 +514,7 @@ Conditions:
   ExecutionRoleARNIsSet: !Not [!Equals [!Ref ExecutionRoleARN, '']]
   ReservedConcurrentExecutionsIsSet: !Not [!Equals [!Ref ReservedConcurrentExecutions, 0]]
 
-  TelemetryModeIsLogs: !Equals [!Ref TelemetryMode, logs]
+  # TelemetryModeIsLogs: !Equals [!Ref TelemetryMode, logs]
   TelemetryModeIsMetrics: !Equals [!Ref TelemetryMode, metrics]
   
 Rules:
@@ -857,10 +847,21 @@ Resources:
           CORALOGIX_ENDPOINT: !If
             - IsCustomDomain
             - !If
-            - IsPrivateLink
-            - !Sub
-              - https://ingress.private.${domain}
-              - domain: !Ref CustomDomain
+              - IsPrivateLink
+              - !Sub
+                - https://ingress.private.${domain}
+                - domain: !Ref CustomDomain
+              - !Sub
+                - https://ingress.${domain}
+                - domain: !Ref CustomDomain
+            - !If
+              - IsPrivateLink
+              - !Sub
+                - https://ingress.private.${domain}
+                - domain: !FindInMap [CoralogixRegionMap, !Ref CoralogixRegion , Domain]
+              - !Sub
+                - https://ingress.${domain}
+                - domain: !FindInMap [CoralogixRegionMap, !Ref CoralogixRegion , Domain]
           CORALOGIX_API_KEY: !If
             - StoreAPIKeyInSecretsManager
             - !Ref Secret
