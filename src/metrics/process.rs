@@ -1,5 +1,6 @@
 use crate::metrics::config::Config;
-use aws_lambda_events::event::firehose::{KinesisFirehoseResponse, KinesisFirehoseEvent};
+// use aws_lambda_events::encodings::Base64Data;
+use aws_lambda_events::event::firehose::{KinesisFirehoseResponse, KinesisFirehoseEvent, KinesisFirehoseResponseRecord, KinesisFirehoseResponseRecordMetadata};
 use lambda_runtime::Error;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value;
@@ -155,6 +156,7 @@ pub async fn kinesis_firehose(
     event: KinesisFirehoseEvent,
 ) -> Result<KinesisFirehoseResponse, Error> {
     // Iterate over all records in the KinesisFirehoseEvent
+    let mut results = Vec::new();
     for record in event.records.clone() {
         let otel_payload = record.data.clone();
         let messages = split_length_delimited(&otel_payload.0)
@@ -188,10 +190,21 @@ pub async fn kinesis_firehose(
                     err
                 })?;  
         };
+
+        // Add the record to the results to be dropped
+        results.push(KinesisFirehoseResponseRecord {
+            metadata: KinesisFirehoseResponseRecordMetadata {
+                partition_keys: std::collections::HashMap::new(),
+            }, 
+            record_id: record.record_id,
+            result: Some("Dropped".to_string()),
+            data: record.data,
+        });
     };
+    
 
     // if all is well, return an empty response to firehose
     Ok(KinesisFirehoseResponse {
-        records: Vec::new(),
+        records: results,
     })
 }
