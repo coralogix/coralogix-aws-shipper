@@ -2,6 +2,40 @@
 
 [![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-GA-brightgreen)
 
+### Contents
+
+1. [Overview](#overview)
+2. [Supported Services](#supported-services)
+   - [Amazon S3, CloudTrail, VPC Flow Logs and more](#amazon-s3-cloudtrail-vpc-flow-logs-and-more)
+   - [Amazon SNS/SQS](#amazon-snssqs)
+   - [Amazon CloudWatch](#amazon-cloudwatch)
+   - [Amazon Kinesis](#amazon-kinesis)
+   - [Amazon MSK & Kafka](#amazon-msk--kafka)
+   - [Amazon ECR Image Security Scan](#amazon-ecr-image-security-scan)
+3. [Deployment Options](#deployment-options)
+   - [Integrate using the Coralogix Platform (Recommended)](#integrate-using-the-coralogix-platform-recommended)
+   - [Quick Create a CloudFormation Stack](#quick-create-a-cloudformation-stack)
+   - [Deploy the AWS Serverless Application](#deploy-the-aws-serverless-application)
+   - [Terraform Module](#terraform-module)
+4. [Configuration Parameters](#configuration-parameters)
+   - [Universal Configuration](#universal-configuration)
+   - [S3/CloudTrail/VpcFlow/S3Csv Configuration](#s3cloudtrailvpcflows3csv-configuration)
+   - [CloudWatch Configuration](#cloudwatch-configuration)
+   - [SNS Configuration](#sns-configuration)
+   - [SQS Configuration](#sqs-configuration)
+   - [Kinesis Configuration](#kinesis-configuration)
+   - [Kafka Configuration](#kafka-configuration)
+   - [MSK Configuration](#msk-configuration)
+   - [Generic Configuration (Optional)](#generic-configuration-optional)
+   - [Lambda Configuration (Optional)](#lambda-configuration-optional)
+   - [VPC Configuration (Optional)](#vpc-configuration-optional)
+   - [Metadata](#metadata)
+   - [Advanced Configuration](#advanced-configuration)
+   - [DLQ](#dlq)
+5. [Troubleshooting](#troubleshooting)
+6. [Cloudwatch Metrics Stream via Firehose for PrivateLink (beta)](#cloudwatch-metrics-stream-via-firehose-privatelink-beta)
+7. [Support](#support)
+
 ## Overview
 
 This integration guide focuses on connecting your AWS environment to Coralogix using AWS Lambda functions. To complete this integration, you may either use the Coralogix platform UI, CloudFormation templates from AWS, AWS SAM applications, or a dedicated Terraform module from our [GitHub repository](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper).
@@ -348,17 +382,37 @@ To add more verbosity to your function logs, set RUST_LOG to DEBUG.
 
 Set the MAX_ELAPSED_TIME variable for default change (default = 250). Set BATCHES_MAX_SIZE (in MB) sets batch max size before sending to Coralogix. This value is limited by the max payload accepted by the Coralogix endpoint (default = 4). Set BATCHES_MAX_CONCURRENCY sets the maximum amount of concurrent batches that can be sent.
 
-# Cloudwatch Metrics Stream via Firehose (PrivateLink)
+# Cloudwatch Metrics Stream via Firehose PrivateLink (beta)
 
-As of version `v1.3.0`, the Coralogix AWS Shipper supports streaming __Cloudwatch Metrics to Coralogix via Firehose over a PrivateLink__. 
+As of version `v1.3.0`, the Coralogix AWS Shipper supports streaming **Cloudwatch Metrics to Coralogix via Firehose over a PrivateLink**.
 
-This workflow is specifically for use cases where it is required to stream metrics from a Cloudwatch Metrics stream to Coralogix via a PrivateLink endpoint.
+This workflow is designed for scenarios where you need to stream metrics from a CloudWatch Metrics stream to Coralogix via a PrivateLink endpoint.
 
-### Why?
+#### Why Use This Workflow?
 
-PrivateLink endpoints are not supported as a destination in Firehose, this is because in order to reach a  endpoint, the service must be connected to a VPC; Firehose cannot be connected to a VPC. To address this, the Coralogix AWS Shipper instead functions as a transform function attached to a an instance of Firehose that receives the metrics from the stream and forwards them to Coralogix over a given PrivateLink.
+AWS Firehose does not support PrivateLink endpoints as a destination because Firehose cannot be connected to a VPC, which is required to reach a PrivateLink endpoint. To overcome this limitation, the Coralogix AWS Shipper acts as a transform function. It is attached to a Firehose instance that receives metrics from the CloudWatch Metrics stream and forwards them to Coralogix over a PrivateLink.
 
+#### When to Use This Workflow
 
+This workflow is specifically for bypassing the limitation of using Firehose with the Coralogix PrivateLink endpoint. If there is no requirement for PrivateLink, we recommend using the default Firehose Integration for CloudWatch Stream Metrics found [here](https://coralogix.com/docs/integrations/aws/amazon-data-firehose/aws-cloudwatch-metric-streams-with-amazon-data-firehose/).
+
+#### How does it work?
+
+![Cloudwatch stream via PrivateLink Workflow](./static/cloudwatch-metrics-pl-workflow.png)
+
+To enable the Cloudwatch Metrics Stream via Firehose (PrivateLink) you must provide the required parameters outlined below.
+
+| Parameter                   | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
+|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
+| TelemetryMode               | Specify the telemetry collection modes, supported values (`metrics`, `logs`). Note that this value must be set to `metrics` for the Cloudwatch metric stream workflow                                                                                                                                                              | logs          | :heavy_check_mark: |
+| ApiKey                      | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.<br>*Note the parameter expects the API Key in plain text or if stored in secret manager.*                          |               | :heavy_check_mark: |
+| ApplicationName             | The name of the application for which the integration is configured. [Advanced Configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
+| SubsystemName               | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
+| CoralogixRegion             | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
+| S3BucketName                | The S3Bucket that will be used to store records that have failed processing                                                                                                                                                                                                                                                        |               | :heavy_check_mark: |
+| LambdaSubnetID              | Specify the ID of the subnet where the integration should be deployed.                                                                                                                                                                                                                                                             |               | :heavy_check_mark: |
+| LambdaSecurityGroupID       | Specify the ID of the Security Group where the integration should be deployed.                                                                                                                                                                                                                                                     |               | :heavy_check_mark: |
+| StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          |                    |
 
 ## Support
 
