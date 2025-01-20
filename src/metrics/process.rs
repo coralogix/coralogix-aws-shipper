@@ -5,7 +5,7 @@ use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequ
 use opentelemetry_proto::tonic::common::v1::any_value;
 use opentelemetry_proto::tonic::common::v1::AnyValue;
 use opentelemetry_proto::tonic::common::v1::KeyValue;
-use prost::encoding::decode_varint;
+use prost::encoding::{decode_varint, encode_varint};
 use prost::Message;
 use reqwest;
 use tracing::{debug, error};
@@ -34,6 +34,20 @@ fn split_length_delimited(data: &[u8]) -> Result<Vec<&[u8]>, String> {
     }
 
     Ok(chunks)
+}
+
+// TODO: look into whether these messages can be batched instead of sending one at a time
+#[allow(dead_code)]
+fn re_batch(chunks: Vec<Vec<u8>>) -> Vec<u8> {
+    let mut batched_data = Vec::new();
+    for chunk in chunks {
+        let length = chunk.len() as u64;
+        let mut buf = Vec::new();
+        encode_varint(length, &mut buf);
+        batched_data.extend_from_slice(&buf);
+        batched_data.extend_from_slice(&chunk);
+    }
+    batched_data
 }
 
 /// handle_mesage - decodes messages, updates datapoints/attributes with cx_application_name and cx_subsystem_name
@@ -166,7 +180,7 @@ pub async fn kinesis_firehose(
                     err
                 })?;
       
-            // TODO: look into whether these messages can be batched instead of sending one at a time
+            // TODO: look into whether these messages can be batched instead of sending one at a time via rebatch function
             coralogix_send(&config, modified_message_vec).await
                 .map_err(|e| {
                     let err = format!("failed to send metric data to coralogix: {}", e);
