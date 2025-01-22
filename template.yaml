@@ -432,6 +432,7 @@ Parameters:
   TelemetryMode:
     Type: String
     Description: The telemetry mode for the shipper, i.e metrics or logs
+    Default: logs
     AllowedValues:
       - logs
       - metrics
