@@ -15,6 +15,14 @@ use std::time::Instant;
 use std::vec::Vec;
 use time::OffsetDateTime;
 use tracing::{debug, error, info};
+use once_cell::sync::Lazy;
+use fancy_regex::Regex;
+
+// Add these static regex patterns at the top of the file with the other statics
+static JSON_EVALUATION_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\{\{\s*json\.([a-zA-Z0-9._]+)\s*\}\}"#)
+        .expect("Failed to create JSON evaluation regex")
+});
 
 pub async fn process_batches(
     logs: Vec<String>,
@@ -260,7 +268,20 @@ impl JsonMessage {
     }
 }
 
-fn extract_json_value(log: &str, key_path: &str) -> Option<String> {
+fn extract_json_value(log: &str, template: &str) -> Option<String> {
+    // First check if this is a template pattern
+    if let Ok(Some(captures)) = JSON_EVALUATION_REGEX.captures(template) {
+        if let Some(key_match) = captures.get(1) {
+            let key_path = key_match.as_str();
+            return extract_json_path_value(log, key_path);
+        }
+    }
+    
+    // If not a template, treat as direct path
+    extract_json_path_value(log, template)
+}
+
+fn extract_json_path_value(log: &str, key_path: &str) -> Option<String> {
     // Try to parse the log as JSON
     if let Ok(json_value) = serde_json::from_str::<Value>(log) {
         // Split the key path by dots to handle nested objects
@@ -513,6 +534,31 @@ mod tests {
         let log = "not a json";
         let result = extract_json_value(log, "any.path");
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_json_value_template_syntax() {
+        let log = r#"{"metadata": {"app": {"name": "test-app"}}}"#;
+        
+        // Test different spacing in template
+        assert_eq!(
+            extract_json_value(log, "{{json.metadata.app.name}}"),
+            Some("test-app".to_string())
+        );
+        assert_eq!(
+            extract_json_value(log, "{{ json.metadata.app.name }}"),
+            Some("test-app".to_string())
+        );
+        assert_eq!(
+            extract_json_value(log, "{{    json.metadata.app.name    }}"),
+            Some("test-app".to_string())
+        );
+        
+        // Test direct path still works
+        assert_eq!(
+            extract_json_value(log, "metadata.app.name"),
+            Some("test-app".to_string())
+        );
     }
 
     #[test]
