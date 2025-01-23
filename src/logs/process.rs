@@ -38,7 +38,7 @@ static METADATA_EVALUATION_DEFAULT: Lazy<Regex> = Lazy::new(|| {
         .expect("Failed to create regex")
 });
 
-
+#[derive(Default)]
 pub struct MetadataContext {
     inner: Arc<RwLock<HashMap<String, Option<String>>>>,
 }

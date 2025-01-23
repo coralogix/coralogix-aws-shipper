@@ -260,6 +260,33 @@ impl JsonMessage {
     }
 }
 
+fn extract_json_value(log: &str, key_path: &str) -> Option<String> {
+    // Try to parse the log as JSON
+    if let Ok(json_value) = serde_json::from_str::<Value>(log) {
+        // Split the key path by dots to handle nested objects
+        let keys: Vec<&str> = key_path.split('.').collect();
+        
+        // Navigate through the JSON structure
+        let mut current = &json_value;
+        for key in keys {
+            match current.get(key) {
+                Some(value) => current = value,
+                None => return None,
+            }
+        }
+        
+        // Convert the final value to a string
+        match current {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
 fn convert_to_log_entry(
     log: String,
     configured_app_name: &str,
@@ -269,19 +296,46 @@ fn convert_to_log_entry(
 ) -> LogSinglesEntry<Value> {
     let now = OffsetDateTime::now_utc();
     
-    let application_name = mctx
-        .evaluate(configured_app_name.to_string())
-        .unwrap_or_else(|e| {
-            tracing::warn!("application name dynamic parsing failed, using: {}", e);
-            configured_app_name.to_owned()
-        });
+    let application_name = if configured_app_name.starts_with("{{ json.") && configured_app_name.ends_with(" }}") {
+        // Extract the JSON path from between "{{ json." and " }}"
+        let key_path = configured_app_name
+            .trim_start_matches("{{ json.")
+            .trim_end_matches(" }}")
+            .trim();
+            
+        extract_json_value(&log, key_path)
+            .unwrap_or_else(|| {
+                tracing::warn!("application name JSON parsing failed, using configured value");
+                configured_app_name.to_owned()
+            })
+    } else {
+        mctx.evaluate(configured_app_name.to_string())
+            .unwrap_or_else(|e| {
+                tracing::warn!("application name dynamic parsing failed, using: {}", e);
+                configured_app_name.to_owned()
+            })
+    };
 
+    let subsystem_name = if configured_sub_name.starts_with("{{ json.") && configured_sub_name.ends_with(" }}") {
+        // Extract the JSON path from between "{{ json." and " }}"
+        let key_path = configured_sub_name
+            .trim_start_matches("{{ json.")
+            .trim_end_matches(" }}")
+            .trim();
+            
+        extract_json_value(&log, key_path)
+            .unwrap_or_else(|| {
+                tracing::warn!("subsystem name JSON parsing failed, using configured value");
+                configured_sub_name.to_owned()
+            })
+    } else {
+        mctx.evaluate(configured_sub_name.to_string())
+            .unwrap_or_else(|e| {
+                tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
+                configured_sub_name.to_owned()
+            })
+    };
     tracing::debug!("App Name: {}", &application_name);
-    let subsystem_name = mctx.evaluate(configured_sub_name.to_string()).unwrap_or_else(|e| {
-        tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
-        configured_sub_name.to_owned()
-    });
-
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     // let stream_name = metadata_instance.stream_name.clone();
@@ -397,88 +451,221 @@ fn get_severity_level(message: &str) -> Severity {
     severity
 }
 
-// #[cfg(test)]
-// mod test {
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
 
-//     // use crate::logs::coralogix::dynamic_metadata_for_log;
+    fn test_config() -> Config {
+        Config {
+            newline_pattern: String::new(),
+            blocking_pattern: String::new(),
+            sampling: 1,
+            logs_per_batch: 500,
+            integration_type: IntegrationType::S3,
+            app_name: None,
+            sub_name: None,
+            api_key: "test".to_string().into(),
+            endpoint: "test".to_string(),
+            max_elapsed_time: 250,
+            csv_delimiter: ",".to_string(),
+            batches_max_size: 4,
+            batches_max_concurrency: 10,
+            add_metadata: String::new(),
+            dlq_arn: None,
+            dlq_url: None,
+            dlq_retry_limit: None,
+            dlq_s3_bucket: None,
+            lambda_assume_role: None,
+        }
+    }
 
-//     #[test]
-//     fn test_nondynamic_app_name() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "my-app";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "my-app");
-//     }
+    #[test]
+    fn test_extract_json_value_simple() {
+        let log = r#"{"eventSource": "aws:s3", "message": "test"}"#;
+        let result = extract_json_value(log, "eventSource");
+        assert_eq!(result, Some("aws:s3".to_string()));
+    }
 
-//     #[test]
-//     fn test_fall_back_to_app_name_when_dynamic_app_name_is_missing() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "$.app_name";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "$.app_name");
-//     }
+    #[test]
+    fn test_extract_json_value_nested() {
+        let log = r#"{"metadata": {"app": {"name": "test-app"}}}"#;
+        let result = extract_json_value(log, "metadata.app.name");
+        assert_eq!(result, Some("test-app".to_string()));
+    }
 
-//     #[test]
-//     fn test_simple_dynamic_app_name() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "$.app_name";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//             "app_name": "my-awesome-app"
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "my-awesome-app");
-//     }
+    #[test]
+    fn test_extract_json_value_non_string() {
+        let log = r#"{"count": 42, "active": true}"#;
+        assert_eq!(extract_json_value(log, "count"), Some("42".to_string()));
+        assert_eq!(extract_json_value(log, "active"), Some("true".to_string()));
+    }
 
-//     #[test]
-//     fn test_nested_dynamic_app_name() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "$.metadata.app_name";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//             "metadata": {
-//                 "app_name": "my-awesome-app2"
-//             }
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "my-awesome-app2");
-//     }
-//     #[test]
-//     fn test_dynamic_folder_app_name() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "{{s3_key.2}}";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//             "metadata": {
-//                 "app_name": "my-awesome-app2"
-//             }
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "folder1");
-//     }
-//     #[test]
-//     fn test_dynamic_folder_app_name_fails() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "{{s3_key.8}}";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//             "metadata": {
-//                 "app_name": "my-awesome-app2"
-//             }
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "default");
-//     }
-// }
+    #[test]
+    fn test_extract_json_value_missing() {
+        let log = r#"{"eventSource": "aws:s3"}"#;
+        let result = extract_json_value(log, "nonexistent");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_json_value_invalid_json() {
+        let log = "not a json";
+        let result = extract_json_value(log, "any.path");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_with_json_app_name() {
+        let log = r#"{"eventSource": "aws:s3", "application": "my-app"}"#;
+        let app_name = "{{ json.application }}";
+        let sub_name = "default-sub";
+        let mctx = process::MetadataContext::default();
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "my-app");
+        assert_eq!(entry.subsystem_name, "default-sub");
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_with_json_sub_name() {
+        let log = r#"{"eventSource": "aws:s3", "subsystem": "my-subsystem"}"#;
+        let app_name = "default-app";
+        let sub_name = "{{ json.subsystem }}";
+        let mctx = process::MetadataContext::default();
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "default-app");
+        assert_eq!(entry.subsystem_name, "my-subsystem");
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_fallback_values() {
+        let log = r#"{"eventSource": "aws:s3"}"#;
+        let app_name = "{{ json.nonexistent }}";
+        let sub_name = "{{ json.missing }}";
+        let mctx = process::MetadataContext::default();
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        // Should fallback to the original template strings when JSON extraction fails
+        assert_eq!(entry.application_name, "{{ json.nonexistent }}");
+        assert_eq!(entry.subsystem_name, "{{ json.missing }}");
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_nested_json() {
+        let log = r#"{
+            "metadata": {
+                "app": {
+                    "name": "nested-app",
+                    "subsystem": "nested-subsystem"
+                }
+            }
+        }"#;
+        let app_name = "{{ json.metadata.app.name }}";
+        let sub_name = "{{ json.metadata.app.subsystem }}";
+        let mctx = process::MetadataContext::default();
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "nested-app");
+        assert_eq!(entry.subsystem_name, "nested-subsystem");
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_with_mctx_evaluation() {
+        let mut mctx = process::MetadataContext::default();
+        mctx.insert("service.name".to_string(), Some("dynamic-service".to_string()));
+        mctx.insert("environment".to_string(), Some("production".to_string()));
+        
+        let log = r#"{"message": "test log"}"#;
+        let app_name = "{{ service.name }}";  // Using metadata context variable
+        let sub_name = "{{ environment }}";   // Using metadata context variable
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "dynamic-service");
+        assert_eq!(entry.subsystem_name, "production");
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_with_mctx_evaluation_fallback() {
+        let mctx = process::MetadataContext::default(); // Empty context
+        let log = r#"{"message": "test log"}"#;
+        let app_name = "{{ nonexistent.variable }}";
+        let sub_name = "{{ missing.value }}";
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        // Should fallback to the original template strings when evaluation fails
+        assert_eq!(entry.application_name, "{{ nonexistent.variable }}");
+        assert_eq!(entry.subsystem_name, "{{ missing.value }}");
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_mixed_evaluation() {
+        let mut mctx = process::MetadataContext::default();
+        mctx.insert("service.name".to_string(), Some("dynamic-service".to_string()));
+        
+        let log = r#"{"subsystem": "json-subsystem"}"#;
+        let app_name = "{{ service.name }}";  // Using metadata context variable
+        let sub_name = "{{ json.subsystem }}";  // Using JSON extraction
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "dynamic-service");
+        assert_eq!(entry.subsystem_name, "json-subsystem");
+    }
+}
