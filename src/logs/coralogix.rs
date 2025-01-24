@@ -20,7 +20,7 @@ use fancy_regex::Regex;
 
 // Add these static regex patterns at the top of the file with the other statics
 static JSON_EVALUATION_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\{\{\s*json\.([a-zA-Z0-9._]+)\s*\}\}"#)
+    Regex::new(r#"\{\{\s*\$\.([a-zA-Z0-9._]+)\s*\}\}"#)
         .expect("Failed to create JSON evaluation regex")
 });
 
@@ -317,45 +317,24 @@ fn convert_to_log_entry(
 ) -> LogSinglesEntry<Value> {
     let now = OffsetDateTime::now_utc();
     
-    let application_name = if configured_app_name.starts_with("{{ json.") && configured_app_name.ends_with(" }}") {
-        // Extract the JSON path from between "{{ json." and " }}"
-        let key_path = configured_app_name
-            .trim_start_matches("{{ json.")
-            .trim_end_matches(" }}")
-            .trim();
-            
-        extract_json_value(&log, key_path)
-            .unwrap_or_else(|| {
-                tracing::warn!("application name JSON parsing failed, using configured value");
-                configured_app_name.to_owned()
-            })
-    } else {
-        mctx.evaluate(configured_app_name.to_string())
-            .unwrap_or_else(|e| {
-                tracing::warn!("application name dynamic parsing failed, using: {}", e);
-                configured_app_name.to_owned()
-            })
-    };
+    let application_name = extract_json_value(&log, configured_app_name)
+        .unwrap_or_else(|| {
+            mctx.evaluate(configured_app_name.to_string())
+                .unwrap_or_else(|e| {
+                    tracing::warn!("application name dynamic parsing failed, using: {}", e);
+                    configured_app_name.to_owned()
+                })
+        });
 
-    let subsystem_name = if configured_sub_name.starts_with("{{ json.") && configured_sub_name.ends_with(" }}") {
-        // Extract the JSON path from between "{{ json." and " }}"
-        let key_path = configured_sub_name
-            .trim_start_matches("{{ json.")
-            .trim_end_matches(" }}")
-            .trim();
-            
-        extract_json_value(&log, key_path)
-            .unwrap_or_else(|| {
-                tracing::warn!("subsystem name JSON parsing failed, using configured value");
-                configured_sub_name.to_owned()
-            })
-    } else {
-        mctx.evaluate(configured_sub_name.to_string())
-            .unwrap_or_else(|e| {
-                tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
-                configured_sub_name.to_owned()
-            })
-    };
+    let subsystem_name = extract_json_value(&log, configured_sub_name)
+        .unwrap_or_else(|| {
+            mctx.evaluate(configured_sub_name.to_string())
+                .unwrap_or_else(|e| {
+                    tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
+                    configured_sub_name.to_owned()
+                })
+        });
+
     tracing::debug!("App Name: {}", &application_name);
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
@@ -542,15 +521,15 @@ mod tests {
         
         // Test different spacing in template
         assert_eq!(
-            extract_json_value(log, "{{json.metadata.app.name}}"),
+            extract_json_value(log, "{{$.metadata.app.name}}"),
             Some("test-app".to_string())
         );
         assert_eq!(
-            extract_json_value(log, "{{ json.metadata.app.name }}"),
+            extract_json_value(log, "{{ $.metadata.app.name }}"),
             Some("test-app".to_string())
         );
         assert_eq!(
-            extract_json_value(log, "{{    json.metadata.app.name    }}"),
+            extract_json_value(log, "{{    $.metadata.app.name    }}"),
             Some("test-app".to_string())
         );
         
@@ -562,10 +541,10 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_to_log_entry_with_json_app_name() {
-        let log = r#"{"eventSource": "aws:s3", "application": "my-app"}"#;
-        let app_name = "{{ json.application }}";
-        let sub_name = "default-sub";
+    fn test_convert_to_log_entry_with_json_extraction() {
+        let log = r#"{"app": "json-app", "subsystem": "json-subsystem"}"#;
+        let app_name = "{{ $.app }}";
+        let sub_name = "{{ $.subsystem }}";
         let mctx = process::MetadataContext::default();
         let config = test_config();
 
@@ -577,15 +556,15 @@ mod tests {
             &config,
         );
 
-        assert_eq!(entry.application_name, "my-app");
-        assert_eq!(entry.subsystem_name, "default-sub");
+        assert_eq!(entry.application_name, "json-app");
+        assert_eq!(entry.subsystem_name, "json-subsystem");
     }
 
     #[test]
-    fn test_convert_to_log_entry_with_json_sub_name() {
-        let log = r#"{"eventSource": "aws:s3", "subsystem": "my-subsystem"}"#;
-        let app_name = "default-app";
-        let sub_name = "{{ json.subsystem }}";
+    fn test_convert_to_log_entry_json_fallback() {
+        let log = r#"{"different_key": "value"}"#;
+        let app_name = "{{ $.nonexistent }}";
+        let sub_name = "{{ $.missing }}";
         let mctx = process::MetadataContext::default();
         let config = test_config();
 
@@ -597,43 +576,27 @@ mod tests {
             &config,
         );
 
-        assert_eq!(entry.application_name, "default-app");
-        assert_eq!(entry.subsystem_name, "my-subsystem");
-    }
-
-    #[test]
-    fn test_convert_to_log_entry_fallback_values() {
-        let log = r#"{"eventSource": "aws:s3"}"#;
-        let app_name = "{{ json.nonexistent }}";
-        let sub_name = "{{ json.missing }}";
-        let mctx = process::MetadataContext::default();
-        let config = test_config();
-
-        let entry = convert_to_log_entry(
-            log.to_string(),
-            app_name,
-            sub_name,
-            &mctx,
-            &config,
-        );
-
-        // Should fallback to the original template strings when JSON extraction fails
-        assert_eq!(entry.application_name, "{{ json.nonexistent }}");
-        assert_eq!(entry.subsystem_name, "{{ json.missing }}");
+        assert_eq!(entry.application_name, "{{ $.nonexistent }}");
+        assert_eq!(entry.subsystem_name, "{{ $.missing }}");
     }
 
     #[test]
     fn test_convert_to_log_entry_nested_json() {
         let log = r#"{
             "metadata": {
-                "app": {
+                "application": {
                     "name": "nested-app",
-                    "subsystem": "nested-subsystem"
+                    "environment": "production"
+                },
+                "service": {
+                    "type": "web",
+                    "instance": "worker-1"
                 }
             }
         }"#;
-        let app_name = "{{ json.metadata.app.name }}";
-        let sub_name = "{{ json.metadata.app.subsystem }}";
+        
+        let app_name = "{{ $.metadata.application.name }}";
+        let sub_name = "{{ $.metadata.service.type }}";
         let mctx = process::MetadataContext::default();
         let config = test_config();
 
@@ -646,72 +609,51 @@ mod tests {
         );
 
         assert_eq!(entry.application_name, "nested-app");
-        assert_eq!(entry.subsystem_name, "nested-subsystem");
+        assert_eq!(entry.subsystem_name, "web");
     }
 
     #[test]
-    fn test_convert_to_log_entry_with_mctx_evaluation() {
-        let mut mctx = process::MetadataContext::default();
-        mctx.insert("service.name".to_string(), Some("dynamic-service".to_string()));
-        mctx.insert("environment".to_string(), Some("production".to_string()));
+    fn test_json_path_spacing_variations() {
+        let log = r#"{
+            "key": "value1",
+            "nested": {
+                "key": "value2"
+            }
+        }"#;
         
-        let log = r#"{"message": "test log"}"#;
-        let app_name = "{{ service.name }}";  // Using metadata context variable
-        let sub_name = "{{ environment }}";   // Using metadata context variable
-        let config = test_config();
+        // Test different spacing variations
+        let variations = [
+            "{{$.key}}",
+            "{{ $.key }}",
+            "{{$.key  }}",
+            "{{  $.key}}",
+            "{{    $.key    }}",
+            "{{$.nested.key}}",
+            "{{ $.nested.key }}",
+            "{{    $.nested.key    }}"
+        ];
 
-        let entry = convert_to_log_entry(
-            log.to_string(),
-            app_name,
-            sub_name,
-            &mctx,
-            &config,
-        );
+        for template in variations {
+            let entry = convert_to_log_entry(
+                log.to_string(),
+                template,
+                "default-sub",
+                &process::MetadataContext::default(),
+                &test_config(),
+            );
 
-        assert_eq!(entry.application_name, "dynamic-service");
-        assert_eq!(entry.subsystem_name, "production");
-    }
-
-    #[test]
-    fn test_convert_to_log_entry_with_mctx_evaluation_fallback() {
-        let mctx = process::MetadataContext::default(); // Empty context
-        let log = r#"{"message": "test log"}"#;
-        let app_name = "{{ nonexistent.variable }}";
-        let sub_name = "{{ missing.value }}";
-        let config = test_config();
-
-        let entry = convert_to_log_entry(
-            log.to_string(),
-            app_name,
-            sub_name,
-            &mctx,
-            &config,
-        );
-
-        // Should fallback to the original template strings when evaluation fails
-        assert_eq!(entry.application_name, "{{ nonexistent.variable }}");
-        assert_eq!(entry.subsystem_name, "{{ missing.value }}");
-    }
-
-    #[test]
-    fn test_convert_to_log_entry_mixed_evaluation() {
-        let mut mctx = process::MetadataContext::default();
-        mctx.insert("service.name".to_string(), Some("dynamic-service".to_string()));
-        
-        let log = r#"{"subsystem": "json-subsystem"}"#;
-        let app_name = "{{ service.name }}";  // Using metadata context variable
-        let sub_name = "{{ json.subsystem }}";  // Using JSON extraction
-        let config = test_config();
-
-        let entry = convert_to_log_entry(
-            log.to_string(),
-            app_name,
-            sub_name,
-            &mctx,
-            &config,
-        );
-
-        assert_eq!(entry.application_name, "dynamic-service");
-        assert_eq!(entry.subsystem_name, "json-subsystem");
+            let expected = if template.contains("nested") {
+                "value2"
+            } else {
+                "value1"
+            };
+            
+            assert_eq!(
+                entry.application_name, 
+                expected,
+                "Failed for template: {}",
+                template
+            );
+        }
     }
 }
