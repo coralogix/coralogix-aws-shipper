@@ -281,6 +281,13 @@ If you only want to use part of the metadata value, you can use a regular expres
 
 This would result in a SubsystemName value of `elb.log` as this is the part of the regex that is captured by the group `(.*)`.
 
+If you want to use a json key value as the application name, you would set the `ApplicationName` parameter to:
+
+```
+{{ $.eventSource }}
+```
+Assume the log is a CloudTrail log and the eventSource is `s3.amazonaws.com` then the application name will be `s3.amazonaws.com`.
+
 **Important**:
 
 - The regex must be a valid regex pattern.
@@ -297,7 +304,7 @@ If you want to bypass using the public internet, you can use AWS PrivateLink to 
 
 **Dynamic Values**
 
-> Note the following method for using dynamic values will change to the method defined above in `coralogix-aws-shipper v1.1.0` and later. This approach will no longer be supported.
+> Note the following method for using dynamic values will change to the method defined above in `coralogix-aws-shipper v1.1.0` and later. This approach will no longer be supported. Please check the new method in the [Metadata](#metadata) section.
 
 If you wish to use dynamic values for the Application and Subsystem Name parameters, consider the following:
 
