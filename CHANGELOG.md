@@ -1,7 +1,8 @@
 # Changelog
-## v1.2.1 / 
+## v1.2.1 / 2025-01-27
 ### 🧰 Bug fixes 🧰
 - Added support for dynamic allocation of Application and Subsystem names based on json key from log.
+
 ### v1.2.0 / 2025-1-7
 ### 🧰 Bug fixes 🧰
 - Add permissions to custom lambda for `event-source-mapping`
