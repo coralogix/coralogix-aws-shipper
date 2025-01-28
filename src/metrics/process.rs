@@ -141,17 +141,15 @@ async fn coralogix_send(config: &Config, message: Vec<u8>) -> Result<(), Error> 
             "Authorization",
             &format!("Bearer {}", config.api_key.token()),
         )
-        .header("cx.application.name", config.app_name.clone())
-        .header("cx.subsystem.name", config.sub_name.clone())
-        .body(message.clone())
+        .body(message)
         .send()
         .await?;
 
     Ok(())    
 }
 
-
-pub async fn kinesis_firehose(
+// transform_firehose_event - processes the KinesisFirehoseEvent and sends the transformed data to Coralogix
+pub async fn transform_firehose_event(
     config: &Config,
     event: KinesisFirehoseEvent,
 ) -> Result<KinesisFirehoseResponse, Error> {
