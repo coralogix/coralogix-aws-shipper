@@ -14,7 +14,7 @@ use lambda_runtime::{Context, Error, LambdaEvent};
 // use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 pub mod config;
 pub mod coralogix;
@@ -32,7 +32,9 @@ pub fn set_up_coralogix_exporter(config: &config::Config) -> Result<DynLogExport
         url: config.endpoint.clone(),
         request_timeout: Duration::from_secs(30),
         backoff_config: backoff,
-        user_agent: Some(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),).to_owned()),
+        user_agent: Some(
+            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),).to_owned(),
+        ),
         linger: None,
         strict_mode: None,
         processing_flow: None,
@@ -105,7 +107,7 @@ pub async fn handler(
             for record in &sqs_event.records {
                 mctx.insert("sqs.event.id".to_string(), record.message_id.clone());
                 mctx.insert("sqs.event.source".to_string(), record.event_source.clone());
-                
+
                 if let Some(message) = &record.body {
                     if config.integration_type != IntegrationType::Sqs {
                         let evt: events::Combined = serde_json::from_str(message)?;
@@ -206,20 +208,16 @@ pub async fn handler(
         }
         events::Combined::Kinesis(kinesis_event) => {
             for record in kinesis_event.records {
-                mctx.insert(
-                    "kinesis.event.id".to_string(),
-                    record.event_id.clone());
-                mctx.insert(
-                    "kinesis.event.name".to_string(),
-                    record.event_name.clone());
+                mctx.insert("kinesis.event.id".to_string(), record.event_id.clone());
+                mctx.insert("kinesis.event.name".to_string(), record.event_name.clone());
                 mctx.insert(
                     "kinesis.event.source".to_string(),
-                    record.event_source.clone());
+                    record.event_source.clone(),
+                );
                 mctx.insert(
                     "kinesis.event.source_arn".to_string(),
-                    record
-                        .event_source_arn
-                        .clone());
+                    record.event_source_arn.clone(),
+                );
 
                 debug!("Kinesis record: {:?}", record);
                 let message = record.kinesis.data;
@@ -238,10 +236,7 @@ pub async fn handler(
         events::Combined::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);
             mctx.insert("ecr.scan.id".to_string(), ecr_scan_event.id.clone());
-            mctx.insert(
-                "ecr.scan.source".to_string(),
-                ecr_scan_event.source.clone(),
-            );
+            mctx.insert("ecr.scan.source".to_string(), ecr_scan_event.source.clone());
 
             process::ecr_scan_logs(
                 &mctx,
@@ -251,6 +246,10 @@ pub async fn handler(
                 config,
             )
             .await?;
+        }
+        events::Combined::Firehose(firehose_event) => {
+            debug!("firehose event: {:?}", firehose_event);
+            error!("firehose event not supported for logs workflow");
         }
     };
 

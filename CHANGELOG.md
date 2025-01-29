@@ -1,6 +1,10 @@
 # Changelog
 
-### v1.2.0 / 2025-1-7
+### v1.3.0 / 2025-01-20
+### 💡 Enhancements 💡
+- New intergration workflow added for ingesting Cloudwatch Stream Metrics via Firehose over PrivateLink
+
+### v1.2.0 / 2025-01-7
 ### 🧰 Bug fixes 🧰
 - Add permissions to custom lambda for `event-source-mapping`
 ### 💡 Enhancements 💡

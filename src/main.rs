@@ -57,10 +57,22 @@ async fn main() -> Result<(), Error> {
         }
 
         TelemetryMode::Metrics => {
-            warn!("metrics telemetry mode not implemented");
-            // TODO: implement metrics
+            info!("running in metrics telemetry mode");
+            let mut conf = metrics::config::Config::load_from_env()?;
+            if conf.api_key.token().starts_with("arn:aws")
+                && conf.api_key.token().contains(":secretsmanager")
+            {
+                // TODO: move the get_api_key_from_secrets_manager out of the logs module
+                conf.api_key = crate::logs::config::get_api_key_from_secrets_manager(
+                    &aws_config,
+                    conf.api_key.token().to_string(),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            };
+
             run(service_fn(|request: LambdaEvent<Combined>| {
-                metrics::handler(&aws_clients, request)
+                metrics::handler(&conf, request)
             }))
             .await
         }

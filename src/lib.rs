@@ -4,6 +4,7 @@ use tracing_subscriber::EnvFilter;
 pub mod clients;
 pub mod events;
 pub mod logs;
+pub mod metrics;
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()
