@@ -1,10 +1,12 @@
 use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::event::cloudwatch_logs::LogsEvent;
+use aws_lambda_events::event::firehose::KinesisFirehoseEvent;
 use aws_lambda_events::event::kafka::KafkaEvent;
 use aws_lambda_events::event::kinesis::KinesisEvent;
 use aws_lambda_events::event::s3::S3Event;
 use aws_lambda_events::event::sns::SnsEvent;
 use aws_lambda_events::event::sqs::SqsEvent;
+
 use serde::de::{self, Deserialize, Deserializer};
 use serde_json::Value;
 use tracing::debug;
@@ -18,6 +20,7 @@ pub enum Combined {
     Kinesis(KinesisEvent),
     Kafka(KafkaEvent),
     EcrScan(EcrScanEvent),
+    Firehose(KinesisFirehoseEvent),
 }
 
 impl<'de> Deserialize<'de> for Combined {
@@ -54,6 +57,11 @@ impl<'de> Deserialize<'de> for Combined {
         if let Ok(event) = SqsEvent::deserialize(&raw_value) {
             tracing::info!("sqs event detected");
             return Ok(Combined::Sqs(event));
+        }
+
+        if let Ok(event) = KinesisFirehoseEvent::deserialize(&raw_value) {
+            tracing::info!("firehose event detected");
+            return Ok(Combined::Firehose(event));
         }
 
         // IMPORTANT: kafka must be evaluated last as it uses an arbitrary map to evaluate records.

@@ -2,12 +2,14 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
 Description: |
-  Send logs to Coralogix from AWS (S3, Cloudtrail, Cloudwatch, msk, SNS, SQS, Kinesis and more)
+  Send logs and metrics to Coralogix from AWS (S3, Cloudtrail, Cloudwatch, msk, SNS, SQS, Kinesis and more)
   Please report any issues to: github.com/coralogix/coralogix-aws-shipper/issues
 Metadata:
   AWS::ServerlessRepo::Application:
     Name: coralogix-aws-shipper
-    Description: Send logs to Coralogix from AWS (S3, Cloudtrail, Cloudwatch, msk, SNS, SQS, Kinesis and more)
+    Description: |
+      Send logs to Coralogix from AWS (S3, Cloudtrail, Cloudwatch, msk, SNS, SQS, Kinesis and more) 
+      And metrics from Cloudwatch Streams via Firehose transform.
     Author: Coralogix
     SpdxLicenseId: Apache-2.0
     LicenseUrl: LICENSE
@@ -25,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.2.0
+    SemanticVersion: 1.3.0
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -102,6 +104,10 @@ Metadata:
           - LambdaSubnetID
           - LambdaSecurityGroupID
           - UsePrivateLink
+      - Label:
+          default: Cloudwatch Metrics Stream via PrivateLink
+        Parameters:
+          - TelemetryMode
 
 Parameters:
   CoralogixRegion:
@@ -183,7 +189,9 @@ Parameters:
   S3BucketName:
     Type: String
     Description: |
-      The name of the AWS S3 bucket to watch
+      The name of the AWS S3 bucket to watch. 
+      If the TelemetryMode is set to metrics, this bucket is used as the
+      destination for failed metric data via firehose.
     AllowedPattern: '^([0-9A-Za-z\.\-_]+)(,[0-9A-Za-z\.\-_]+)*$'
     Default: "none"
     MaxLength: 63
@@ -421,6 +429,14 @@ Parameters:
     Description: The arn of a user defined role that will be used as the execution role for the lambda function
     Default: ''
 
+  TelemetryMode:
+    Type: String
+    Description: The telemetry mode for the shipper, i.e metrics or logs
+    Default: logs
+    AllowedValues:
+      - logs
+      - metrics
+
 Mappings:
   CoralogixRegionMap:
     EU1:
@@ -464,7 +480,10 @@ Conditions:
   StoreAPIKeyInSecretsManager: !And
     - !Equals [ !Ref StoreAPIKeyInSecretsManager, 'true' ]
     - !Condition IsApiKeyNotArn
-  IsPrivateLink: !Equals [ !Ref UsePrivateLink, 'true' ]
+  IsPrivateLink: 
+    !Or
+    - !Equals [ !Ref UsePrivateLink, 'true' ]
+    - !Equals [ !Ref TelemetryMode, 'metrics' ]
 
   SNSIsSet:
     !Or
@@ -477,22 +496,28 @@ Conditions:
     - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, 'arn:aws:sqs:us-east-1:123456789012:placeholder' ] ]
 
   UseKinesisStreamARN: !And 
-      - !Not [ !Equals [ !Ref KinesisStreamArn, '' ] ]
-      - !Equals [ !Ref CloudWatchLogGroupName, '' ]
-      - !Equals [ !Ref IntegrationType, 'Kinesis' ]
+    - !Not [ !Equals [ !Ref KinesisStreamArn, '' ] ]
+    - !Equals [ !Ref CloudWatchLogGroupName, '' ]
+    - !Equals [ !Ref IntegrationType, 'Kinesis' ]
+    - !Equals [!Ref TelemetryMode, logs]
   UseVpcConfig: !And 
     - !Not [ !Equals [ !Ref LambdaSubnetID, '' ] ]
     - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
+
   UseMSK: !And
     - !Not [ !Equals [ !Ref MSKClusterArn, '' ] ]
     - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
     - !Equals [ !Ref IntegrationType, 'MSK' ]
+    - !Equals [!Ref TelemetryMode, logs]
 
   S3BucketNameIsSet: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
   IsLambdaAssumeRoleEnable: !Not [!Equals [!Ref LambdaAssumeRoleARN, '']]
   ExecutionRoleARNIsSet: !Not [!Equals [!Ref ExecutionRoleARN, '']]
   ReservedConcurrentExecutionsIsSet: !Not [!Equals [!Ref ReservedConcurrentExecutions, 0]]
 
+  # TelemetryModeIsLogs: !Equals [!Ref TelemetryMode, logs]
+  TelemetryModeIsMetrics: !Equals [!Ref TelemetryMode, metrics]
+  
 Rules:
   ValidateDLQ:
     RuleCondition: !Equals [ !Ref EnableDLQ, 'true' ]
@@ -886,6 +911,7 @@ Resources:
             - IsLambdaAssumeRoleEnable
             - !Ref LambdaAssumeRoleARN
             - !Ref AWS::NoValue
+          TELEMETRY_MODE: !Ref TelemetryMode
 
   SNSNotificationSubscription:
     DependsOn: CustomResourceFunction
@@ -1004,6 +1030,7 @@ Resources:
           - StoreAPIKeyInSecretsManager
           - !Ref Secret
           - !Ref ApiKey
+        TelemetryMode: !Ref TelemetryMode
     Metadata:
       SamResourceId: ConfigureLambda
 
@@ -1154,8 +1181,135 @@ Resources:
           Id: "TargetFunctionV1"
 
 ##################################
+# -- Metrics Integration        -#
+##################################
+
+  FirehoseLogGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      LogGroupName: !Sub '${AWS::StackName}-firehose-log-group'
+      RetentionInDays: 14
+
+  FirehoseLogStream:
+    Type: AWS::Logs::LogStream
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      LogGroupName: !Ref FirehoseLogGroup
+      LogStreamName: delivery
+
+  FireHoseDeliveryStreamS3Role:
+    Type: AWS::IAM::Role
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "firehose.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "FirehoseDeliveryStreamS3Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:AbortMultipartUpload"
+                  - "s3:GetBucketLocation"
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                  - "s3:ListBucketMultipartUploads"
+                  - "s3:PutObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::${S3BucketName}"
+                  - !Sub "arn:aws:s3:::${S3BucketName}/*"
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                  - logs:CreateLogStream
+                Resource: 
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${FirehoseLogGroup}:log-stream:delivery
+              - Effect: "Allow"
+                Action:
+                  - "lambda:InvokeFunction"
+                  - "lambda:GetFunctionConfiguration"
+                Resource: !GetAtt LambdaFunction.Arn
+
+  FireHoseDestination:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Sub "arn:aws:s3:::${S3BucketName}"
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 5
+        CompressionFormat: GZIP
+        Prefix: "coralogix-aws-shipper-metrics"
+        RoleARN: !GetAtt FireHoseDeliveryStreamS3Role.Arn
+        S3BackupMode: Disabled
+        S3BackupConfiguration:
+          BucketARN: !Sub "arn:aws:s3:::${S3BucketName}"
+          RoleARN: !GetAtt FireHoseDeliveryStreamS3Role.Arn
+          BufferingHints:
+            IntervalInSeconds: 60
+            SizeInMBs: 5
+          CompressionFormat: GZIP
+          Prefix: "coralogix-aws-shipper-metrics-backup"
+        ProcessingConfiguration:
+          Enabled: 'true'
+          Processors:
+            - Parameters:
+              - ParameterName: RoleArn
+                ParameterValue: !GetAtt FireHoseDeliveryStreamS3Role.Arn
+              - ParameterName: LambdaArn
+                ParameterValue: !GetAtt LambdaFunction.Arn
+              Type: Lambda
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref FirehoseLogGroup
+          LogStreamName: delivery
+       
+  FirehoseAccessRole:
+    Type: AWS::IAM::Role
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "streams.metrics.cloudwatch.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "FirehoseAccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "firehose:PutRecord"
+                  - "firehose:PutRecordBatch"
+                Resource: !GetAtt FireHoseDestination.Arn
+
+  CloudWatchMetricStream:
+    Type: AWS::CloudWatch::MetricStream
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      FirehoseArn: !GetAtt FireHoseDestination.Arn
+      RoleArn: !GetAtt FirehoseAccessRole.Arn
+      OutputFormat: opentelemetry1.0
+
+
+##################################
 # -- Custom Resource Definition -#
 ##################################
+  
   CustomResourceFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -1208,7 +1362,7 @@ Resources:
           - logs:PutSubscriptionFilter
           - logs:DeleteSubscriptionFilter
           - logs:DescribeSubscriptionFilters
-          Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*
+          Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*'
       CodeUri: custom-resource/
 
   CustomResourceWaiter:

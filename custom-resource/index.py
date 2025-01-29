@@ -536,6 +536,11 @@ def lambda_handler(event, context):
     print("Received event:", event)
     cfn = CFNResponse(event, context)
     
+    if event['ResourceProperties']['Parameters']['TelemetryMode'] == 'metrics':
+        print('telemetry mode is set to metrics, skipping resource creation...')
+        cfn.send(cfn.SUCCESS, response_data={}, physical_resource_id=None, no_echo=False, reason=None)
+        return
+
     integration_type = event['ResourceProperties']['Parameters']['IntegrationType']
     dlq_enabled = event['ResourceProperties']['DLQ'].get('EnableDLQ', False)
     if dlq_enabled  == 'false':
