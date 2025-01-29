@@ -118,9 +118,15 @@ struct JsonMessage {
     kinesis_event_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "kinesis.event.name")]
     kinesis_event_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "kinesis.event.source")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "kinesis.event.source"
+    )]
     kinesis_event_source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "kinesis.event.source_arn")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "kinesis.event.source_arn"
+    )]
     kinesis_event_source_arn: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "kafka.topic")]
     kafka_topic: Option<String>,
@@ -154,7 +160,7 @@ impl From<&process::MetadataContext> for JsonMessage {
             message: Value::Null,
             s3_key: mctx.get("s3.object.key"),
             s3_bucket: mctx.get("s3.bucket"),
-            cw_log_group:  mctx.get("cw.log.group"),
+            cw_log_group: mctx.get("cw.log.group"),
             cw_log_stream: mctx.get("cw.log.stream"),
             cw_owner: mctx.get("cw.owner"),
             kinesis_event_id: mctx.get("kinesis.event.id"),
@@ -166,7 +172,7 @@ impl From<&process::MetadataContext> for JsonMessage {
             ecr_scan_source: mctx.get("ecr.scan.source"),
             sqs_event_source: mctx.get("sqs.event.source"),
             sqs_event_id: mctx.get("sqs.event.id"),
-            
+
             // to be deprecated
             stream_name: mctx.get("cw.log.stream"),
             loggroup_name: mctx.get("cw.log.group"),
@@ -205,7 +211,11 @@ impl JsonMessage {
         }
     }
 
-    fn with_selected_metadata(mut self, mctx: &process::MetadataContext, selected_metadata_keys: Vec<&str>) -> Self {
+    fn with_selected_metadata(
+        mut self,
+        mctx: &process::MetadataContext,
+        selected_metadata_keys: Vec<&str>,
+    ) -> Self {
         for key in selected_metadata_keys {
             match key {
                 "s3.object.key" => self.s3_key = mctx.get("s3.object.key"),
@@ -214,9 +224,13 @@ impl JsonMessage {
                 "cw.log.stream" => self.cw_log_stream = mctx.get("cw.log.stream"),
                 "cw.owner" => self.cw_owner = mctx.get("cw.owner"),
                 "kinesis.event.id" => self.kinesis_event_id = mctx.get("kinesis.event.id"),
-                "kinesis.event.name" =>  self.kinesis_event_name = mctx.get("kinesis.event.name"),
-                "kinesis.event.source" => self.kinesis_event_source = mctx.get("kinesis.event.source"),
-                "kinesis.event.source_arn" => self.kinesis_event_source_arn = mctx.get("kinesis.event.source_arn"),
+                "kinesis.event.name" => self.kinesis_event_name = mctx.get("kinesis.event.name"),
+                "kinesis.event.source" => {
+                    self.kinesis_event_source = mctx.get("kinesis.event.source")
+                }
+                "kinesis.event.source_arn" => {
+                    self.kinesis_event_source_arn = mctx.get("kinesis.event.source_arn")
+                }
                 "kafka.topic" => self.kafka_topic = mctx.get("kafka.topic"),
                 "ecr.scan.id" => self.ecr_scan_id = mctx.get("ecr.scan.id"),
                 "ecr.scan.source" => self.ecr_scan_source = mctx.get("ecr.scan.source"),
@@ -268,7 +282,7 @@ fn convert_to_log_entry(
     config: &Config,
 ) -> LogSinglesEntry<Value> {
     let now = OffsetDateTime::now_utc();
-    
+
     let application_name = mctx
         .evaluate(configured_app_name.to_string())
         .unwrap_or_else(|e| {
@@ -277,10 +291,12 @@ fn convert_to_log_entry(
         });
 
     tracing::debug!("App Name: {}", &application_name);
-    let subsystem_name = mctx.evaluate(configured_sub_name.to_string()).unwrap_or_else(|e| {
-        tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
-        configured_sub_name.to_owned()
-    });
+    let subsystem_name = mctx
+        .evaluate(configured_sub_name.to_string())
+        .unwrap_or_else(|e| {
+            tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
+            configured_sub_name.to_owned()
+        });
 
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
@@ -293,7 +309,6 @@ fn convert_to_log_entry(
         Ok(value) => value,
         Err(_) => Value::String(log),
     };
-
 
     let add_metadata: Vec<&str> = config.add_metadata.split(',').map(|s| s.trim()).collect();
     tracing::debug!("add_metadata: {:?}", add_metadata);
@@ -365,7 +380,6 @@ async fn send_logs(
     );
     Ok(())
 }
-
 
 // fn dynamic_metadata_value(mctx: process::MetadataContext, value: String) -> String {}
 
