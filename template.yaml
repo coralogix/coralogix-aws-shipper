@@ -1031,6 +1031,18 @@ Resources:
           - !Ref Secret
           - !Ref ApiKey
         TelemetryMode: !Ref TelemetryMode
+        CWStreamFirehoseDestinationARN: !If
+          - TelemetryModeIsMetrics
+          - !GetAtt FireHoseDestination.Arn
+          - !Ref AWS::NoValue
+        CWStreamFirehoseAccessRoleARN: !If
+          - TelemetryModeIsMetrics
+          - !GetAtt FirehoseAccessRole.Arn
+          - !Ref AWS::NoValue
+        CWMetricStreamName: !If
+          - TelemetryModeIsMetrics
+          - !Sub '${AWS::StackName}-coralogix-metric-stream'
+          - !Ref AWS::NoValue
     Metadata:
       SamResourceId: ConfigureLambda
 
@@ -1297,15 +1309,6 @@ Resources:
                   - "firehose:PutRecordBatch"
                 Resource: !GetAtt FireHoseDestination.Arn
 
-  CloudWatchMetricStream:
-    Type: AWS::CloudWatch::MetricStream
-    Condition: TelemetryModeIsMetrics
-    Properties:
-      FirehoseArn: !GetAtt FireHoseDestination.Arn
-      RoleArn: !GetAtt FirehoseAccessRole.Arn
-      OutputFormat: opentelemetry1.0
-
-
 ##################################
 # -- Custom Resource Definition -#
 ##################################
@@ -1320,6 +1323,14 @@ Resources:
       Timeout: 900
       Policies:
       - Statement:
+        - !If
+          - TelemetryModeIsMetrics
+          - Sid: IamPassRole
+            Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource: !GetAtt FirehoseAccessRole.Arn
+          - !Ref AWS::NoValue
         - Sid: EC2Access
           Effect: Allow
           Action:
@@ -1340,15 +1351,32 @@ Resources:
         - Sid: EventSourceMappings
           Effect: Allow
           Action:
-          - lambda:ListEventSourceMappings
-          - lambda:CreateEventSourceMapping
-          - lambda:DeleteEventSourceMapping
-          - lambda:UpdateEventSourceMapping
-          - lambda:GetFunctionConfiguration
-          - lambda:UpdateFunctionConfiguration
+            - lambda:ListEventSourceMappings
+            - lambda:CreateEventSourceMapping
+            - lambda:DeleteEventSourceMapping
+            - lambda:UpdateEventSourceMapping
+            - lambda:GetFunctionConfiguration
+            - lambda:UpdateFunctionConfiguration
           Resource: 
             - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:* 
             - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*
+        - Sid: CloudWatchMetrics
+          Effect: Allow
+          Action:
+            - cloudwatch:PutMetricStream
+            - cloudwatch:DeleteMetricStream
+            - cloudwatch:GetMetricStream
+            - cloudwatch:ListMetricStreams
+            - cloudwatch:StartMetricStreams
+            - cloudwatch:StopMetricStreams
+            - cloudwatch:DescribeAlarmsForMetric
+            - cloudwatch:PutMetricData
+            - cloudwatch:GetMetricData
+            - cloudwatch:GetMetricStatistics
+            - cloudwatch:ListMetrics
+            - cloudwatch:GetMetricWidgetImage
+          Resource: 
+            - !Sub arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:*
       - Statement:
         - Sid: S3NotificationPolicy
           Effect: Allow
