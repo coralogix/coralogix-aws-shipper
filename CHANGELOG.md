@@ -3,6 +3,7 @@
 ### v1.3.0 / 2025-01-20
 ### 💡 Enhancements 💡
 - New intergration workflow added for ingesting Cloudwatch Stream Metrics via Firehose over PrivateLink
+- Add Cloudwatch Metrics Stream creation to custom resource function
 
 ### v1.2.0 / 2025-01-7
 ### 🧰 Bug fixes 🧰
