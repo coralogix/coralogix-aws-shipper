@@ -436,6 +436,38 @@ To enable the Cloudwatch Metrics Stream via Firehose (PrivateLink) you must prov
 | LambdaSecurityGroupID       | Specify the ID of the Security Group where the integration should be deployed.                                                                                                                                                                                                                                                     |               | :heavy_check_mark: |
 | StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          |                    |
 
+# Cloudwatch Metrics Stream via Firehose PrivateLink (beta)
+
+As of version `v1.3.0`, the Coralogix AWS Shipper supports streaming **Cloudwatch Metrics to Coralogix via Firehose over a PrivateLink**.
+
+This workflow is designed for scenarios where you need to stream metrics from a CloudWatch Metrics stream to Coralogix via a PrivateLink endpoint.
+
+#### Why Use This Workflow?
+
+AWS Firehose does not support PrivateLink endpoints as a destination because Firehose cannot be connected to a VPC, which is required to reach a PrivateLink endpoint. To overcome this limitation, the Coralogix AWS Shipper acts as a transform function. It is attached to a Firehose instance that receives metrics from the CloudWatch Metrics stream and forwards them to Coralogix over a PrivateLink.
+
+#### When to Use This Workflow
+
+This workflow is specifically for bypassing the limitation of using Firehose with the Coralogix PrivateLink endpoint. If there is no requirement for PrivateLink, we recommend using the default Firehose Integration for CloudWatch Stream Metrics found [here](https://coralogix.com/docs/integrations/aws/amazon-data-firehose/aws-cloudwatch-metric-streams-with-amazon-data-firehose/).
+
+#### How does it work?
+
+![Cloudwatch stream via PrivateLink Workflow](./static/cloudwatch-metrics-pl-workflow.png)
+
+To enable the Cloudwatch Metrics Stream via Firehose (PrivateLink) you must provide the required parameters outlined below.
+
+| Parameter                   | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
+|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
+| TelemetryMode               | Specify the telemetry collection modes, supported values (`metrics`, `logs`). Note that this value must be set to `metrics` for the Cloudwatch metric stream workflow                                                                                                                                                              | logs          | :heavy_check_mark: |
+| ApiKey                      | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.<br>*Note the parameter expects the API Key in plain text or stored in secret manager.*                          |               | :heavy_check_mark: |
+| ApplicationName             | The name of the application for which the integration is configured. [Advanced Configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
+| SubsystemName               | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
+| CoralogixRegion             | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
+| S3BucketName                | The S3Bucket that will be used to store records that have failed processing                                                                                                                                                                                                                                                        |               | :heavy_check_mark: |
+| LambdaSubnetID              | Specify the ID of the subnet where the integration should be deployed.                                                                                                                                                                                                                                                             |               | :heavy_check_mark: |
+| LambdaSecurityGroupID       | Specify the ID of the Security Group where the integration should be deployed.                                                                                                                                                                                                                                                     |               | :heavy_check_mark: |
+| StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          |                    |
+
 ## Support
 
 **Need help?**
