@@ -37,6 +37,7 @@ static METADATA_EVALUATION_DEFAULT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"\{\{\s*(?<key>[a-z\.0-9_]+)\s*\}\}"#).expect("Failed to create regex")
 });
 
+#[derive(Default)]
 pub struct MetadataContext {
     inner: Arc<RwLock<HashMap<String, Option<String>>>>,
 }

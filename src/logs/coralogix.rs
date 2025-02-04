@@ -15,6 +15,14 @@ use std::time::Instant;
 use std::vec::Vec;
 use time::OffsetDateTime;
 use tracing::{debug, error, info};
+use once_cell::sync::Lazy;
+use fancy_regex::Regex;
+
+// Add these static regex patterns at the top of the file with the other statics
+static JSON_EVALUATION_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\{\{\s*\$\.([a-zA-Z0-9._]+)\s*\}\}"#)
+        .expect("Failed to create JSON evaluation regex")
+});
 
 pub async fn process_batches(
     logs: Vec<String>,
@@ -274,6 +282,46 @@ impl JsonMessage {
     }
 }
 
+fn extract_json_value(log: &str, template: &str) -> Option<String> {
+    // First check if this is a template pattern
+    if let Ok(Some(captures)) = JSON_EVALUATION_REGEX.captures(template) {
+        if let Some(key_match) = captures.get(1) {
+            let key_path = key_match.as_str();
+            return extract_json_path_value(log, key_path);
+        }
+    }
+    
+    // If not a template, treat as direct path
+    extract_json_path_value(log, template)
+}
+
+fn extract_json_path_value(log: &str, key_path: &str) -> Option<String> {
+    // Try to parse the log as JSON
+    if let Ok(json_value) = serde_json::from_str::<Value>(log) {
+        // Split the key path by dots to handle nested objects
+        let keys: Vec<&str> = key_path.split('.').collect();
+        
+        // Navigate through the JSON structure
+        let mut current = &json_value;
+        for key in keys {
+            match current.get(key) {
+                Some(value) => current = value,
+                None => return None,
+            }
+        }
+        
+        // Convert the final value to a string
+        match current {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
 fn convert_to_log_entry(
     log: String,
     configured_app_name: &str,
@@ -282,22 +330,26 @@ fn convert_to_log_entry(
     config: &Config,
 ) -> LogSinglesEntry<Value> {
     let now = OffsetDateTime::now_utc();
+    
+    let application_name = extract_json_value(&log, configured_app_name)
+        .unwrap_or_else(|| {
+            mctx.evaluate(configured_app_name.to_string())
+                .unwrap_or_else(|e| {
+                    tracing::warn!("application name dynamic parsing failed, using: {}", e);
+                    configured_app_name.to_owned()
+                })
+        });
 
-    let application_name = mctx
-        .evaluate(configured_app_name.to_string())
-        .unwrap_or_else(|e| {
-            tracing::warn!("application name dynamic parsing failed, using: {}", e);
-            configured_app_name.to_owned()
+    let subsystem_name = extract_json_value(&log, configured_sub_name)
+        .unwrap_or_else(|| {
+            mctx.evaluate(configured_sub_name.to_string())
+                .unwrap_or_else(|e| {
+                    tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
+                    configured_sub_name.to_owned()
+                })
         });
 
     tracing::debug!("App Name: {}", &application_name);
-    let subsystem_name = mctx
-        .evaluate(configured_sub_name.to_string())
-        .unwrap_or_else(|e| {
-            tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
-            configured_sub_name.to_owned()
-        });
-
     tracing::debug!("Sub Name: {}", &subsystem_name);
     let severity = get_severity_level(&log);
     // let stream_name = metadata_instance.stream_name.clone();
@@ -411,88 +463,209 @@ fn get_severity_level(message: &str) -> Severity {
     severity
 }
 
-// #[cfg(test)]
-// mod test {
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
 
-//     // use crate::logs::coralogix::dynamic_metadata_for_log;
+    fn test_config() -> Config {
+        Config {
+            newline_pattern: String::new(),
+            blocking_pattern: String::new(),
+            sampling: 1,
+            logs_per_batch: 500,
+            integration_type: IntegrationType::S3,
+            app_name: None,
+            sub_name: None,
+            api_key: "test".to_string().into(),
+            endpoint: "test".to_string(),
+            max_elapsed_time: 250,
+            csv_delimiter: ",".to_string(),
+            batches_max_size: 4,
+            batches_max_concurrency: 10,
+            add_metadata: String::new(),
+            dlq_arn: None,
+            dlq_url: None,
+            dlq_retry_limit: None,
+            dlq_s3_bucket: None,
+            lambda_assume_role: None,
+        }
+    }
 
-//     #[test]
-//     fn test_nondynamic_app_name() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "my-app";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "my-app");
-//     }
+    #[test]
+    fn test_extract_json_value_simple() {
+        let log = r#"{"eventSource": "aws:s3", "message": "test"}"#;
+        let result = extract_json_value(log, "eventSource");
+        assert_eq!(result, Some("aws:s3".to_string()));
+    }
 
-//     #[test]
-//     fn test_fall_back_to_app_name_when_dynamic_app_name_is_missing() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "$.app_name";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "$.app_name");
-//     }
+    #[test]
+    fn test_extract_json_value_nested() {
+        let log = r#"{"metadata": {"app": {"name": "test-app"}}}"#;
+        let result = extract_json_value(log, "metadata.app.name");
+        assert_eq!(result, Some("test-app".to_string()));
+    }
 
-//     #[test]
-//     fn test_simple_dynamic_app_name() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "$.app_name";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//             "app_name": "my-awesome-app"
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "my-awesome-app");
-//     }
+    #[test]
+    fn test_extract_json_value_non_string() {
+        let log = r#"{"count": 42, "active": true}"#;
+        assert_eq!(extract_json_value(log, "count"), Some("42".to_string()));
+        assert_eq!(extract_json_value(log, "active"), Some("true".to_string()));
+    }
 
-//     #[test]
-//     fn test_nested_dynamic_app_name() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "$.metadata.app_name";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//             "metadata": {
-//                 "app_name": "my-awesome-app2"
-//             }
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "my-awesome-app2");
-//     }
-//     #[test]
-//     fn test_dynamic_folder_app_name() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "{{s3_key.2}}";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//             "metadata": {
-//                 "app_name": "my-awesome-app2"
-//             }
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "folder1");
-//     }
-//     #[test]
-//     fn test_dynamic_folder_app_name_fails() {
-//         let key_name = "AwsLogs/folder1/folder2";
-//         let app_name = "{{s3_key.8}}";
-//         let log_file_contents = r#"{
-//             "timestamp": "09-24 16:09:07.042",
-//             "message": "java.lang.NullPointerException",
-//             "metadata": {
-//                 "app_name": "my-awesome-app2"
-//             }
-//         }"#;
-//         let dapp = dynamic_metadata_for_log(app_name, log_file_contents, key_name.to_string());
-//         assert_eq!(dapp, "default");
-//     }
-// }
+    #[test]
+    fn test_extract_json_value_missing() {
+        let log = r#"{"eventSource": "aws:s3"}"#;
+        let result = extract_json_value(log, "nonexistent");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_json_value_invalid_json() {
+        let log = "not a json";
+        let result = extract_json_value(log, "any.path");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_json_value_template_syntax() {
+        let log = r#"{"metadata": {"app": {"name": "test-app"}}}"#;
+        
+        // Test different spacing in template
+        assert_eq!(
+            extract_json_value(log, "{{$.metadata.app.name}}"),
+            Some("test-app".to_string())
+        );
+        assert_eq!(
+            extract_json_value(log, "{{ $.metadata.app.name }}"),
+            Some("test-app".to_string())
+        );
+        assert_eq!(
+            extract_json_value(log, "{{    $.metadata.app.name    }}"),
+            Some("test-app".to_string())
+        );
+        
+        // Test direct path still works
+        assert_eq!(
+            extract_json_value(log, "metadata.app.name"),
+            Some("test-app".to_string())
+        );
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_with_json_extraction() {
+        let log = r#"{"app": "json-app", "subsystem": "json-subsystem"}"#;
+        let app_name = "{{ $.app }}";
+        let sub_name = "{{ $.subsystem }}";
+        let mctx = process::MetadataContext::default();
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "json-app");
+        assert_eq!(entry.subsystem_name, "json-subsystem");
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_json_fallback() {
+        let log = r#"{"different_key": "value"}"#;
+        let app_name = "{{ $.nonexistent }}";
+        let sub_name = "{{ $.missing }}";
+        let mctx = process::MetadataContext::default();
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "{{ $.nonexistent }}");
+        assert_eq!(entry.subsystem_name, "{{ $.missing }}");
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_nested_json() {
+        let log = r#"{
+            "metadata": {
+                "application": {
+                    "name": "nested-app",
+                    "environment": "production"
+                },
+                "service": {
+                    "type": "web",
+                    "instance": "worker-1"
+                }
+            }
+        }"#;
+        
+        let app_name = "{{ $.metadata.application.name }}";
+        let sub_name = "{{ $.metadata.service.type }}";
+        let mctx = process::MetadataContext::default();
+        let config = test_config();
+
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            app_name,
+            sub_name,
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "nested-app");
+        assert_eq!(entry.subsystem_name, "web");
+    }
+
+    #[test]
+    fn test_json_path_spacing_variations() {
+        let log = r#"{
+            "key": "value1",
+            "nested": {
+                "key": "value2"
+            }
+        }"#;
+        
+        // Test different spacing variations
+        let variations = [
+            "{{$.key}}",
+            "{{ $.key }}",
+            "{{$.key  }}",
+            "{{  $.key}}",
+            "{{    $.key    }}",
+            "{{$.nested.key}}",
+            "{{ $.nested.key }}",
+            "{{    $.nested.key    }}"
+        ];
+
+        for template in variations {
+            let entry = convert_to_log_entry(
+                log.to_string(),
+                template,
+                "default-sub",
+                &process::MetadataContext::default(),
+                &test_config(),
+            );
+
+            let expected = if template.contains("nested") {
+                "value2"
+            } else {
+                "value1"
+            };
+            
+            assert_eq!(
+                entry.application_name, 
+                expected,
+                "Failed for template: {}",
+                template
+            );
+        }
+    }
+}
