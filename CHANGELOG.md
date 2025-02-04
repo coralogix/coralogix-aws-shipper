@@ -1,5 +1,5 @@
 # Changelog
-## v1.2.1 / 2025-01-27
+## v1.3.1 / 2025-02-04
 ### 🧰 Bug fixes 🧰
 - Added support for dynamic allocation of Application and Subsystem names based on json key from log.
 
