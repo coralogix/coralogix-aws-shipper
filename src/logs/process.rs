@@ -11,6 +11,7 @@ use fancy_regex::Regex;
 use flate2::read::MultiGzDecoder;
 use itertools::Itertools;
 use lambda_runtime::Error;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
@@ -18,10 +19,9 @@ use std::io::Read;
 use std::ops::Range;
 use std::path::Path;
 use std::string::String;
-use std::time::Instant;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 use tracing::{debug, info};
-use once_cell::sync::Lazy;
 
 use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
@@ -34,8 +34,7 @@ static METADATA_EVALUATION_WITH_REGEX: Lazy<Regex> = Lazy::new(|| {
 });
 
 static METADATA_EVALUATION_DEFAULT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\{\{\s*(?<key>[a-z\.0-9_]+)\s*\}\}"#)
-        .expect("Failed to create regex")
+    Regex::new(r#"\{\{\s*(?<key>[a-z\.0-9_]+)\s*\}\}"#).expect("Failed to create regex")
 });
 
 #[derive(Default)]
@@ -95,11 +94,14 @@ impl MetadataContext {
                 .captures(&value)
                 .map_err(|e| format!("capture error: {}", e))?;
             let captures = captures.ok_or("no captures found")?;
-            ("".to_string(), captures
-                .name("key")
-                .ok_or("key not found")?
-                .as_str()
-                .to_string())
+            (
+                "".to_string(),
+                captures
+                    .name("key")
+                    .ok_or("key not found")?
+                    .as_str()
+                    .to_string(),
+            )
         };
 
         if let Some(v) = self.get(&key) {
@@ -124,8 +126,6 @@ impl MetadataContext {
         Err("failed to evaluate dynamic metadata".to_string())
     }
 }
-
-
 
 pub async fn s3(
     mctx: &MetadataContext,
@@ -218,7 +218,6 @@ pub async fn s3(
 
     Ok(())
 }
-
 
 pub async fn kinesis_logs(
     mctx: &MetadataContext,
@@ -461,7 +460,10 @@ async fn process_cloudwatch_logs(
 ) -> Result<Vec<String>, Error> {
     // Add CW metadata
     metadata.insert("cw.log.group".to_string(), Some(cw_event.log_group.clone()));
-    metadata.insert("cw.log.stream".to_string(), Some(cw_event.log_stream.clone()));
+    metadata.insert(
+        "cw.log.stream".to_string(),
+        Some(cw_event.log_stream.clone()),
+    );
     metadata.insert("cw.owner".to_string(), Some(cw_event.owner.clone()));
 
     let log_entries: Vec<String> = cw_event
@@ -662,10 +664,7 @@ pub async fn kafka_logs(
     let mut batch = Vec::new();
     for record in records {
         if let Some(value) = record.value {
-            mctx.insert(
-                "kafka.topic".to_string(),
-                record.topic.clone(),
-            );
+            mctx.insert("kafka.topic".to_string(), record.topic.clone());
             // check if value is base64 encoded
             if let Ok(message) = BASE64_STANDARD.decode(&value) {
                 batch.push(String::from_utf8(message)?);
@@ -852,21 +851,25 @@ at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#
         let r = metadata.evaluate("{{key1}}".to_string()).unwrap();
         assert_eq!(r, "hello");
 
-        let r = metadata.evaluate(r#"{{key2|r'^(\w).*'}}"#.to_string()).unwrap();
+        let r = metadata
+            .evaluate(r#"{{key2|r'^(\w).*'}}"#.to_string())
+            .unwrap();
         assert_eq!(r, "w");
 
         // with underscore
-        let r = metadata.evaluate("{{key_with_underscore}}".to_string()).unwrap();
+        let r = metadata
+            .evaluate("{{key_with_underscore}}".to_string())
+            .unwrap();
         assert_eq!(r, "devs");
 
         // with spaces
-        let r = metadata.evaluate(r#"{{ key2 | r'^(\w).*' }}"#.to_string()).unwrap();
+        let r = metadata
+            .evaluate(r#"{{ key2 | r'^(\w).*' }}"#.to_string())
+            .unwrap();
         assert_eq!(r, "w");
 
         // invalid regex
         let r = metadata.evaluate(r#"{{ key2 | r'^(\w' }}"#.to_string());
         assert!(r.is_err());
     }
-
-
 }

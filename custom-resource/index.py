@@ -529,6 +529,67 @@ class ConfigureCloudwatchIntegration:
             physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)  
         )
 
+class ConfigureMetricsIntegration:
+    '''
+    ConfigureMetricsIntegration handles the configuration of Metrics Integration
+        - Create CloudWatch Metric Stream
+    '''
+    def __init__(self, event, context, cfn):
+        self.event = event
+        self.context = context
+        self.cfn = cfn
+        self.params = SimpleNamespace(**self.event['ResourceProperties']['Parameters'])
+        self.cloudwatch_metrics = boto3.client('cloudwatch')
+
+    @handle_exceptions
+    def create(self):
+        print('creating cloudwatch metric stream...')
+        response = self.cloudwatch_metrics.put_metric_stream(
+            Name=self.params.CWMetricStreamName,
+            FirehoseArn=self.params.CWStreamFirehoseDestinationARN,
+            RoleArn=self.params.CWStreamFirehoseAccessRoleARN,
+            OutputFormat='opentelemetry1.0',
+        )
+        print('create cloudwatch metric stream response:', response)
+
+    @handle_exceptions
+    def update(self):
+        err = self.delete()
+        if err:
+            raise Exception(err)
+        time.sleep(30) # give time for resource to be deleted
+        return self.create()
+
+    @handle_exceptions
+    def delete(self):
+        print(f'deleting cloudwatch metric stream... {self.params.CWMetricStreamName}')
+        response = self.cloudwatch_metrics.delete_metric_stream(
+            Name=self.params.CWMetricStreamName,
+        )
+        print('delete cloudwatch metric stream response:', response)
+
+    def handle(self):
+        responseStatus = self.cfn.SUCCESS
+        match self.event['RequestType']:
+            case 'Create':
+                err = self.create()
+            case 'Update':
+                err = self.update()
+            case 'Delete':
+                err = self.delete()
+                if err:
+                    if 'ResourceNotFoundException' in err: err = None
+
+        if err:
+            print(f"[ConfigureMetricsIntegration] failed to process: {err}")
+            responseStatus = self.cfn.FAILED
+
+        # send response to cloudformation
+        self.cfn.send(
+            responseStatus,
+            physical_resource_id=self.event.get('PhysicalResourceId', self.context.aws_request_id)
+        )
+
 def lambda_handler(event, context):
     '''
     AWS Lambda handler function
@@ -536,6 +597,17 @@ def lambda_handler(event, context):
     print("Received event:", event)
     cfn = CFNResponse(event, context)
     
+    # handle metrics integration
+    if event['ResourceProperties']['Parameters']['TelemetryMode'] == 'metrics':
+        print('telemetry mode is set to metrics')
+        try:
+            ConfigureMetricsIntegration(event, context, cfn).handle()
+        except Exception as e:
+            stack_trace = traceback.format_exc()
+            print(f"failed to process: {e}\n{stack_trace}")
+            cfn.send(cfn.FAILED, response_data={}, physical_resource_id=None, no_echo=False, reason=None)
+        return
+
     integration_type = event['ResourceProperties']['Parameters']['IntegrationType']
     dlq_enabled = event['ResourceProperties']['DLQ'].get('EnableDLQ', False)
     if dlq_enabled  == 'false':
