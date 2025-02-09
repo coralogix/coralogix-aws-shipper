@@ -7,6 +7,8 @@ on:
     types:
       - completed
   push:
+    branches:
+      - master
     paths:
       - 'README.md'
 env:
