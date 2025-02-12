@@ -32,9 +32,12 @@ jobs:
         run: |
           cfn-lint --template template.yaml --region us-east-1 --ignore-checks W 
           
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install latest Rust
+        uses: actions-rs/toolchain@v1
         with:
-          components: rustfmt, clippy
+          toolchain: stable
+          override: true
+          
       - name: start ssh agent for rust private dependencies
         uses: webfactory/ssh-agent@v0.8.0
         with:
