@@ -1,6 +1,6 @@
 # Changelog
 ## v1.3.2 / 2025-02-12
-### Chore
+### 💡 Chore 💡
 - Update dependencies to fix security vulnerabilities
     - https://github.com/coralogix/coralogix-aws-shipper/security/dependabot/7
 
