@@ -34,6 +34,7 @@ jobs:
           
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
       - name: start ssh agent for rust private dependencies
         uses: webfactory/ssh-agent@v0.8.0
