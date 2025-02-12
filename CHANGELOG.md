@@ -1,4 +1,9 @@
 # Changelog
+## v1.3.2 / 2025-02-12
+### Chore
+- Update dependencies to fix security vulnerabilities
+    - https://github.com/coralogix/coralogix-aws-shipper/security/dependabot/7
+
 ## v1.3.1 / 2025-02-04
 ### 🧰 Bug fixes 🧰
 - Added support for dynamic allocation of Application and Subsystem names based on json key from log.
