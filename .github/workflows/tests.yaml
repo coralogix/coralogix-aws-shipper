@@ -32,10 +32,10 @@ jobs:
         run: |
           cfn-lint --template template.yaml --region us-east-1 --ignore-checks W 
           
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.81.0
-          components: rustfmt, clippy
+      # - uses: dtolnay/rust-toolchain@stable
+      #   with:
+      #     toolchain: 1.81.0
+      #     components: rustfmt, clippy
       - name: start ssh agent for rust private dependencies
         uses: webfactory/ssh-agent@v0.8.0
         with:
