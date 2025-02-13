@@ -1,4 +1,9 @@
 # Changelog
+
+## v1.3.3 / 2025-02-13
+### 🧰 Bug fixes 🧰
+- Fixed issue when updating an existing CF stack with S3, CloudTrail, VpcFlow or S3Csv integration type.
+
 ## v1.3.2 / 2025-02-12
 ### 💡 Chore 💡
 - Update dependencies to fix security vulnerabilities

@@ -123,16 +123,21 @@ class ConfigureS3Integration:
     def handle_lambda_permissions(self, bucket_name_list, lambda_function_arn, function_name, request_type):
         for bucket_name in bucket_name_list.split(","):
             statement_id = f'allow-s3-{bucket_name}-invoke-{function_name}'
-            if request_type == 'Delete':
-                response = self.aws_lambda.remove_permission(
-                    FunctionName=lambda_function_arn,
-                    StatementId=statement_id
-                )
-                print("Permission removed from Lambda function:", response)
-                return
+            try:
+                if request_type == 'Delete' or request_type == 'Update':
+                    response = self.aws_lambda.remove_permission(
+                        FunctionName=lambda_function_arn,
+                        StatementId=statement_id
+                    )
+                    print("Permission removed from Lambda function:", response)
+                if request_type == 'Delete':
+                    return
+            except Exception as e:
+                print(f"Couldent remove permission with statement id: {statement_id}, {str(e)}")
+
             response = self.aws_lambda.add_permission(
                 FunctionName=lambda_function_arn,
-                StatementId=f'allow-s3-{bucket_name}-invoke',
+                StatementId=statement_id,
                 Action='lambda:InvokeFunction',
                 Principal='s3.amazonaws.com',
                 SourceArn=f'arn:aws:s3:::{bucket_name}'
