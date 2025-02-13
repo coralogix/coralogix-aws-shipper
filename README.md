@@ -50,29 +50,29 @@ This document details how to complete our predefined Lambda function template to
 
 While `coralogix-aws-shipper` manages integrations for all listed AWS products, some parameters are specific to individual products. Please refer to the [Configuration parameters](#configuration-parameters) for product-specific requirements.
 
-### Amazon S3, CloudTrail, VPC Flow Logs and more
+**Amazon S3, CloudTrail, VPC Flow Logs and more**
 
 This integration is based on S3. Your Amazon S3 bucket can receive log files from all kinds of services, such as [CloudTrail](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-examples.html), [VPC Flow Logs](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-s3.html), [Redshift](https://docs.aws.amazon.com/redshift/latest/mgmt/db-auditing.html#db-auditing-manage-log-files), [Network Firewall](https://docs.aws.amazon.com/network-firewall/latest/developerguide/logging-s3.html) or different types of load balancers ([ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-access-logs.html)/[NLB](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-access-logs.html)/[ELB](https://docs.aws.amazon.com/elasticloadbalancing/latest/classic/access-log-collection.html)). The data is then sent to Coralogix for analysis.
 
 You can also incorporate SNS/SQS into the pipeline to trigger the integration upon notification.
 
-### Amazon SNS/SQS
+**Amazon SNS/SQS**
 
 A separate integration for SNS or SQS is available. You can receive messages directly from both services to your Coralogix subscription. You will need the ARN of the individual SNS/SQS topic.
 
-### Amazon CloudWatch
+**Amazon CloudWatch**
 
-Coralogix can be configured to receive data directly from your [CloudWatch](https://docs.aws.amazon.com/cloudwatch/) log group.
+Coralogix can be configured to directly receive data directly from your [CloudWatch](https://docs.aws.amazon.com/cloudwatch/) log group. In this case, the S3 is not used as an intermediary.
 
-### Amazon Kinesis
+**Amazon Kinesis**
 
-Coralogix can be configured to receive data directly from your [Kinesis Stream](https://docs.aws.amazon.com/cloudwatch/).
+Coralogix can be configured to receive data directly from your [Kinesis Stream](https://docs.aws.amazon.com/cloudwatch/). This option does not use S3 and lets you connect to services directly.
 
-### Amazon MSK & Kafka
+**Amazon MSK & Kafka**
 
 Coralogix can be configured to receive data directly from your [MSK](https://docs.aws.amazon.com/msk/) or [Kafka](https://docs.aws.amazon.com/lambda/latest/dg/with-kafka.html) cluster.
 
-### Amazon ECR image security scan
+**Amazon ECR image security scan**
 
 Coralogix can be configured to receive ECR [Image Scanning](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-scanning.html).
 
@@ -96,7 +96,7 @@ If you are using AWS CLI, you can use a [CloudFormation template](https://github
 
 Alternatively, you can use the [SAM deployment link](https://serverlessrepo.aws.amazon.com/applications/eu-central-1/597078901540/coralogix-aws-shipper). The procedure is very similar to filling out the Quick Create template.
 
-### Terraform module
+### **Terraform module**
 
 If you are using Terraform to launch your infrastructure, you can access `coralogix-aws-shipper` it via our [Terraform Module](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper). Use the parameters defined in the repository README, as they more accurately reflect the configuration process.
 
@@ -104,15 +104,13 @@ If you are using Terraform to launch your infrastructure, you can access `coralo
 
 This document explains the basic config options for your template. You will need these values to launch your integration. For additional optional parameters, view the [Advanced configuration](#advanced-configuration) options.
 
-Use the tables below as a guide to configure your deployment. The configuration variables provided apply to Serverless or CloudFormation deployments. If you plan to use Terraform, the variable requirements differ slightly. Please refer to the [Terraform Module](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper) for further details.
+Use the tables below as a guide to properly configure your deployment. The provided configuration variables are for the Serverless or CloudFormation deployment options. The variable requirements are slightly different if you wish to deploy with Terraform. Please refer to the [Terraform Module](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper) for further details.
 
 ### Universal configuration
 
-Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/send-your-data-management-api/) to make the connection or create one as you fill our pre-made template. Additionally, make sure your integration is [Region-specific](https://coralogix.com/docs/coralogix-domain/).
+Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/send-your-data-management-api/) to make the connection or create one as you fill our pre-made template. Additionally, make sure your integration is [Region-specific](https://coralogix.com/docs/coralogix-domain/). # TODO update this?
 
-!!! note
-
-    Always deploy the AWS Lambda function in the same AWS region as your resource, such as the S3 bucket.
+**Note:** You should always deploy the AWS Lambda function in the same AWS Region as your resource (e.g. the S3 bucket).
 
 | Parameter                    | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
 |------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
@@ -128,9 +126,8 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | LambdaAssumeRoleARN          | A role that the lambda will assume, leave empty to use the default permissions.<br> Note that if this parameter is used, all **S3** and **ECR** API calls from the lambda will be made with the permissions of the assumed role.                                                                                                   |               |                    |
 | ExecutionRoleARN             | The ARN of a user defined role that will be used as the execution role for the lambda. function                                                                                                                                                                                                                                     |               |                    |
 
-!!! note
-
-    `EcrScan` doesn't require any additional configuration.
+> [!NOTE]  
+> `EcrScan` doesn't require any additional configuration.
 
 #### Working with roles
 
@@ -152,19 +149,26 @@ Basic lambda execution role permission:
 
 ### S3/CloudTrail/VpcFlow/S3Csv configuration
 
-This is the most flexible type of integration, as it is based on receiving log files to Amazon S3. First, your bucket can receive log files from all kinds of other services, such as CloudTrail, VPC Flow Logs, Redshift, Network Firewall or different types of load balancers (ALB/NLB/ELB). Once the data is in the bucket, a pre-made Lambda function will then transmit it to your Coralogix account.
+This is the most flexible type of integration, as it is based on receiving log files to Amazon S3. First, your bucket can receive log files from all kinds of other services, such as [CloudTrail](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-examples.html), [VPC Flow Logs](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-s3.html), [Redshift](https://docs.aws.amazon.com/redshift/latest/mgmt/db-auditing.html#db-auditing-manage-log-files), [Network Firewall](https://docs.aws.amazon.com/network-firewall/latest/developerguide/logging-s3.html) or different types of load balancers ([ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-access-logs.html)/[NLB](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-access-logs.html)/[ELB](https://docs.aws.amazon.com/elasticloadbalancing/latest/classic/access-log-collection.html)). Once the data is in the bucket, a pre-made Lambda function will then transmit it to your Coralogix account.
 
-!!! Tip
+> [!TIP]
+> The S3 integration supports generic data. You can ingest any generic text, JSON, and CSV data stored in your S3 bucket.
 
-    The S3 integration supports generic data. You can ingest any generic text, JSON, and CSV data stored in your S3 bucket.
+**Figure 1: Sending data directly from an S3 bucket.** Your applications will deposit their logs and events in a specified S3 Bucket. Each S3 Bucket event will trigger a Lambda invocation, thus sending the data to your Coralogix Account.
+
+![](static/S3-integration-flow.png)
 
 **Maintain S3 notifications via SNS or SQS**
 
 If you don’t want to send data directly as it enters S3, you can also use SNS/SQS to maintain notifications before any data is sent from your bucket to Coralogix. For this, you need to set the `SNSTopicArn` or `SQSTopicArn` parameters.
 
-!!! note
+**Figure 2: First trigger via SNS, then send to an S3 bucket.** Alternatively, you can configure a notification to invoke the Lambda. The SNS/SQS is triggered as your S3 Bucket event occurs.
 
-    All resources, such as S3 or SNS/SQS, should be provisioned already. If you are using an S3 bucket as a resource, please make sure it is clear of any Lambda triggers located in the same AWS region as your new function.
+![](static/S3-sns-sqs-flow.png)
+
+
+> [!NOTE]
+> All resources, such as S3 or SNS/SQS, should be provisioned already. If you are using an S3 bucket as a resource, please make sure it is clear of any Lambda triggers located in the same AWS region as your new function.
 
 | Parameter      | Description                                                                                                                                                                                       | Default Value                            | Required           |
 |----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------|--------------------|
@@ -178,7 +182,11 @@ If you don’t want to send data directly as it enters S3, you can also use SNS/
 
 ### CloudWatch configuration
 
-Coralogix can be configured to receive data directly from your CloudWatch log group. CloudWatch logs are streamed directly to Coralogix via lambda. This option does not use S3. You must provide the log group name as a parameter during setup.
+Coralogix can be configured to receive data directly from your [CloudWatch](https://docs.aws.amazon.com/cloudwatch/) log group. CloudWatch logs are streamed directly to Coralogix via lambda. This option does not use S3. You must provide the log group name as a parameter during setup.
+
+**Figure 3:** CloudWatch logs are streamed directly to Coralogix via Lambda.
+
+![](static/CloudWatch-integration-flow.png)
 
 | Parameter                | Description                                                                                                                                                                                                                                                                                                                                           | Default Value | Required           |
 |--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
@@ -211,7 +219,11 @@ To receive SQS messages directly to Coralogix, use the `SQSIntegrationTopicARN` 
 
 ### Kinesis configuration
 
-We can receive direct [Kinesis](https://aws.amazon.com/kinesis/) stream data from your AWS account to Coralogix. Your Kinesis stream ARN is a required parameter in this case.
+We can receive direct stream data from your AWS account. This option does not use S3. Your [Kinesis](https://aws.amazon.com/kinesis/) stream ARN is a required parameter in this case.
+
+**Figure 4:** Streaming Kinesis data from AWS Services directly to Coralogix
+
+![](static/Kinesis-integration-flow.png)
 
 | Parameter        | Description                                                                                   | Default Value | Required           |
 |------------------|-----------------------------------------------------------------------------------------------|---------------|--------------------|
@@ -258,8 +270,8 @@ These are the default presets for lambda. Read [Troubleshooting](#troubleshootin
 | FunctionTimeout       | Set a timeout for the Lambda function in seconds.                                                             | 300             | :heavy_check_mark: |
 | LogLevel              | Specify the log level for the Lambda function, choosing from the following options: INFO, WARN, ERROR, DEBUG. | WARN            | :heavy_check_mark: |
 | LambdaLogRetention    | Set the CloudWatch log retention period (in days) for logs generated by the Lambda function.                  | 5               | :heavy_check_mark: |
-| FunctionRunTime       | Select the runtime type for the lambda. Allowed values are `provided.al2023` or `provided.al2`.                            | provided.al2023 | :heavy_check_mark: |
-| FunctionArchitectures | Define the Lambda function architectures. Allowed values are `arm64` or `x86_64`.                                    | arm64           | :heavy_check_mark: |
+| FunctionRunTime       | Select the runtime type for the lambda. Allowed values are `provided.al2023` or `provided.al2`.               | provided.al2023 | :heavy_check_mark: |
+| FunctionArchitectures | Define the Lambda function architectures. Allowed values are `arm64` or `x86_64`.                             | arm64           | :heavy_check_mark: |
 
 ### VPC configuration (optional)
 
@@ -267,9 +279,13 @@ Use the following options if you need to configure a private link with Coralogix
 
 | Parameter             | Description                                                                    | Default Value | Required           |
 |-----------------------|--------------------------------------------------------------------------------|---------------|--------------------|
-| LambdaSubnetID        | Specify the ID of the subnet where the integration is to be deployed.         |               | :heavy_check_mark: |
-| LambdaSecurityGroupID | Specify the ID of the Security Group where the integration is to be deployed. |               | :heavy_check_mark: |
-| UsePrivateLink        | Set this to `true` to use AWS PrivateLink.                         | false         | :heavy_check_mark: |
+| LambdaSubnetID        | Specify the ID of the subnet where the integration is to be deployed.          |               | :heavy_check_mark: |
+| LambdaSecurityGroupID | Specify the ID of the Security Group where the integration is to be deployed.  |               | :heavy_check_mark: |
+| UsePrivateLink        | Set this to `true` to use AWS PrivateLink.                                     | false         | :heavy_check_mark: |
+
+### AWS PrivateLink
+
+If you want to bypass using the public internet, you can use AWS PrivateLink to facilitate secure connections between your VPCs and AWS Services. This option is available under the **VPC Configuration** tab. To turn it on, either check off the **Use Private Link** box in the Coralogix UI or set the parameter to `true`. For additional instructions on AWS PrivateLink, please [follow our dedicated tutorial.](../aws-privatelink/aws-privatelink/index.md)
 
 ### Metadata
 
@@ -347,13 +363,7 @@ Assume the log is a CloudTrail log and the eventSource is `s3.amazonaws.com` the
 
 ### Advanced cnfiguration
 
-**AWS PrivateLink**
-
-If you want to bypass using the public internet, you can use AWS PrivateLink to facilitate secure connections between your VPCs and AWS. This option is available under the [VPC Configuration](#vpc-configuration-optional) tab. To turn it on, either unselect the **Use Private Link** checkbox in the Coralogix UI or set the parameter to `true`. For additional instructions on AWS PrivateLink, please [follow our dedicated tutorial](https://coralogix.com/docs/coralogix-amazon-web-services-aws-privatelink-endpoints/).
-
 **Dynamic values**
-
-!!! note
 
 > Note the following method for using dynamic values will change to the method defined above in `coralogix-aws-shipper v1.1.0` and later. This approach will no longer be supported. Please check the new method in the [Metadata](#metadata) section.
 
@@ -383,9 +393,8 @@ To enable the DLQ, provide the following parameters.
 | DLQRetryDelay | The delay in seconds between retries of failed events.                         | 900           | :heavy_check_mark: |
 
 
-!!! note
-
-    In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the lambda is created you can manually change the permissions to only allow access to your S3 buckets.
+> [!NOTE]
+> In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the lambda is created you can manually change the permissions to only allow access to your S3 buckets.
 
 ## Troubleshooting
 
@@ -409,9 +418,8 @@ To add more verbosity to your function logs, set the `RUST_LOG` parameter to `DE
 
 If the deployment fails while assigning the trigger, ensure that no notifications are enabled for the S3 bucket. For CloudWatch, note that the maximum number of notifications per Log Group is 2.
 
-!!! warning
-
-    Don't forget to revert it to `WARN` after troubleshooting..
+> [!WARNING]
+> Don't forget to revert it to `WARN` after troubleshooting.
 
 **Changing defaults**
 
