@@ -183,15 +183,20 @@ Coralogix can be configured to receive data directly from your CloudWatch log gr
 | Parameter                | Description                                                                                                                                                                                                                                                                                                                                           | Default Value | Required           |
 |--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
 | CloudWatchLogGroupName   | Provide a comma-separated list of CloudWatch log group names to monitor. For example, (`log-group1`, `log-group2`, `log-group3`).                                                                                                                                                                                                                     |               | :heavy_check_mark: |
-| CloudWatchLogGroupPrefix | This parameter expects a string of comma-separated list, of log group prefixes. The code will use these prefixes to create permissions for the lambda instead of creating for each log group permission it will use the prefix with a wild card to give the lambda access for all of the log groups that start with these prefix. This parameter doesn't replace the `CloudWatchLogGroupName` parameter. For more information refer to the Note below.  |               |                    |
+| CloudWatchLogGroupPrefix | This parameter expects a string of comma-separated list, of log group prefixes. The code will use these prefixes to create permissions for the lambda instead of creating for each log group permission it will use the prefix with a wild card to give the lambda access for all of the log groups that start with these prefix. This parameter doesn't replace the `CloudWatchLogGroupName` parameter. For more information, refer to the Note below.  |               |                    |
 
 If your log group name is longer than 70, the lambda function you will see the permission for that log group as: `allow-trigger-from-<the log group first 65 characters and the last 5 characters>`. This is because of length limit in AWS for permission name.
 
-> [!NOTE]  
-> The parameter CloudWatchLogGroupName will get a list of log groups and then add them to the lambda as triggers, each log group will also add permission to the lambda, in some cases when there are a lot of log groups this will cause an error because the code tries to create too many permissions for the lambda (AWS have a limitation for the number of permission that you can have for a lambda), and this is why we have the CloudWatchLogGroupPrefix parameter, this parameter will add only permission to the lambda using a wildcard( * ).for example, in case I have the log groups: log1,log2,log3 instead that the code will create for each of the log group permission to trigger the shipper lambda then you can set `CloudWatchLogGroupPrefix = log`, and then it will create only 1 permission for all of the log groups to trigger the shipper lambda, but you will still need to set `CloudWatchLogGroupName = log1,log2,log3`. When using this parameter, you will not be able to see the log groups as triggers for the lambda.
+!!! note
 
-> [!TIP]  
-> In case that you need to add multiple log groups to the lambda function using regex please refer to our [lambda manager](https://github.com/coralogix/coralogix-aws-serverless/tree/master/src/lambda-manager#coralogix-lambda-manager)
+    The parameter CloudWatchLogGroupName will get a list of log groups and then add them to the lambda as triggers, each log group will also add permission to the lambda, in some cases when there are a lot of log groups this will cause an error because the code 
+    tries to create too many permissions for the lambda (AWS have a limitation for the number of permission that you can have for a lambda), and this is why we have the CloudWatchLogGroupPrefix parameter, this parameter will add only permission to the lambda 
+    using a wildcard( * ).for example, in case I have the log groups: log1,log2,log3 instead that the code will create for each of the log group permission to trigger the shipper lambda then you can set `CloudWatchLogGroupPrefix = log`, and then it will create 
+    only 1 permission for all of the log groups to trigger the shipper lambda, but you will still need to set `CloudWatchLogGroupName = log1,log2,log3`. When using this parameter, you will not be able to see the log groups as triggers for the lambda.
+
+!!! tip  
+
+    If you need to add multiple log groups to the lambda function using regex, refer to our [lambda manager](https://github.com/coralogix/coralogix-aws-serverless/tree/master/src/lambda-manager#coralogix-lambda-manager)
 
 ### SNS configuration
 
@@ -295,11 +300,11 @@ The `AddMetadata` parameter allows you to add metadata to the log message. The m
 | Ecr              | ecr.scan.id              | The ECR scan ID                       |
 | Ecr              | ecr.scan.source          | The ECR scan source                   |
 
-Note that metadata is not added by default. You must specify the metadata keys you want in the `AddMetadata` parameter.
+!!! note 
 
-For example, if you want to add the bucket name and key name to the log message, set the `AddMetadata` parameter to `s3.object.key,s3.bucket`.
-
-Some metadata keys will overlap as some integrations share the same metadata. For example, both Kafka and MSK have the same metadata key `kafka.topic` or both Kinesis and CloudWatch metadata will be included when a CloudWatch log stream is ingested from a Kinesis stream.
+    Metadata is not added by default. You must specify the metadata keys you want in the `AddMetadata` parameter. For example, if you want to add the bucket name and key name to the log message, set the `AddMetadata` parameter to `s3.object.key,s3.bucket`.
+    Some metadata keys will overlap as some integrations share the same metadata. For example, both Kafka and MSK have the same metadata key `kafka.topic` or both Kinesis and CloudWatch metadata will be included when a CloudWatch log stream is ingested from a 
+    Kinesis stream.
 
 ##### Dynamic subsystem or application name
 
@@ -345,7 +350,7 @@ Assume the log is a CloudTrail log and the eventSource is `s3.amazonaws.com` the
     - The metadata key must exist in the list defined above and be a part of the integration type that is deployed.
     - Dynamic values are only supported for the `ApplicationName` and `SubsystemName` parameters, the `CustomMetadata` parameter is not supported.
 
-### Advanced cnfiguration
+### Advanced configuration
 
 **AWS PrivateLink**
 
@@ -355,7 +360,7 @@ If you want to bypass using the public internet, you can use AWS PrivateLink to 
 
 !!! note
 
-> Note the following method for using dynamic values will change to the method defined above in `coralogix-aws-shipper v1.1.0` and later. This approach will no longer be supported. Please check the new method in the [Metadata](#metadata) section.
+    The following method for using dynamic values will change to the method defined above in `coralogix-aws-shipper v1.1.0` and later. This approach will no longer be supported. Please check the new method in the [Metadata](#metadata) section.
 
 If you wish to use dynamic values for the Application and Subsystem Name parameters, consider the following:
 
@@ -385,7 +390,40 @@ To enable the DLQ, provide the following parameters.
 
 !!! note
 
-    In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the lambda is created you can manually change the permissions to only allow access to your S3 buckets.
+    In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the lambda is created you can manually change the permissions to only allow 
+    access to your S3 buckets.
+
+## Cloudwatch metrics streaming via PrivateLink (beta)
+
+As of version `v1.3.0`, the Coralogix AWS Shipper supports streaming **Cloudwatch metrics to Coralogix via Firehose over a PrivateLink**.
+
+This workflow is designed for scenarios where you need to stream metrics from a CloudWatch metrics stream to Coralogix via a PrivateLink endpoint.
+
+### Why to use this workflow?
+
+AWS Firehose does not support PrivateLink endpoints as a destination because Firehose cannot be connected to a VPC, which is required to reach a PrivateLink endpoint. To overcome this limitation, the Coralogix AWS Shipper acts as a transform function. It is attached to a Firehose instance that receives metrics from the CloudWatch metrics stream and forwards them to Coralogix over a PrivateLink.
+
+### When to use this workflow
+
+This workflow is designed to bypass the limitations of using Firehose with the Coralogix PrivateLink endpoint. If PrivateLink is not required, we recommend using the default Firehose integration for CloudWatch Stream Metrics, available [here](https://coralogix.com/docs/integrations/aws/amazon-data-firehose/aws-cloudwatch-metric-streams-with-amazon-data-firehose/).
+
+### How does it work?
+
+![Cloudwatch stream via PrivateLink Workflow](./static/cloudwatch-metrics-pl-workflow.png)
+
+To enable CloudWatch metrics streaming via Firehose (PrivateLink), you must provide the necessary parameters listed below.
+
+| Parameter                   | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
+|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
+| TelemetryMode               | Specify the telemetry collection modes, supported values (`metrics`, `logs`). Note that this value must be set to `metrics` for the Cloudwatch metric stream workflow                                                                                                                                                              | logs          | :heavy_check_mark: |
+| ApiKey                      | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.<br>*Note that the parameter expects the API Key in plain text or stored in secret manager.*                          |               | :heavy_check_mark: |
+| ApplicationName             | The name of the application for which the integration is configured. [Advanced configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
+| SubsystemName               | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
+| CoralogixRegion             | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom, specify the custom domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
+| S3BucketName                | The S3 bucket that will be used to store records that have failed processing                                                                                                                                                                                                                                                        |               | :heavy_check_mark: |
+| LambdaSubnetID              | Specify the ID of the subnet for the integration deployment.                                                                                                                                                                                                                                                             |               | :heavy_check_mark: |
+| LambdaSecurityGroupID       | Specify the ID of the Security Group wfor the integration deployment.                                                                                                                                                                                                                                                     |               | :heavy_check_mark: |
+| StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          |                    |
 
 ## Troubleshooting
 
@@ -411,43 +449,11 @@ If the deployment fails while assigning the trigger, ensure that no notification
 
 !!! warning
 
-    Don't forget to revert it to `WARN` after troubleshooting..
+    Don't forget to revert it to `WARN` after troubleshooting.
 
 **Changing defaults**
 
 Set the `MAX_ELAPSED_TIME` variable for the default change (default = 250). The `BATCHES_MAX_SIZE` (in MB) defines the maximum batch size before sending data to Coralogix. This value is limited by the maximum payload accepted by the Coralogix endpoint (default = 4). The `BATCHES_MAX_CONCURRENCY` sets the maximum number of concurrent batches that can be sent.
-
-# Cloudwatch Metrics Stream via PrivateLink (beta)
-
-As of version `v1.3.0`, the Coralogix AWS Shipper supports streaming **Cloudwatch Metrics to Coralogix via Firehose over a PrivateLink**.
-
-This workflow is designed for scenarios where you need to stream metrics from a CloudWatch Metrics stream to Coralogix via a PrivateLink endpoint.
-
-#### Why Use This Workflow?
-
-AWS Firehose does not support PrivateLink endpoints as a destination because Firehose cannot be connected to a VPC, which is required to reach a PrivateLink endpoint. To overcome this limitation, the Coralogix AWS Shipper acts as a transform function. It is attached to a Firehose instance that receives metrics from the CloudWatch Metrics stream and forwards them to Coralogix over a PrivateLink.
-
-#### When to Use This Workflow
-
-This workflow is specifically for bypassing the limitation of using Firehose with the Coralogix PrivateLink endpoint. If there is no requirement for PrivateLink, we recommend using the default Firehose Integration for CloudWatch Stream Metrics found [here](https://coralogix.com/docs/integrations/aws/amazon-data-firehose/aws-cloudwatch-metric-streams-with-amazon-data-firehose/).
-
-#### How does it work?
-
-![Cloudwatch stream via PrivateLink Workflow](./static/cloudwatch-metrics-pl-workflow.png)
-
-To enable the Cloudwatch Metrics Stream via Firehose (PrivateLink) you must provide the required parameters outlined below.
-
-| Parameter                   | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
-|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
-| TelemetryMode               | Specify the telemetry collection modes, supported values (`metrics`, `logs`). Note that this value must be set to `metrics` for the Cloudwatch metric stream workflow                                                                                                                                                              | logs          | :heavy_check_mark: |
-| ApiKey                      | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.<br>*Note the parameter expects the API Key in plain text or stored in secret manager.*                          |               | :heavy_check_mark: |
-| ApplicationName             | The name of the application for which the integration is configured. [Advanced Configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
-| SubsystemName               | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
-| CoralogixRegion             | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
-| S3BucketName                | The S3Bucket that will be used to store records that have failed processing                                                                                                                                                                                                                                                        |               | :heavy_check_mark: |
-| LambdaSubnetID              | Specify the ID of the subnet where the integration should be deployed.                                                                                                                                                                                                                                                             |               | :heavy_check_mark: |
-| LambdaSecurityGroupID       | Specify the ID of the Security Group where the integration should be deployed.                                                                                                                                                                                                                                                     |               | :heavy_check_mark: |
-| StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          |                    |
 
 
 ## Support
