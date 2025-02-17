@@ -33,7 +33,7 @@
    - [Advanced Configuration](#advanced-configuration)
    - [DLQ](#dlq)
 5. [Troubleshooting](#troubleshooting)
-6. [Cloudwatch Metrics Stream via Firehose for PrivateLink (beta)](#cloudwatch-metrics-stream-via-firehose-privatelink-beta)
+6. [Cloudwatch Metrics Stream via Firehose for PrivateLink (beta)](#cloudwatch-metrics-streaming-via-privatelink-beta)
 7. [Support](#support)
 
 ## Overview
