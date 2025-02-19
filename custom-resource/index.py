@@ -123,6 +123,8 @@ class ConfigureS3Integration:
     def handle_lambda_permissions(self, bucket_name_list, lambda_function_arn, function_name, request_type):
         for bucket_name in bucket_name_list.split(","):
             statement_id = f'allow-s3-{bucket_name}-invoke-{function_name}'
+            if len(statement_id) >= 100:
+                statement_id = f"allow-s3-{bucket_name}-invoke-" + statement_id[-5:]
             try:
                 if request_type == 'Delete' or request_type == 'Update':
                     response = self.aws_lambda.remove_permission(
