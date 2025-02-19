@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.4 / 2025-02-19
+### 🧰 Bug fixes 🧰
+- Fixed issue when deploying S3 integration with bucket name longer than 40 characters.
+
 ## v1.3.3 / 2025-02-13
 ### 🧰 Bug fixes 🧰
 - Fixed issue when updating an existing CF stack with S3, CloudTrail, VpcFlow or S3Csv integration type.
