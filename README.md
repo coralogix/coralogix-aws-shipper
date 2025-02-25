@@ -3,6 +3,38 @@
 [![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-GA-brightgreen)
 
 
+1. [Overview](#overview)
+2. [Supported Services](#supported-services)
+   - [Amazon S3, CloudTrail, VPC Flow Logs and more](#amazon-s3-cloudtrail-vpc-flow-logs-and-more)
+   - [Amazon SNS/SQS](#amazon-snssqs)
+   - [Amazon CloudWatch](#amazon-cloudwatch)
+   - [Amazon Kinesis](#amazon-kinesis)
+   - [Amazon MSK & Kafka](#amazon-msk--kafka)
+   - [Amazon ECR Image Security Scan](#amazon-ecr-image-security-scan)
+3. [Deployment Options](#deployment-options)
+   - [Integrate using the Coralogix Platform (Recommended)](#integrate-using-the-coralogix-platform-recommended)
+   - [Quick Create a CloudFormation Stack](#quick-create-a-cloudformation-stack)
+   - [Deploy the AWS Serverless Application](#deploy-the-aws-serverless-application)
+   - [Terraform Module](#terraform-module)
+4. [Configuration Parameters](#configuration-parameters)
+   - [Universal Configuration](#universal-configuration)
+   - [S3/CloudTrail/VpcFlow/S3Csv Configuration](#s3cloudtrailvpcflows3csv-configuration)
+   - [CloudWatch Configuration](#cloudwatch-configuration)
+   - [SNS Configuration](#sns-configuration)
+   - [SQS Configuration](#sqs-configuration)
+   - [Kinesis Configuration](#kinesis-configuration)
+   - [Kafka Configuration](#kafka-configuration)
+   - [MSK Configuration](#msk-configuration)
+   - [Generic Configuration (Optional)](#generic-configuration-optional)
+   - [Lambda Configuration (Optional)](#lambda-configuration-optional)
+   - [VPC Configuration (Optional)](#vpc-configuration-optional)
+   - [Metadata](#metadata)
+   - [Advanced Configuration](#advanced-configuration)
+   - [DLQ](#dlq)
+5. [Troubleshooting](#troubleshooting)
+6. [Cloudwatch Metrics Stream via Firehose for PrivateLink (beta)](#cloudwatch-metrics-streaming-via-privatelink-beta)
+7. [Support](#support)
+
 ## Overview
 
 This integration guide focuses on connecting your AWS environment to Coralogix using AWS Lambda functions. To complete this integration, you may either use the Coralogix platform UI, CloudFormation templates from AWS, AWS SAM applications, or a dedicated Terraform module from our [GitHub repository](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper).
