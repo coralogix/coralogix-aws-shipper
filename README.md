@@ -2,7 +2,6 @@
 
 [![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-GA-brightgreen)
 
-### Contents
 
 1. [Overview](#overview)
 2. [Supported Services](#supported-services)
@@ -122,11 +121,11 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 | CustomDomain                 | If you choose a custom domain name for your private cluster, Coralogix will send telemetry from the specified address (e.g. custom.coralogix.com).                                                                                                                                                                                 |               |                    |
 | ApplicationName              | The name of the application for which the integration is configured. [Advanced configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
 | SubsystemName                | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
-| ApiKey                       | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.<br>*Note that the parameter expects the API Key in plain text or stored in a secret manager.*                          |               | :heavy_check_mark: |
-| StoreAPIKeyInSecretsManager  | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          | :heavy_check_mark: |
-| ReservedConcurrentExecutions | The number of concurrent executions that are reserved for the function, leave empty so the lambda will use unreserved account. concurrency.                                                                                                                                                                                         | n/a           |                    |
-| LambdaAssumeRoleARN          | A role that the lambda will assume, leave empty to use the default permissions.<br> Note that if this parameter is used, all **S3** and **ECR** API calls from the lambda will be made with the permissions of the assumed role.                                                                                                   |               |                    |
-| ExecutionRoleARN             | The ARN of a user defined role that will be used as the execution role for the lambda. function                                                                                                                                                                                                                                     |               |                    |
+| ApiKey                       | The Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API key or an AWS Secret Manager ARN containing the API Key.<br>*Note that the parameter expects the API key in plain text or stored in a secret manager.*                          |               | :heavy_check_mark: |
+| StoreAPIKeyInSecretsManager  | Enable this to store your API key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          | :heavy_check_mark: |
+| ReservedConcurrentExecutions | The number of concurrent executions that are reserved for the function, leave empty so the Lambda will use unreserved account. concurrency.                                                                                                                                                                                         | n/a           |                    |
+| LambdaAssumeRoleARN          | A role that the Lambda will assume, leave empty to use the default permissions.<br> Note that if this parameter is used, all **S3** and **ECR** API calls from the Lambda will be made with the permissions of the assumed role.                                                                                                   |               |                    |
+| ExecutionRoleARN             | The ARN of a user defined role that will be used as the execution role for the Lambda function.                                                                                                                                                                                                                                     |               |                    |
 
 !!! note
 
@@ -140,7 +139,7 @@ In some cases, specialized or more refined IAM permissions are required. The AWS
 
 - **ExecutionRoleARN**: Specifies the execution role for the AWS Shipper Lambda. The provided role must have basic Lambda execution permissions. Any additional permissions required for the Lambda’s operation will be automatically added during deployment.
 
-Basic lambda execution role permission:
+Basic Lambda execution role permission:
 
 ```yaml
         Statement:
@@ -154,7 +153,7 @@ Basic lambda execution role permission:
 
 This is the most flexible type of integration, as it is based on receiving log files to Amazon S3. First, your bucket can receive log files from all kinds of other services, such as CloudTrail, VPC Flow Logs, Redshift, Network Firewall or different types of load balancers (ALB/NLB/ELB). Once the data is in the bucket, a pre-made Lambda function will then transmit it to your Coralogix account.
 
-!!! Tip
+!!! note
 
     The S3 integration supports generic data. You can ingest any generic text, JSON, and CSV data stored in your S3 bucket.
 
@@ -178,25 +177,23 @@ If you don’t want to send data directly as it enters S3, you can also use SNS/
 
 ### CloudWatch configuration
 
-Coralogix can be configured to receive data directly from your CloudWatch log group. CloudWatch logs are streamed directly to Coralogix via lambda. This option does not use S3. You must provide the log group name as a parameter during setup.
+Coralogix can be configured to receive data directly from your CloudWatch log group. CloudWatch logs are streamed directly to Coralogix via Lambda. This option does not use S3. You must provide the log group name as a parameter during setup.
 
 | Parameter                | Description                                                                                                                                                                                                                                                                                                                                           | Default Value | Required           |
 |--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
 | CloudWatchLogGroupName   | Provide a comma-separated list of CloudWatch log group names to monitor. For example, (`log-group1`, `log-group2`, `log-group3`).                                                                                                                                                                                                                     |               | :heavy_check_mark: |
-| CloudWatchLogGroupPrefix | This parameter expects a string of comma-separated list, of log group prefixes. The code will use these prefixes to create permissions for the lambda instead of creating for each log group permission it will use the prefix with a wild card to give the lambda access for all of the log groups that start with these prefix. This parameter doesn't replace the `CloudWatchLogGroupName` parameter. For more information, refer to the Note below.  |               |                    |
+| CloudWatchLogGroupPrefix | This parameter expects a string of comma-separated list, of log group prefixes. The code will use these prefixes to create permissions for the Lambda instead of creating for each log group permission it will use the prefix with a wild card to give the Lambda access for all of the log groups that start with these prefix. This parameter doesn't replace the `CloudWatchLogGroupName` parameter. For more information, refer to the Note below.  |               |                    |
 
-If your log group name is longer than 70, the lambda function you will see the permission for that log group as: `allow-trigger-from-<the log group first 65 characters and the last 5 characters>`. This is because of length limit in AWS for permission name.
+If your log group name is longer than 70, the Lambda function you will see the permission for that log group as: `allow-trigger-from-<the log group first 65 characters and the last 5 characters>`. This is because of length limit in AWS for permission name.
 
 !!! note
 
-    The parameter CloudWatchLogGroupName will get a list of log groups and then add them to the lambda as triggers, each log group will also add permission to the lambda, in some cases when there are a lot of log groups this will cause an error because the code 
-    tries to create too many permissions for the lambda (AWS have a limitation for the number of permission that you can have for a lambda), and this is why we have the CloudWatchLogGroupPrefix parameter, this parameter will add only permission to the lambda 
-    using a wildcard( * ).for example, in case I have the log groups: log1,log2,log3 instead that the code will create for each of the log group permission to trigger the shipper lambda then you can set `CloudWatchLogGroupPrefix = log`, and then it will create 
-    only 1 permission for all of the log groups to trigger the shipper lambda, but you will still need to set `CloudWatchLogGroupName = log1,log2,log3`. When using this parameter, you will not be able to see the log groups as triggers for the lambda.
+    The `CloudWatchLogGroupName` parameter will get a list of log groups and then add them to the Lambda as triggers, each log group will also add permission to the Lambda, in some cases when there are a lot of log groups this will cause an error because the code 
+    tries to create too many permissions for the Lambda (AWS have a limitation for the number of permission that you can have for a Lambda), and this is why we have the CloudWatchLogGroupPrefix parameter, this parameter will add only permission to the Lambda 
+    using a wildcard( * ).for example, in case I have the log groups: log1,log2,log3 instead that the code will create for each of the log group permission to trigger the shipper Lambda then you can set `CloudWatchLogGroupPrefix = log`, and then it will create 
+    only 1 permission for all of the log groups to trigger the shipper Lambda, but you will still need to set `CloudWatchLogGroupName = log1,log2,log3`. When using this parameter, you will not be able to see the log groups as triggers for the Lambda.
 
-!!! tip  
-
-    If you need to add multiple log groups to the lambda function using regex, refer to our [lambda manager](https://github.com/coralogix/coralogix-aws-serverless/tree/master/src/lambda-manager#coralogix-lambda-manager)
+    If you need to add multiple log groups to the Lambda function using regex, refer to our [Lambda manager](https://github.com/coralogix/coralogix-aws-serverless/tree/master/src/lambda-manager#coralogix-lambda-manager)
 
 ### SNS configuration
 
@@ -255,7 +252,7 @@ These parameters are optional and allow you to receive notification emails, excl
 
 ### Lambda configuration (optional)
 
-These are the default presets for lambda. Read [Troubleshooting](#troubleshooting) for more information on changing these defaults.
+These are the default presets for Lambda. Read [Troubleshooting](#troubleshooting) for more information on changing these defaults.
 
 | Parameter             | Description                                                                                                   | Default Value   | Required           |
 |-----------------------|---------------------------------------------------------------------------------------------------------------|-----------------|--------------------|
@@ -263,7 +260,7 @@ These are the default presets for lambda. Read [Troubleshooting](#troubleshootin
 | FunctionTimeout       | Set a timeout for the Lambda function in seconds.                                                             | 300             | :heavy_check_mark: |
 | LogLevel              | Specify the log level for the Lambda function, choosing from the following options: INFO, WARN, ERROR, DEBUG. | WARN            | :heavy_check_mark: |
 | LambdaLogRetention    | Set the CloudWatch log retention period (in days) for logs generated by the Lambda function.                  | 5               | :heavy_check_mark: |
-| FunctionRunTime       | Select the runtime type for the lambda. Allowed values are `provided.al2023` or `provided.al2`.                            | provided.al2023 | :heavy_check_mark: |
+| FunctionRunTime       | Select the runtime type for the Lambda. Allowed values are `provided.al2023` or `provided.al2`.                            | provided.al2023 | :heavy_check_mark: |
 | FunctionArchitectures | Define the Lambda function architectures. Allowed values are `arm64` or `x86_64`.                                    | arm64           | :heavy_check_mark: |
 
 ### VPC configuration (optional)
@@ -390,7 +387,7 @@ To enable the DLQ, provide the following parameters.
 
 !!! note
 
-    In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the lambda is created you can manually change the permissions to only allow 
+    In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the Lambda is created you can manually change the permissions to only allow 
     access to your S3 buckets.
 
 ## Cloudwatch metrics streaming via PrivateLink (beta)
@@ -415,11 +412,11 @@ To enable CloudWatch metrics streaming via Firehose (PrivateLink), you must prov
 
 | Parameter                   | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
 |-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
-| TelemetryMode               | Specify the telemetry collection modes, supported values (`metrics`, `logs`). Note that this value must be set to `metrics` for the Cloudwatch metric stream workflow                                                                                                                                                              | logs          | :heavy_check_mark: |
-| ApiKey                      | The Send-Your-Data [API Key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API Key.<br>*Note that the parameter expects the API Key in plain text or stored in secret manager.*                          |               | :heavy_check_mark: |
+| TelemetryMode               | Specify the telemetry collection modes, supported values (`metrics`, `logs`). Note that this value must be set to `metrics` for the Cloudwatch metric stream workflow.                                                                                                                                                              | logs          | :heavy_check_mark: |
+| ApiKey                      | The Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API Key or an AWS Secret Manager ARN containing the API key.<br>*Note that the parameter expects the API key in plain text or stored in secret manager.*                          |               | :heavy_check_mark: |
 | ApplicationName             | The name of the application for which the integration is configured. [Advanced configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
 | SubsystemName               | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced Configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
-| CoralogixRegion             | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom, specify the custom domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
+| CoralogixRegion             | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, US1, US2]. If this value is set to Custom, specify the custom domain to use via the `CustomDomain` parameter. | Custom        | :heavy_check_mark: |
 | S3BucketName                | The S3 bucket that will be used to store records that have failed processing                                                                                                                                                                                                                                                        |               | :heavy_check_mark: |
 | LambdaSubnetID              | Specify the ID of the subnet for the integration deployment.                                                                                                                                                                                                                                                             |               | :heavy_check_mark: |
 | LambdaSecurityGroupID       | Specify the ID of the Security Group wfor the integration deployment.                                                                                                                                                                                                                                                     |               | :heavy_check_mark: |
@@ -433,11 +430,11 @@ If you tried to deploy the integration and received the `length is greater than 
 
 **Timeout errors**
 
-If you receive the `Task timed out after` message, increase the lambda timeout value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
+If you receive the `Task timed out after` message, increase the Lambda timeout value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
 
 **Not enough memory**
 
-If you receive the `Task out of memory` message, increase the lambda maximum צemory value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
+If you receive the `Task out of memory` message, increase the Lambda maximum צemory value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
 
 **Verbose logs**
 
