@@ -1,0 +1,168 @@
+name: readme sync with documentation repo
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - '**/README.md' 
+      - 'README.md'     # Also catch root README.md
+env:
+  DOCUMENTION_REPO: coralogix/documentation
+  FILE_MAPPING: '{"README.md": "index.md"}' # CREATE A MAPPING O THE FILE THAT WERE CHANGED IN THE PR TO THE PATH OF THE FILE TO BE CHANGED IN THE DOCUMENTATION REPO
+
+jobs:
+  get-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout coralogix-aws-shipper repository
+        uses: actions/checkout@v4
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v45
+
+      - name: add a readme to the tmp folder
+        env:
+          ALL_CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+        run: |
+          mkdir -p tmp
+          echo "The changed files: ${ALL_CHANGED_FILES}"
+          for file in ${ALL_CHANGED_FILES}; do
+            echo "Checking file: $file"
+            if [[ $file =~ README.md ]] && jq -e "has(\"$file\")" <<< '${{ env.FILE_MAPPING }}' > /dev/null; then
+              echo "$file was changed"
+              if [[ ${{ github.repository }} == "coralogix/coralogix-aws-shipper" ]]; then
+                # Remove the overview section, as the link structure is not supported in the documentation repo
+                sed -i "/^1\. \[Overview\].*$/,/^7\. \[Support\].*$/d" $file
+              fi
+              cp --parents "$file" tmp/
+            fi
+          done
+
+      - name: Upload template-directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: store
+          path: tmp/
+    outputs:
+      changed_files: ${{ steps.changed-files.outputs.all_changed_files }}
+
+  sync-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: get-readme
+    steps:
+      - uses: actions/checkout@v4
+        id: checkout
+        with:
+          repository: ${{ env.DOCUMENTION_REPO }}
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: download template
+        uses: actions/download-artifact@v4
+        with:
+          name: store
+          path: tmp/
+
+      - name: apply changes to the files
+        run: |
+          branch_name="sync-readme-$(date +"%m-%d-%H-%M")"
+          echo "The branch name is: $branch_name"
+          # set up git settings
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git pull origin master
+          git fetch origin
+          git switch -c ${branch_name} --track origin/master 
+          pr_exists=$(gh pr list --base master --head "${branch_name}" --json number -q '.[].number')
+          if [[ -z "$pr_exists" ]]; then
+            git push --set-upstream origin ${branch_name}
+          fi
+          sync_branch_exists=$(git ls-remote --heads origin "${branch_name}" | wc -l)
+          if [[ $sync_branch_exists -ne 0 ]]; then
+            git pull origin ${branch_name} --rebase
+          fi
+
+          # Add the changed readme files to the branch
+          for file in ${{ needs.get-readme.outputs.changed_files }}; do
+            if [[ $file =~ README.md ]] && jq -e "has(\"$file\")" <<< '${{ env.FILE_MAPPING }}' > /dev/null; then
+              mv -v ./tmp/$file $(jq -r ".[\"$file\"]" <<< '${{ env.FILE_MAPPING }}')
+              git add $(jq -r ".[\"$file\"]" <<< '${{ env.FILE_MAPPING }}')
+            fi
+          done
+          git add .
+          echo "branch_name=$branch_name" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      # Commit all changed files to the branch
+      - uses: planetscale/ghcommit-action@v0.1.19
+        with:
+          commit_message: "some-message"
+          repo: ${{ env.DOCUMENTION_REPO }}
+          branch: ${{ env.branch_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      # Create a pull request with the changes, using the title of the PR that triggered the action
+      - name: Create pull request
+        run: |
+          pr_url=""
+          pr_name="sync from CF" # give the pr a defult name
+          pr_name=$(curl -s -H "Authorization: Bearer ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls?state=closed&base=master&sort=updated&direction=desc" \
+          | jq -r '.[0].title')
+          pr_url=$(curl -s -H "Authorization: Bearer ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls?state=closed&base=master&sort=updated&direction=desc" \
+          | jq -r '.[0].html_url')
+          pr_exists=$(gh pr list --base master --head "${{ env.branch_name }}" --json number -q '.[].number')
+          if [[ -n "$pr_exists" ]]; then
+            echo "Pull request already exists: #$pr_exists"
+          else
+            gh pr create --base master --head "${{ env.branch_name }}" --title "${pr_name}" --body "This pull request syncs the changes from the ${{ github.repository }} repo. link to the original PR $pr_url. **dummy ticket to pass ticket validate[CDS-1708]** "
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      # Merge the PR that got created, as it could take some time for the status check to pass, the set will wait for the status check to pass
+      # - name: Merge pull request
+      #   run: |
+      #     check_status() {
+      #       gh pr checks ${{ env.branch_name }} --json state --jq 'all(.[]; .state == "SUCCESS")'
+      #     }
+
+      #     # Initialize the timeout variables
+      #     max_wait_time=$((10 * 60)) # 10 minutes in seconds
+      #     elapsed_time=0
+      #     sleep_interval=10 # Interval between checks in seconds
+
+      #     # Loop until all status checks are successful or timeout occurs
+      #     echo "Waiting for all status checks to pass..."
+      #     # Wait for 5 seconds before checking the status
+      #     sleep 5
+      #     while true; do
+      #       status=$(check_status)
+            
+      #       if [ "$status" == "true" ]; then
+      #         echo "All status checks passed. Merging the pull request..."
+      #         break
+      #       fi
+            
+      #       if [ "$elapsed_time" -ge "$max_wait_time" ]; then
+      #         echo "Timeout reached: Status checks did not pass within 10 minutes."
+      #         exit 1
+      #       fi
+            
+      #       echo "Not all checks passed yet. Waiting for $sleep_interval seconds..."
+      #       sleep $sleep_interval
+      #       elapsed_time=$((elapsed_time + sleep_interval))
+      #     done
+
+      #     # Merge the pull request
+      #     gh pr merge --delete-branch --admin --squash ${{ env.branch_name }}
+
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
