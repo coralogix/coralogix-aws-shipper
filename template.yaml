@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.3.4
+    SemanticVersion: 1.3.5
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -108,6 +108,8 @@ Metadata:
           default: Cloudwatch Metrics Stream via PrivateLink
         Parameters:
           - TelemetryMode
+          - MetricsFilter
+          - ExcludeMetricsFilters
 
 Parameters:
   CoralogixRegion:
@@ -436,6 +438,16 @@ Parameters:
     AllowedValues:
       - logs
       - metrics
+
+  MetricsFilter:
+    Type: String
+    Description: The filter for the metrics to include in the stream, should be valid json that contines the keys Namespace and MetricNames
+    Default: ''
+
+  ExcludeMetricsFilters:
+    Type: String
+    Description: The filter for the metrics to exclude from the stream, should be valid json that contines the keys Namespace and MetricNames
+    Default: ''
 
 Mappings:
   CoralogixRegionMap:
@@ -1043,6 +1055,8 @@ Resources:
           - TelemetryModeIsMetrics
           - !Sub '${AWS::StackName}-coralogix-metric-stream'
           - !Ref AWS::NoValue
+        MetricsFilter: !Ref MetricsFilter
+        ExcludeMetricsFilters: !Ref ExcludeMetricsFilters
     Metadata:
       SamResourceId: ConfigureLambda
 

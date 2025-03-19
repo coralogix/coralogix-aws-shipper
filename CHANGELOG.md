@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.5 / 2025-02-20
+### 💡 Enhancements 💡
+- Added support for metrics filter for Cloudwatch Metric Streams, with CloudWatch private link integration
+
 ## v1.3.4 / 2025-02-19
 ### 🧰 Bug fixes 🧰
 - Fixed issue when deploying S3 integration with bucket name longer than 40 characters.
