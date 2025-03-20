@@ -441,12 +441,12 @@ Parameters:
 
   MetricsFilter:
     Type: String
-    Description: The filter for the metrics to include in the stream, should be valid json that contines the keys Namespace and MetricNames
+    Description: The filter for the metrics to include in the stream, should be valid json that contains the keys Namespace and MetricNames
     Default: ''
 
   ExcludeMetricsFilters:
     Type: String
-    Description: The filter for the metrics to exclude from the stream, should be valid json that contines the keys Namespace and MetricNames
+    Description: The filter for the metrics to exclude from the stream, should be valid json that contains the keys Namespace and MetricNames
     Default: ''
 
 Mappings:
