@@ -43,7 +43,7 @@ Metadata:
           - ApiKey
           - StoreAPIKeyInSecretsManager
       - Label:
-          default: S3/CloudTrail/VpcFlow/S3Csv configuration
+          default: S3/CloudTrail/VpcFlow/S3Csv/CloudFront configuration
         Parameters:
           - S3BucketName
           - S3KeyPrefix
@@ -565,9 +565,10 @@ Rules:
       - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
       - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
       - !Equals [ !Ref IntegrationType, 'S3Csv' ]
+      - !Equals [ !Ref IntegrationType, 'CloudFront' ]
     Assertions:
       - Assert: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
-        AssertDescription: S3BucketName must be set when IntegrationType is set to S3, CloudTrail, VpcFlow or S3Csv
+        AssertDescription: S3BucketName must be set when IntegrationType is set to S3, CloudTrail, VpcFlow, S3Csv or CloudFront
 
   ValidateKafkaIntegrationParams:
     RuleCondition: !Equals [ !Ref IntegrationType, 'Kafka' ]

@@ -636,7 +636,7 @@ def lambda_handler(event, context):
                 raise Exception(err)
             
         match integration_type:
-            case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail':
+            case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail' | 'CloudFront':
                 ConfigureS3Integration(event, context, cfn).handle()
             case 'Kafka':
                 ConfigureKafkaIntegration(event, context, cfn).handle()

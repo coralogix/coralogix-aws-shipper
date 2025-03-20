@@ -152,7 +152,7 @@ Basic Lambda execution role permission:
             Action: "sts:AssumeRole"
 ```
 
-### S3, CloudTrail, VpcFlow, S3Csv configuration
+### S3, CloudTrail, VpcFlow, S3Csv, CloudFront configuration
 
 This is the most flexible type of integration, as it is based on receiving log files to Amazon S3. First, your bucket can receive log files from all kinds of other services, such as CloudTrail, VPC Flow Logs, Redshift, Network Firewall or different types of load balancers (ALB/NLB/ELB). Once the data is in the bucket, a pre-made Lambda function will then transmit it to your Coralogix account.
 
