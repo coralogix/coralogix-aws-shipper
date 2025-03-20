@@ -551,12 +551,20 @@ class ConfigureMetricsIntegration:
     @handle_exceptions
     def create(self):
         print('creating cloudwatch metric stream...')
-        response = self.cloudwatch_metrics.put_metric_stream(
-            Name=self.params.CWMetricStreamName,
-            FirehoseArn=self.params.CWStreamFirehoseDestinationARN,
-            RoleArn=self.params.CWStreamFirehoseAccessRoleARN,
-            OutputFormat='opentelemetry1.0',
-        )
+        stream_params = {
+            'Name': self.params.CWMetricStreamName,
+            'FirehoseArn': self.params.CWStreamFirehoseDestinationARN,
+            'RoleArn': self.params.CWStreamFirehoseAccessRoleARN,
+            'OutputFormat': 'opentelemetry1.0'
+        }
+
+        # Add IncludeFilters and ExcludeFilters only if the parameters are not empty
+        if self.params.MetricsFilter != "":
+            stream_params['IncludeFilters'] = json.loads(self.params.MetricsFilter)
+        if self.params.ExcludeMetricsFilters != "":
+            stream_params['ExcludeFilters'] = json.loads(self.params.ExcludeMetricsFilters)
+
+        response = self.cloudwatch_metrics.put_metric_stream(**stream_params)
         print('create cloudwatch metric stream response:', response)
 
     @handle_exceptions
@@ -628,7 +636,7 @@ def lambda_handler(event, context):
                 raise Exception(err)
             
         match integration_type:
-            case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail':
+            case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail' | 'CloudFront':
                 ConfigureS3Integration(event, context, cfn).handle()
             case 'Kafka':
                 ConfigureKafkaIntegration(event, context, cfn).handle()
