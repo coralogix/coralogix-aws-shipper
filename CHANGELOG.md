@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.6 / 2025-04-02
+### 🧰 Bug fixes 🧰
+- Remove all special characters from the statement ID for CloudWatch integration to avoid AWS validation error
+
 ## v1.3.5 / 2025-02-20
 ### 💡 Enhancements 💡
 - Added support for metrics filter for Cloudwatch Metric Streams, with CloudWatch private link integration
