@@ -1068,7 +1068,7 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "coralogix-aws-shipper"
-version = "1.3.6"
+version = "1.3.7"
 dependencies = [
  "anyhow",
  "async-recursion",
