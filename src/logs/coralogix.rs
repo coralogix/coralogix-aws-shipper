@@ -466,8 +466,7 @@ fn get_severity_level(message: &str) -> Severity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
+    
     fn test_config() -> Config {
         Config {
             newline_pattern: String::new(),
