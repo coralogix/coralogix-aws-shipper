@@ -47,7 +47,7 @@ async fn main() -> Result<(), Error> {
             .as_str(),
     );
 
-    let aws_config = aws_config::load_defaults(BehaviorVersion::v2024_03_28()).await;
+    let aws_config = aws_config::load_defaults(BehaviorVersion::v2025_01_17()).await;
     let mut aws_clients = clients::AwsClients::new(&aws_config);
 
     match mode {

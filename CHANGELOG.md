@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.3.7 / 2025-05-01
+### 🧰 Bug fixes 🧰
+- Update package version for openssl and tokio to fix security vulnerabilities
+
+### 💡 Chore 💡
+- Update package dependencies to most recent compatible versions
+- Removed unused imports
+- Fixed deprecation warnings in the codebase
+
+
 ## v1.3.6 / 2025-04-02
 ### 🧰 Bug fixes 🧰
 - Remove all special characters from the statement ID for CloudWatch integration to avoid AWS validation error
