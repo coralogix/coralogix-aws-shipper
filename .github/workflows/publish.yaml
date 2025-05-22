@@ -64,6 +64,8 @@ jobs:
   validate:
     name: validate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -87,6 +89,8 @@ jobs:
     needs: validate
     if: ${{ github.event_name == 'workflow_dispatch' || success() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         target:
@@ -174,6 +178,8 @@ jobs:
     needs: [check_version , build]
     if: ${{ github.event_name == 'workflow_dispatch' || (success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
     steps:
