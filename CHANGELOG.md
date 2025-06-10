@@ -1,6 +1,10 @@
 # Changelog
 
-## v1.3.7 / 2025-05-01
+## v1.3.7 / 2025-6-9
+### 💡 Enhancements 💡
+- Add support for AP3 region
+
+## v1.3.6 / 2025-05-01
 ### 🧰 Bug fixes 🧰
 - Update package version for openssl and tokio to fix security vulnerabilities
 
