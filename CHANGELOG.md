@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.8 / 2025-02-07
+### 🧰 Bug fixes 🧰
+- Remove MaxLength for the `S3BucketName` parameter, as it could accept a comma-separated list of buckets
+
 ## v1.3.7 / 2025-6-9
 ### 💡 Enhancements 💡
 - Add support for AP3 region
