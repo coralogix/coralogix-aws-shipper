@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.3.7
+    SemanticVersion: 1.3.8
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -197,7 +197,6 @@ Parameters:
       destination for failed metric data via firehose.
     AllowedPattern: '^([0-9A-Za-z\.\-_]+)(,[0-9A-Za-z\.\-_]+)*$'
     Default: "none"
-    MaxLength: 63
 
   CSVDelimiter:
     Type: String
