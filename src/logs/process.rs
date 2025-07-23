@@ -115,15 +115,29 @@ impl MetadataContext {
             let captures = re
                 .captures(&v)
                 .map_err(|e| format!("regex capture group error: {}", e))?;
-            let captures = captures.ok_or(format!("at least one regex capture group is required for dynamic metadata evaluation, none found in regex: {}", reg))?;
-            return Ok(captures
-                .get(1)
-                .ok_or("capture group not found")?
-                .as_str()
-                .to_string());
+            
+            // If regex doesn't match, fall back to the raw metadata value
+            if let Some(captures) = captures {
+                // Try capture groups 1, 2, 3... to handle alternation patterns
+                // In alternation like (A)|(B), group 1 is A and group 2 is B
+                for i in 1..=captures.len().saturating_sub(1) {
+                    if let Some(group) = captures.get(i) {
+                        let captured = group.as_str();
+                        if !captured.is_empty() {
+                            return Ok(captured.to_string());
+                        }
+                    }
+                }
+                // If all capture groups are empty, fall back to raw value
+                tracing::warn!("Regex '{}' matched but all capture groups were empty for value '{}', falling back to raw value", reg, v);
+                return Ok(v);
+            } else {
+                tracing::warn!("Regex '{}' did not match value '{}', falling back to raw value", reg, v);
+                return Ok(v);
+            }
         };
 
-        Err("failed to evaluate dynamic metadata".to_string())
+        Err(format!("metadata key '{}' not found", key))
     }
 }
 
@@ -871,5 +885,35 @@ at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#
         // invalid regex
         let r = metadata.evaluate(r#"{{ key2 | r'^(\w' }}"#.to_string());
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_metadata_context_regex_fallback() {
+        let metadata = super::MetadataContext::new();
+        
+        // Test case: ECS log group that should match the first part of the regex
+        metadata.insert("cw.log.group".to_string(), Some("/ecs/my-service-prod_logs_abc123".to_string()));
+        
+        // Customer's regex pattern - should extract "my-service" from the ECS pattern
+        let customer_regex = r#"{{ cw.log.group | r'^/ecs/([a-z0-9-]+?)(?:-[a-z]+)?_logs_[a-z0-9]+$|^(.*)$' }}"#;
+        let result = metadata.evaluate(customer_regex.to_string()).unwrap();
+        assert_eq!(result, "my-service");
+        
+        // Test case: Non-ECS log group that should fall back to the second part of the regex
+        metadata.insert("cw.log.group".to_string(), Some("/some/other/log-group".to_string()));
+        let result = metadata.evaluate(customer_regex.to_string()).unwrap();
+        assert_eq!(result, "/some/other/log-group");
+        
+        // Test case: Regex that doesn't match anything - should fall back to raw value
+        metadata.insert("cw.log.group".to_string(), Some("test-log-group".to_string()));
+        let non_matching_regex = r#"{{ cw.log.group | r'^/this/will/never/match/([a-z]+)$' }}"#;
+        let result = metadata.evaluate(non_matching_regex.to_string()).unwrap();
+        assert_eq!(result, "test-log-group"); // Should fall back to raw value
+        
+        // Test case: Missing metadata key
+        let missing_key_regex = r#"{{ nonexistent.key | r'^(.*)$' }}"#;
+        let result = metadata.evaluate(missing_key_regex.to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("metadata key 'nonexistent.key' not found"));
     }
 }
