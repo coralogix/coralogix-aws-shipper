@@ -342,6 +342,19 @@ Assume the log is a CloudTrail log and the eventSource is `s3.amazonaws.com` the
 >  The metadata key must exist in the list defined above and be a part of the integration type that is deployed.
 >  Dynamic values are only supported for the `ApplicationName` and `SubsystemName` parameters, the `CustomMetadata` parameter is not supported.
 
+#### Fallback Behavior
+
+The dynamic metadata system follows predictable fallback rules:
+
+**Template Values (e.g., `{{ cw.log.group | r'...' }}`):**
+- If the metadata key exists and regex matches → uses the captured group
+- If the metadata key exists but regex fails → uses the raw metadata value
+- If the metadata key doesn't exist → uses defaults (`unknown-application`/`unknown-subsystem`)
+
+**Non-Template Values (e.g., `"MyStaticApp"`):**
+- Always uses the exact configured value, regardless of available metadata
+
+
 ### Advanced configuration
 
 **AWS PrivateLink**

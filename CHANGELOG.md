@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.9 / 2025-02-08
+### 🧰 Bug fixes 🧰
+- Fixed dynamic metadata fallback behavior to use defaults when template references missing metadata keys instead of falling back to unrelated metadata
+
 ## v1.3.8 / 2025-02-07
 ### 🧰 Bug fixes 🧰
 - Remove MaxLength for the `S3BucketName` parameter, as it could accept a comma-separated list of buckets
