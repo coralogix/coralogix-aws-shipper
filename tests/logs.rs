@@ -354,7 +354,7 @@ async fn run_test_s3_event_with_periods_in_bucket_name() {
         singles[0].entries[0].application_name
     );
     assert!(
-        singles[0].entries[0].subsystem_name == "my-bucket_example_com",
+        singles[0].entries[0].subsystem_name == "my-bucket.example.com",
         "got subsystem_name: {}",
         singles[0].entries[0].subsystem_name
     );
