@@ -335,8 +335,15 @@ fn convert_to_log_entry(
         .unwrap_or_else(|| {
             mctx.evaluate(configured_app_name.to_string())
                 .unwrap_or_else(|e| {
-                    tracing::warn!("application name dynamic parsing failed, using: {}", e);
-                    configured_app_name.to_owned()
+                    tracing::warn!("application name dynamic parsing failed: {}", e);
+                    // If it's a template that references a specific metadata key, use defaults
+                    // Only use fallback hierarchy for non-template values
+                    if configured_app_name.starts_with("{{") && configured_app_name.ends_with("}}") {
+                        "unknown-application".to_string()
+                    } else {
+                        // For non-template values, return the original input string
+                        configured_app_name.to_string()
+                    }
                 })
         });
 
@@ -344,8 +351,15 @@ fn convert_to_log_entry(
         .unwrap_or_else(|| {
             mctx.evaluate(configured_sub_name.to_string())
                 .unwrap_or_else(|e| {
-                    tracing::warn!("subsystem name dynamic parsing failed, using: {}", e);
-                    configured_sub_name.to_owned()
+                    tracing::warn!("subsystem name dynamic parsing failed: {}", e);
+                    // If it's a template that references a specific metadata key, use defaults
+                    // Only use fallback hierarchy for non-template values
+                    if configured_sub_name.starts_with("{{") && configured_sub_name.ends_with("}}") {
+                        "unknown-subsystem".to_string()
+                    } else {
+                        // For non-template values, return the original input string
+                        configured_sub_name.to_string()
+                    }
                 })
         });
 
@@ -466,8 +480,7 @@ fn get_severity_level(message: &str) -> Severity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
+    
     fn test_config() -> Config {
         Config {
             newline_pattern: String::new(),
@@ -588,8 +601,10 @@ mod tests {
             &config,
         );
 
-        assert_eq!(entry.application_name, "{{ $.nonexistent }}");
-        assert_eq!(entry.subsystem_name, "{{ $.missing }}");
+        // With improved fallback, when JSON extraction fails and no metadata exists,
+        // it should fall back to sensible defaults instead of returning template strings
+        assert_eq!(entry.application_name, "unknown-application");
+        assert_eq!(entry.subsystem_name, "unknown-subsystem");
     }
 
     #[test]
@@ -665,6 +680,261 @@ mod tests {
                 expected,
                 "Failed for template: {}",
                 template
+            );
+        }
+    }
+
+    #[test]
+    fn test_convert_to_log_entry_regex_fallback() {
+        let log = r#"{"message": "test log"}"#;
+        let mctx = process::MetadataContext::default();
+        
+        // Set up CloudWatch metadata
+        mctx.insert("cw.log.group".to_string(), Some("/ecs/my-service-prod_logs_abc123".to_string()));
+        mctx.insert("cw.log.stream".to_string(), Some("my-stream".to_string()));
+        
+        let config = test_config();
+        
+        // Test case 1: Customer's regex that should extract "my-service"
+        let customer_regex = r#"{{ cw.log.group | r'^/ecs/([a-z0-9-]+?)(?:-[a-z]+)?_logs_[a-z0-9]+$|^(.*)$' }}"#;
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            customer_regex,
+            "{{ cw.log.stream }}",
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "my-service");
+        assert_eq!(entry.subsystem_name, "my-stream");
+        
+        // Test case 2: Regex that doesn't match - should fall back to raw log group value
+        let non_matching_regex = r#"{{ cw.log.group | r'^/this/will/never/match/([a-z]+)$' }}"#;
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            non_matching_regex,
+            "{{ cw.log.stream }}",
+            &mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "/ecs/my-service-prod_logs_abc123"); // Raw value fallback
+        assert_eq!(entry.subsystem_name, "my-stream");
+        
+        // Test case 3: Missing metadata key - should use defaults since it's a template
+        let missing_key_regex = r#"{{ nonexistent.key | r'^(.*)$' }}"#;
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            missing_key_regex,
+            missing_key_regex,
+            &mctx,
+            &config,
+        );
+
+        // Should use defaults since templates reference non-existent metadata keys
+        assert_eq!(entry.application_name, "unknown-application");
+        assert_eq!(entry.subsystem_name, "unknown-subsystem");
+        
+        // Test case 4: Template references missing metadata key - should use defaults, not hierarchy
+        let empty_mctx = process::MetadataContext::default();
+        empty_mctx.insert("s3.bucket".to_string(), Some("test-bucket".to_string()));
+        empty_mctx.insert("s3.object.key".to_string(), Some("logs/app.log".to_string()));
+        
+        // Using realistic CloudWatch template but no CloudWatch metadata available
+        let cw_template = r#"{{ cw.log.group | r'^/ecs/([a-z0-9-]+?)(?:-[a-z]+)?_logs_[a-z0-9]+$|^(.*)$' }}"#;
+        
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            cw_template,           // App name template references cw.log.group (not available)
+            "{{ cw.log.stream }}", // Subsystem template references cw.log.stream (not available)
+            &empty_mctx,
+            &config,
+        );
+
+        // Should use defaults since templates reference non-existent metadata keys
+        assert_eq!(entry.application_name, "unknown-application");
+        assert_eq!(entry.subsystem_name, "unknown-subsystem");
+        
+        // Test case 5: No metadata at all - should use default fallbacks
+        let completely_empty_mctx = process::MetadataContext::default();
+        
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            missing_key_regex,
+            missing_key_regex,
+            &completely_empty_mctx,
+            &config,
+        );
+
+        assert_eq!(entry.application_name, "unknown-application");
+        assert_eq!(entry.subsystem_name, "unknown-subsystem");
+    }
+
+    #[test]
+    fn test_kinesis_no_app_name_configured() {
+        let log = r#"{"message": "test log from kinesis"}"#;
+        let mctx = process::MetadataContext::default();
+        
+        // Set up CloudWatch metadata that would be available from Kinesis
+        mctx.insert("cw.log.group".to_string(), Some("/aws/lambda/my-function".to_string()));
+        mctx.insert("cw.log.stream".to_string(), Some("2024/01/01/my-stream".to_string()));
+        
+        let config = test_config();
+        
+        // Test: When no app_name is configured, Kinesis uses "NO APPLICATION NAME"
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            "NO APPLICATION NAME",    // This is what kinesis_logs passes when config.app_name is None
+            "NO SUBSYSTEM NAME",      // This is what kinesis_logs passes when config.sub_name is None
+            &mctx,
+            &config,
+        );
+
+        // Since "NO APPLICATION NAME" is not a template, it gets processed by our improved fallback
+        // The evaluate() method returns it as-is because it's not a template (no {{ }})
+        // So the final result should be the literal string
+        assert_eq!(entry.application_name, "NO APPLICATION NAME");
+        assert_eq!(entry.subsystem_name, "NO SUBSYSTEM NAME");
+    }
+
+    #[test]
+    fn test_dynamic_fallback_when_regex_fails() {
+        let log = r#"{"message": "test log"}"#;
+        let mctx = process::MetadataContext::default();
+        
+        // Set up metadata where the key exists but won't match the regex
+        mctx.insert("cw.log.group".to_string(), Some("/not-matching-ecs-pattern".to_string()));
+        mctx.insert("s3.bucket".to_string(), Some("backup-bucket".to_string()));
+        
+        let config = test_config();
+        
+        // Scenario 1: Key exists, regex fails → should return raw value of the specific key
+        let failing_regex = r#"{{ cw.log.group | r'^/ecs/([a-z0-9-]+?)_logs_[a-z0-9]+$' }}"#;
+        
+        let entry = convert_to_log_entry(
+            log.to_string(),
+            failing_regex,
+            "{{ cw.log.group }}",  // Simple template without regex
+            &mctx,
+            &config,
+        );
+
+        // Dynamic fallback: uses raw value of cw.log.group (the key referenced in template)
+        assert_eq!(entry.application_name, "/not-matching-ecs-pattern"); 
+        assert_eq!(entry.subsystem_name, "/not-matching-ecs-pattern");
+        
+        // Scenario 2: Key doesn't exist → should use defaults (not hierarchy)
+        let missing_key_template = r#"{{ nonexistent.key | r'^(.*)$' }}"#;
+        
+        let entry2 = convert_to_log_entry(
+            log.to_string(),
+            missing_key_template,
+            missing_key_template,
+            &mctx,
+            &config,
+        );
+
+        // Templates with missing keys use defaults, not hierarchy
+        assert_eq!(entry2.application_name, "unknown-application");
+        assert_eq!(entry2.subsystem_name, "unknown-subsystem");
+        
+        // Scenario 3: Non-template values → should return as-is when not JSON paths
+        let entry3 = convert_to_log_entry(
+            log.to_string(),
+            "some-plain-app-name",    // Not a template, not a JSON path
+            "some-plain-sub-name",    // Not a template, not a JSON path
+            &mctx,
+            &config,
+        );
+
+        // Non-template values should return the original input string
+        assert_eq!(entry3.application_name, "some-plain-app-name");
+        assert_eq!(entry3.subsystem_name, "some-plain-sub-name");
+    }
+
+    #[test]
+    fn test_all_metadata_keys_dynamic_fallback() {
+        let log = r#"{"message": "test log"}"#;
+        let config = test_config();
+
+        // All metadata keys from the documentation
+        let all_metadata_keys = vec![
+            // S3 metadata
+            "s3.bucket",
+            "s3.object.key",
+            // CloudWatch metadata  
+            "cw.log.group",
+            "cw.log.stream",
+            "cw.owner",
+            // Kafka metadata
+            "kafka.topic",
+            // Kinesis metadata
+            "kinesis.event.id",
+            "kinesis.event.name", 
+            "kinesis.event.source",
+            "kinesis.event.source_arn",
+            // SQS metadata
+            "sqs.event.source",
+            "sqs.event.id",
+            // ECR metadata
+            "ecr.scan.id",
+            "ecr.scan.source",
+        ];
+
+        for key in all_metadata_keys {
+            // Test 1: When the referenced metadata key EXISTS
+            let mctx_with_key = process::MetadataContext::default();
+            mctx_with_key.insert(key.to_string(), Some(format!("test-value-for-{}", key)));
+            
+            let template = format!("{{{{ {} | r'^(.*)$' }}}}", key);
+            
+            let entry = convert_to_log_entry(
+                log.to_string(),
+                &template,
+                &template,
+                &mctx_with_key,
+                &config,
+            );
+
+            // Should use the specific metadata key value
+            assert_eq!(
+                entry.application_name, 
+                format!("test-value-for-{}", key),
+                "Failed for metadata key '{}' when key exists", 
+                key
+            );
+            assert_eq!(
+                entry.subsystem_name, 
+                format!("test-value-for-{}", key),
+                "Failed for metadata key '{}' when key exists", 
+                key
+            );
+
+            // Test 2: When the referenced metadata key DOESN'T EXIST
+            let mctx_without_key = process::MetadataContext::default();
+            // Add some other random metadata to ensure it doesn't fall back to unrelated keys
+            mctx_without_key.insert("some.other.key".to_string(), Some("should-not-be-used".to_string()));
+            
+            let entry2 = convert_to_log_entry(
+                log.to_string(),
+                &template,
+                &template,
+                &mctx_without_key,
+                &config,
+            );
+
+            // Should use defaults, NOT any other available metadata
+            assert_eq!(
+                entry2.application_name, 
+                "unknown-application",
+                "Failed for metadata key '{}' when key missing - should use defaults, not other metadata", 
+                key
+            );
+            assert_eq!(
+                entry2.subsystem_name, 
+                "unknown-subsystem", 
+                "Failed for metadata key '{}' when key missing - should use defaults, not other metadata", 
+                key
             );
         }
     }

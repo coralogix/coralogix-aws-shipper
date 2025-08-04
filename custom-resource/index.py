@@ -1,6 +1,7 @@
 import json
 import boto3
 import os
+import re
 import json, time, boto3, time
 from urllib import request, parse, error
 import functools
@@ -10,14 +11,13 @@ import traceback
 def sanitize_statement_id_prefix(identifier):
     """
     Sanitize an identifier for use in Lambda permission statement IDs.
-    Replaces periods with underscores and slashes with dashes.
-    Truncates to 70 characters if longer.
+    Ensures only AWS-compatible characters remain using regex.
     """
     updated_prefix = identifier
     if len(identifier) >= 70:  # StatementId length limit is 100
         updated_prefix = identifier[:65] + identifier[-5:]
-    # Sanitize invalid characters for statement_id compatibility
-    updated_prefix = updated_prefix.replace('.', '_').replace('/', '-')
+    # Use regex to ensure only AWS-compatible characters
+    updated_prefix = re.sub(r'[^a-zA-Z0-9\-_]', '_', updated_prefix)
     return updated_prefix
 
 def handle_exceptions(func):
@@ -472,8 +472,6 @@ class ConfigureCloudwatchIntegration:
                 logGroupName=log_group
             )
 
-
-
     def update_custom_lambda_environment_variables(self, function_name, new_environment_variables):
         self.aws_lambda.update_function_configuration(
             FunctionName=function_name,
@@ -563,12 +561,20 @@ class ConfigureMetricsIntegration:
     @handle_exceptions
     def create(self):
         print('creating cloudwatch metric stream...')
-        response = self.cloudwatch_metrics.put_metric_stream(
-            Name=self.params.CWMetricStreamName,
-            FirehoseArn=self.params.CWStreamFirehoseDestinationARN,
-            RoleArn=self.params.CWStreamFirehoseAccessRoleARN,
-            OutputFormat='opentelemetry1.0',
-        )
+        stream_params = {
+            'Name': self.params.CWMetricStreamName,
+            'FirehoseArn': self.params.CWStreamFirehoseDestinationARN,
+            'RoleArn': self.params.CWStreamFirehoseAccessRoleARN,
+            'OutputFormat': 'opentelemetry1.0'
+        }
+
+        # Add IncludeFilters and ExcludeFilters only if the parameters are not empty
+        if self.params.MetricsFilter != "":
+            stream_params['IncludeFilters'] = json.loads(self.params.MetricsFilter)
+        if self.params.ExcludeMetricsFilters != "":
+            stream_params['ExcludeFilters'] = json.loads(self.params.ExcludeMetricsFilters)
+
+        response = self.cloudwatch_metrics.put_metric_stream(**stream_params)
         print('create cloudwatch metric stream response:', response)
 
     @handle_exceptions
@@ -640,7 +646,7 @@ def lambda_handler(event, context):
                 raise Exception(err)
             
         match integration_type:
-            case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail':
+            case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail' | 'CloudFront':
                 ConfigureS3Integration(event, context, cfn).handle()
             case 'Kafka':
                 ConfigureKafkaIntegration(event, context, cfn).handle()

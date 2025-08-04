@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.3.5
+    SemanticVersion: 1.3.10
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -43,7 +43,7 @@ Metadata:
           - ApiKey
           - StoreAPIKeyInSecretsManager
       - Label:
-          default: S3/CloudTrail/VpcFlow/S3Csv configuration
+          default: S3/CloudTrail/VpcFlow/S3Csv/CloudFront configuration
         Parameters:
           - S3BucketName
           - S3KeyPrefix
@@ -108,18 +108,21 @@ Metadata:
           default: Cloudwatch Metrics Stream via PrivateLink
         Parameters:
           - TelemetryMode
+          - MetricsFilter
+          - ExcludeMetricsFilters
 
 Parameters:
   CoralogixRegion:
     Type: String
     Description: |
-      The Coralogix location region, possible options are [EU1, EU2, AP1, AP2, US1, US2, Custom]
+      The Coralogix location region, possible options are [EU1, EU2, AP1, AP2, AP3, US1, US2, Custom]
       If this value is set to Custom you must specify the Custom Domain to use via the CustomDomain parameter.
     AllowedValues:
       - EU1
       - EU2
       - AP1
       - AP2
+      - AP3
       - US1
       - US2
       - Custom
@@ -194,7 +197,6 @@ Parameters:
       destination for failed metric data via firehose.
     AllowedPattern: '^([0-9A-Za-z\.\-_]+)(,[0-9A-Za-z\.\-_]+)*$'
     Default: "none"
-    MaxLength: 63
 
   CSVDelimiter:
     Type: String
@@ -437,6 +439,16 @@ Parameters:
       - logs
       - metrics
 
+  MetricsFilter:
+    Type: String
+    Description: The filter for the metrics to include in the stream, should be valid json that contains the keys Namespace and MetricNames
+    Default: ''
+
+  ExcludeMetricsFilters:
+    Type: String
+    Description: The filter for the metrics to exclude from the stream, should be valid json that contains the keys Namespace and MetricNames
+    Default: ''
+
 Mappings:
   CoralogixRegionMap:
     EU1:
@@ -447,6 +459,8 @@ Mappings:
       Domain: coralogix.in
     AP2:
       Domain: coralogixsg.com
+    AP3:
+      Domain: ap3.coralogix.com
     US1:
       Domain: coralogix.us
     US2:
@@ -553,9 +567,10 @@ Rules:
       - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
       - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
       - !Equals [ !Ref IntegrationType, 'S3Csv' ]
+      - !Equals [ !Ref IntegrationType, 'CloudFront' ]
     Assertions:
       - Assert: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
-        AssertDescription: S3BucketName must be set when IntegrationType is set to S3, CloudTrail, VpcFlow or S3Csv
+        AssertDescription: S3BucketName must be set when IntegrationType is set to S3, CloudTrail, VpcFlow, S3Csv or CloudFront
 
   ValidateKafkaIntegrationParams:
     RuleCondition: !Equals [ !Ref IntegrationType, 'Kafka' ]
@@ -1043,6 +1058,8 @@ Resources:
           - TelemetryModeIsMetrics
           - !Sub '${AWS::StackName}-coralogix-metric-stream'
           - !Ref AWS::NoValue
+        MetricsFilter: !Ref MetricsFilter
+        ExcludeMetricsFilters: !Ref ExcludeMetricsFilters
     Metadata:
       SamResourceId: ConfigureLambda
 

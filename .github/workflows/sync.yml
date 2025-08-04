@@ -21,6 +21,8 @@ env:
 jobs:
   get-template:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: checkout coralogix-aws-shipper repository

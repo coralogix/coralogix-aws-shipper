@@ -1,8 +1,38 @@
 # Changelog
 
-## v1.3.5 / 2025-08-04
+## v1.3.10 / 2025-08-04
 ### 🧰 Bug fixes 🧰
 - Fixed issue when deploying S3 integration with bucket names containing periods (e.g., `my-bucket.example.com`). The custom resource now sanitizes bucket names by replacing periods with underscores in Lambda permission statement IDs to comply with AWS naming constraints.
+
+## v1.3.9 / 2025-02-08
+### 🧰 Bug fixes 🧰
+- Fixed dynamic metadata fallback behavior to use defaults when template references missing metadata keys instead of falling back to unrelated metadata
+
+## v1.3.8 / 2025-02-07
+### 🧰 Bug fixes 🧰
+- Remove MaxLength for the `S3BucketName` parameter, as it could accept a comma-separated list of buckets
+
+## v1.3.7 / 2025-6-9
+### 💡 Enhancements 💡
+- Add support for AP3 region
+
+## v1.3.6 / 2025-05-01
+### 🧰 Bug fixes 🧰
+- Update package version for openssl and tokio to fix security vulnerabilities
+
+### 💡 Chore 💡
+- Update package dependencies to most recent compatible versions
+- Removed unused imports
+- Fixed deprecation warnings in the codebase
+
+
+## v1.3.6 / 2025-04-02
+### 🧰 Bug fixes 🧰
+- Remove all special characters from the statement ID for CloudWatch integration to avoid AWS validation error
+
+## v1.3.5 / 2025-02-20
+### 💡 Enhancements 💡
+- Added support for metrics filter for Cloudwatch Metric Streams, with CloudWatch private link integration
 
 ## v1.3.4 / 2025-02-19
 ### 🧰 Bug fixes 🧰

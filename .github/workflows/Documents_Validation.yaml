@@ -9,6 +9,8 @@ on:
 jobs:
   check-docs:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     name: Check Documentation formatting and links
     steps:
     - uses: actions/checkout@v4
