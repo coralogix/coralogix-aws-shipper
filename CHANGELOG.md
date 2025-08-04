@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.5 / 2025-08-04
+### 🧰 Bug fixes 🧰
+- Fixed issue when deploying S3 integration with bucket names containing periods (e.g., `my-bucket.example.com`). The custom resource now sanitizes bucket names by replacing periods with underscores in Lambda permission statement IDs to comply with AWS naming constraints.
+
 ## v1.3.4 / 2025-02-19
 ### 🧰 Bug fixes 🧰
 - Fixed issue when deploying S3 integration with bucket name longer than 40 characters.
