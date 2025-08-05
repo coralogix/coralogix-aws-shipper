@@ -8,6 +8,19 @@ import functools
 from types import SimpleNamespace
 import traceback
 
+def sanitize_statement_id_prefix(identifier):
+    """
+    Sanitize an identifier for use in Lambda permission statement IDs.
+    Ensures only AWS-compatible characters remain using regex.
+    Limits output to 65 characters to provide safety margin for StatementId.
+    """
+    updated_prefix = identifier
+    if len(identifier) >= 65:
+        updated_prefix = identifier[:60] + identifier[-5:]
+    # Use regex to ensure only AWS-compatible characters
+    updated_prefix = re.sub(r'[^a-zA-Z0-9\-_]', '_', updated_prefix)
+    return updated_prefix
+
 def handle_exceptions(func):
     """
     A decorator that wraps the passed in function and prints exceptions should one occur.
@@ -123,9 +136,11 @@ class ConfigureS3Integration:
     @handle_exceptions
     def handle_lambda_permissions(self, bucket_name_list, lambda_function_arn, function_name, request_type):
         for bucket_name in bucket_name_list.split(","):
-            statement_id = f'allow-s3-{bucket_name}-invoke-{function_name}'
+            sanitized_bucket_name = sanitize_statement_id_prefix(bucket_name)
+            statement_id = f'allow-s3-{sanitized_bucket_name}-invoke-{function_name}'
+            # Check final statement_id length and truncate if needed
             if len(statement_id) >= 100:
-                statement_id = f"allow-s3-{bucket_name}-invoke-" + statement_id[-5:]
+                statement_id = f"allow-s3-{sanitized_bucket_name}-invoke-" + statement_id[-5:]
             try:
                 if request_type == 'Delete' or request_type == 'Update':
                     response = self.aws_lambda.remove_permission(
@@ -419,7 +434,7 @@ class ConfigureCloudwatchIntegration:
         self.update_custom_lambda_environment_variables(custom_lambda_arn, environment_variables)
         if LambdaPremissionPrefix and LambdaPremissionPrefix != [""]:
             for prefix in LambdaPremissionPrefix:
-                replaced_prefix =  self.validate_statmentid_formate(prefix)
+                replaced_prefix =  sanitize_statement_id_prefix(prefix)
                 try:
                     self.aws_lambda.add_permission(
                     FunctionName=lambda_arn,
@@ -438,7 +453,7 @@ class ConfigureCloudwatchIntegration:
             )
             if not LambdaPremissionPrefix or LambdaPremissionPrefix == [""]:
                 if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
-                    replaced_prefix =  self.validate_statmentid_formate(log_group)
+                    replaced_prefix =  sanitize_statement_id_prefix(log_group)
                     try:
                         response = self.aws_lambda.add_permission(
                             FunctionName=lambda_arn,
@@ -456,13 +471,6 @@ class ConfigureCloudwatchIntegration:
                 filterPattern='',
                 logGroupName=log_group
             )
-
-    def validate_statmentid_formate(self, statmentid_prefix):
-        updated_prefix = statmentid_prefix
-        if len(statmentid_prefix) >= 70: # StatementId length limit is 100
-            updated_prefix = statmentid_prefix[:65] + statmentid_prefix[-5:]
-        updated_prefix = re.sub(r'[^a-zA-Z0-9\-_]', '_', updated_prefix)
-        return updated_prefix
 
     def update_custom_lambda_environment_variables(self, function_name, new_environment_variables):
         self.aws_lambda.update_function_configuration(
@@ -483,7 +491,7 @@ class ConfigureCloudwatchIntegration:
                     logGroupName=log_group
                 )
             if not LambdaPremissionPrefix:
-                replaced_prefix =  self.validate_statmentid_formate(log_group)
+                replaced_prefix =  sanitize_statement_id_prefix(log_group)
                 response = self.aws_lambda.remove_permission(
                     FunctionName=lambda_arn,
                     StatementId=f'allow-trigger-from-{replaced_prefix}'
