@@ -12,10 +12,11 @@ def sanitize_statement_id_prefix(identifier):
     """
     Sanitize an identifier for use in Lambda permission statement IDs.
     Ensures only AWS-compatible characters remain using regex.
+    Limits output to 65 characters to provide safety margin for StatementId.
     """
     updated_prefix = identifier
-    if len(identifier) >= 70:  # StatementId length limit is 100
-        updated_prefix = identifier[:65] + identifier[-5:]
+    if len(identifier) >= 65:
+        updated_prefix = identifier[:60] + identifier[-5:]
     # Use regex to ensure only AWS-compatible characters
     updated_prefix = re.sub(r'[^a-zA-Z0-9\-_]', '_', updated_prefix)
     return updated_prefix
@@ -135,10 +136,9 @@ class ConfigureS3Integration:
     @handle_exceptions
     def handle_lambda_permissions(self, bucket_name_list, lambda_function_arn, function_name, request_type):
         for bucket_name in bucket_name_list.split(","):
-            # Use centralized sanitization function
             sanitized_bucket_name = sanitize_statement_id_prefix(bucket_name)
             statement_id = f'allow-s3-{sanitized_bucket_name}-invoke-{function_name}'
-            # Check final statement_id length and truncate if needed (original approach)
+            # Check final statement_id length and truncate if needed
             if len(statement_id) >= 100:
                 statement_id = f"allow-s3-{sanitized_bucket_name}-invoke-" + statement_id[-5:]
             try:
