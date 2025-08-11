@@ -226,8 +226,8 @@ Parameters:
   S3BucketKMSKeyARN:
     Type: String
     Description: |
-      The ARN of the KMS key used to encrypt objects in the S3 bucket.
-      Required if using SSE-KMS encryption on the S3 bucket.
+      The ARN of the KMS key used to encrypt/decrypt objects in the specified S3 bucket.
+      If provided, the Lambda policy will include permissions to decrypt using this key.
     Default: ''
 
   FunctionMemorySize:
