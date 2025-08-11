@@ -172,7 +172,8 @@ If you don’t want to send data directly as it enters S3, you can also use SNS/
 | NewlinePattern | Enter a regular expression to detect a new log line for multiline logs. For example, \n(?=\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}.\d{3}).                                                                         |                                          |                    |
 | SNSTopicArn    | The ARN for the SNS topic that contains the SNS subscription responsible for retrieving logs from Amazon S3.                                                                                      |                                          |                    |
 | SQSTopicArn    | The ARN for the SQS queue that contains the SQS subscription responsible for retrieving logs from Amazon S3.                                                                                      |                                          |                    |
-| CSVDelimiter   | Specify a single character to be used as a delimiter when ingesting a CSV file with a header line. This value is applicable when the S3Csv integration type is selected, such as, “,” or ” “. | ,                                        |                    |
+| CSVDelimiter   | Specify a single character to be used as a delimiter when ingesting a CSV file with a header line. This value is applicable when the S3Csv integration type is selected, such as, "," or " ". | ,                                        |                    |
+| S3BucketKMSKeyARN | The ARN of the KMS key used to encrypt objects in the S3 bucket. Required if using SSE-KMS encryption on the S3 bucket. |                                          |                    |
 
 ### CloudWatch configuration
 
