@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.12 / 2025-10-07
+### 💡 Enhancements 💡
+- Update CoralogixRegionMap to use new standardized endpoint format
+
 ## v1.3.11 / 2025-08-11
 ### 💡 Enhancements 💡
 - Add support for S3 bucket KMS key using `S3BucketKMSKeyARN`
