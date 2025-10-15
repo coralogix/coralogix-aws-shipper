@@ -431,6 +431,14 @@ To enable CloudWatch metrics streaming via Firehose (PrivateLink), you must prov
 | MetricsFilter               | The filter for the metrics to include in the stream that will get created, should be valid json that contains the keys `Namespace` and `MetricNames`, for example: `[{"Namespace": "AWS/EC2", "MetricNames": ["CPUUtilization", "NetworkOut"]},{"Namespace": "AWS/S3", "MetricNames": ["BucketSizeBytes"]}]`. Can't use this parameter with `ExcludeMetricsFilters` parameter.   |        n/a       |                    |
 | ExcludeMetricsFilters     | The filter for the metrics to exclude from the stream that will get created, should be valid json that contains the keys `Namespace` and `MetricNames`, for example: `[{"Namespace": "AWS/EC2", "MetricNames": ["CPUUtilization", "NetworkOut"]}]`. Can't use this parameter with `MetricsFilter` parameter.   |        n/a       |                    |
 
+#### Batching (optional)
+
+- `BATCH_METRICS`: When enabled (`1`, `true`, or `yes`), the Lambda batches all OpenTelemetry metric messages contained in a single Firehose event into one aggregated `ExportMetricsServiceRequest` and sends a single POST request to `POST /v1/metrics`. This reduces network overhead versus sending one request per message. Default: disabled.
+  - Environment variable only (not a stack parameter).
+  - Works only with `TELEMETRY_MODE=metrics`.
+  - Note: Larger events can produce larger single requests; ensure they fit within your network and service limits.
+ - `METRICS_BATCH_MAX_SIZE`: Maximum size in megabytes for the aggregated encoded protobuf payload before it is flushed and sent. Default: `4`. Applies only when `BATCH_METRICS` is enabled. If a single transformed message exceeds this size, it is sent by itself.
+
 ## Troubleshooting
 
 **Parameter max value**
