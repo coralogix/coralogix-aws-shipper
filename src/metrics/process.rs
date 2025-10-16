@@ -1,6 +1,9 @@
 use crate::metrics::config::Config;
 // use aws_lambda_events::encodings::Base64Data;
-use aws_lambda_events::event::firehose::{KinesisFirehoseResponse, KinesisFirehoseEvent, KinesisFirehoseResponseRecord, KinesisFirehoseResponseRecordMetadata};
+use aws_lambda_events::event::firehose::{
+    KinesisFirehoseEvent, KinesisFirehoseResponse, KinesisFirehoseResponseRecord,
+    KinesisFirehoseResponseRecordMetadata,
+};
 use lambda_runtime::Error;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value;
@@ -11,7 +14,6 @@ use prost::Message;
 use reqwest;
 use std::time::Instant;
 use tracing::{debug, error, info};
-
 
 fn split_length_delimited(data: &[u8]) -> Result<Vec<&[u8]>, String> {
     let mut chunks = Vec::new();
@@ -53,7 +55,11 @@ fn re_batch(chunks: Vec<Vec<u8>>) -> Vec<u8> {
 }
 
 /// handle_mesage - decodes messages, updates datapoints/attributes with cx_application_name and cx_subsystem_name
-fn transform_message(message: &[u8], app_name: &str, subsystem_name: &str) -> Result<ExportMetricsServiceRequest, Error> {
+fn transform_message(
+    message: &[u8],
+    app_name: &str,
+    subsystem_name: &str,
+) -> Result<ExportMetricsServiceRequest, Error> {
     let mut decoded_message = ExportMetricsServiceRequest::decode(&*message)?;
     debug!("decoded metrics: {:?}", decoded_message);
 
@@ -124,7 +130,7 @@ fn transform_message(message: &[u8], app_name: &str, subsystem_name: &str) -> Re
                 }
             }
         }
-    };
+    }
 
     Ok(decoded_message)
 }
@@ -205,7 +211,9 @@ async fn try_add_to_batch(
         .extend(transformed_message.resource_metrics.clone());
     let prospective_buf = encode_request(&prospective)?;
 
-    if prospective_buf.len() > config.batch_max_size_bytes && !aggregated.resource_metrics.is_empty() {
+    if prospective_buf.len() > config.batch_max_size_bytes
+        && !aggregated.resource_metrics.is_empty()
+    {
         // Flush current aggregator first
         flush_batch(config, aggregated).await?;
 
@@ -230,7 +238,10 @@ async fn try_add_to_batch(
                 "single transformed message exceeds batch size; sending as-is"
             );
             coralogix_send(config, single_body).await.map_err(|e| {
-                let err = format!("failed to send oversize single metric payload to coralogix: {}", e);
+                let err = format!(
+                    "failed to send oversize single metric payload to coralogix: {}",
+                    e
+                );
                 error!("{}", err);
                 err
             })?;
@@ -328,41 +339,44 @@ async fn send_final_batch(
     total_messages_seen: usize,
 ) -> Result<(), Error> {
     if let Some(aggregated) = aggregated_opt {
-        if !aggregated.resource_metrics.is_empty() {
-            // Compute some insight into the aggregated shape
-            let total_resource_metrics = aggregated.resource_metrics.len();
-            let mut total_scope_metrics = 0usize;
-            let mut total_metrics = 0usize;
-            for rm in &aggregated.resource_metrics {
-                total_scope_metrics += rm.scope_metrics.len();
-                for sm in &rm.scope_metrics {
-                    total_metrics += sm.metrics.len();
-                }
-            }
-
-            let body = encode_request(&aggregated)?;
-
-            info!(
-                total_records,
-                total_messages_seen,
-                total_resource_metrics,
-                total_scope_metrics,
-                total_metrics,
-                bytes = body.len(),
-                "sending aggregated metrics payload"
-            );
-
-            coralogix_send(config, body).await.map_err(|e| {
-                let err = format!("failed to send aggregated metric data to coralogix: {}", e);
-                error!("{}", err);
-                err
-            })?;
-        } else {
+        if aggregated.resource_metrics.is_empty() {
             info!("batching enabled but no aggregated resource_metrics to send");
+            return Ok(());
         }
-    } else {
-        info!("batching enabled but aggregator not initialized");
+        
+        // Compute some insight into the aggregated shape
+        let total_resource_metrics = aggregated.resource_metrics.len();
+        let mut total_scope_metrics = 0usize;
+        let mut total_metrics = 0usize;
+        for rm in &aggregated.resource_metrics {
+            total_scope_metrics += rm.scope_metrics.len();
+            for sm in &rm.scope_metrics {
+                total_metrics += sm.metrics.len();
+            }
+        }
+
+        let body = encode_request(&aggregated)?;
+
+        info!(
+            total_records,
+            total_messages_seen,
+            total_resource_metrics,
+            total_scope_metrics,
+            total_metrics,
+            bytes = body.len(),
+            "sending aggregated metrics payload"
+        );
+
+        coralogix_send(config, body).await.map_err(|e| {
+            let err = format!("failed to send aggregated metric data to coralogix: {}", e);
+            error!("{}", err);
+            err
+        })?;
+
+        return Ok(());
     }
+
+    info!("batching enabled but aggregator not initialized");
     Ok(())
 }
 
@@ -396,14 +410,14 @@ pub async fn transform_firehose_event(
     // Process each record
     for (idx, record) in event.records.clone().into_iter().enumerate() {
         let otel_payload = record.data.clone();
-        
+
         // Split length-delimited messages
         let messages = split_length_delimited(&otel_payload.0).map_err(|e| {
             let err = format!("failed to split length-delimited data: {}", e);
             error!("{}", err);
             err
         })?;
-        
+
         debug!(
             record_index = idx,
             message_count = messages.len(),
@@ -431,7 +445,13 @@ pub async fn transform_firehose_event(
 
     // Send final batch if batching is enabled
     if config.batching_enabled {
-        send_final_batch(config, aggregated_opt, event.records.len(), total_messages_seen).await?;
+        send_final_batch(
+            config,
+            aggregated_opt,
+            event.records.len(),
+            total_messages_seen,
+        )
+        .await?;
     }
 
     // Return response to Firehose
