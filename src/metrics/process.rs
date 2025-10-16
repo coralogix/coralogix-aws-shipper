@@ -159,15 +159,219 @@ async fn coralogix_send(config: &Config, message: Vec<u8>) -> Result<(), Error> 
     Ok(())
 }
 
+/// encode_request - encodes an ExportMetricsServiceRequest to bytes
+fn encode_request(request: &ExportMetricsServiceRequest) -> Result<Vec<u8>, Error> {
+    let mut buf = Vec::new();
+    request.encode(&mut buf).map_err(|e| {
+        let err = format!("failed to encode request: {}", e);
+        error!("{}", err);
+        err
+    })?;
+    Ok(buf)
+}
+
+/// flush_batch - sends the current batch to Coralogix
+async fn flush_batch(config: &Config, batch: &ExportMetricsServiceRequest) -> Result<(), Error> {
+    let body = encode_request(batch)?;
+    info!(
+        bytes = body.len(),
+        max_bytes = config.batch_max_size_bytes,
+        resource_metrics = batch.resource_metrics.len(),
+        "flushing aggregated metrics due to batch size threshold"
+    );
+    coralogix_send(config, body).await.map_err(|e| {
+        let err = format!("failed to send aggregated metric data to coralogix: {}", e);
+        error!("{}", err);
+        err
+    })?;
+    Ok(())
+}
+
+/// try_add_to_batch - attempts to add a transformed message to the batch, flushing if needed
+async fn try_add_to_batch(
+    config: &Config,
+    aggregated_opt: &mut Option<ExportMetricsServiceRequest>,
+    transformed_message: ExportMetricsServiceRequest,
+) -> Result<(), Error> {
+    // Initialize aggregator lazily
+    let aggregated = aggregated_opt.get_or_insert_with(|| ExportMetricsServiceRequest {
+        ..Default::default()
+    });
+
+    // Compute prospective size if we were to add this message to the current batch
+    let mut prospective = aggregated.clone();
+    prospective
+        .resource_metrics
+        .extend(transformed_message.resource_metrics.clone());
+    let prospective_buf = encode_request(&prospective)?;
+
+    if prospective_buf.len() > config.batch_max_size_bytes && !aggregated.resource_metrics.is_empty() {
+        // Flush current aggregator first
+        flush_batch(config, aggregated).await?;
+
+        // Start a new batch with this transformed message (or send directly if still too big)
+        *aggregated = ExportMetricsServiceRequest {
+            ..Default::default()
+        };
+
+        // Check if the single transformed message alone exceeds the limit; if so, send alone
+        let mut single_only = ExportMetricsServiceRequest {
+            ..Default::default()
+        };
+        single_only
+            .resource_metrics
+            .extend(transformed_message.resource_metrics.clone());
+        let single_body = encode_request(&single_only)?;
+
+        if single_body.len() > config.batch_max_size_bytes {
+            info!(
+                bytes = single_body.len(),
+                max_bytes = config.batch_max_size_bytes,
+                "single transformed message exceeds batch size; sending as-is"
+            );
+            coralogix_send(config, single_body).await.map_err(|e| {
+                let err = format!("failed to send oversize single metric payload to coralogix: {}", e);
+                error!("{}", err);
+                err
+            })?;
+        } else {
+            let before_rm = aggregated.resource_metrics.len();
+            aggregated
+                .resource_metrics
+                .extend(transformed_message.resource_metrics);
+            let after_rm = aggregated.resource_metrics.len();
+            debug!(
+                added_resource_metrics = (after_rm.saturating_sub(before_rm)),
+                total_resource_metrics = after_rm,
+                "batched metrics aggregated (new batch)"
+            );
+        }
+
+        return Ok(());
+    }
+
+    // Safe to add to existing batch
+    let before_rm = aggregated.resource_metrics.len();
+    aggregated
+        .resource_metrics
+        .extend(transformed_message.resource_metrics);
+    let after_rm = aggregated.resource_metrics.len();
+    debug!(
+        added_resource_metrics = (after_rm.saturating_sub(before_rm)),
+        total_resource_metrics = after_rm,
+        "batched metrics aggregated"
+    );
+
+    Ok(())
+}
+
+/// process_messages_with_batching - processes messages in batching mode
+async fn process_messages_with_batching(
+    config: &Config,
+    messages: Vec<&[u8]>,
+    aggregated_opt: &mut Option<ExportMetricsServiceRequest>,
+) -> Result<(), Error> {
+    for message in messages {
+        let transformed_message = transform_message(message, &config.app_name, &config.sub_name)
+            .map_err(|e| {
+                let err = format!("failed to transform message: {}", e);
+                error!("{}", err);
+                err
+            })?;
+
+        try_add_to_batch(config, aggregated_opt, transformed_message).await?;
+    }
+    Ok(())
+}
+
+/// process_messages_without_batching - processes messages without batching (send individually)
+async fn process_messages_without_batching(
+    config: &Config,
+    messages: Vec<&[u8]>,
+    record_index: usize,
+) -> Result<(), Error> {
+    info!(
+        per_record_messages = messages.len(),
+        "batching disabled; sending individually"
+    );
+
+    for (midx, message) in messages.into_iter().enumerate() {
+        let transformed_message = transform_message(message, &config.app_name, &config.sub_name)
+            .map_err(|e| {
+                let err = format!("failed to transform message: {}", e);
+                error!("{}", err);
+                err
+            })?;
+
+        let body = encode_request(&transformed_message)?;
+        debug!(
+            record_index = record_index,
+            message_index = midx,
+            bytes = body.len(),
+            "sending single metrics payload"
+        );
+
+        coralogix_send(config, body).await.map_err(|e| {
+            let err = format!("failed to send metric data to coralogix: {}", e);
+            error!("{}", err);
+            err
+        })?;
+    }
+    Ok(())
+}
+
+/// send_final_batch - sends the remaining aggregated batch if any
+async fn send_final_batch(
+    config: &Config,
+    aggregated_opt: Option<ExportMetricsServiceRequest>,
+    total_records: usize,
+    total_messages_seen: usize,
+) -> Result<(), Error> {
+    if let Some(aggregated) = aggregated_opt {
+        if !aggregated.resource_metrics.is_empty() {
+            // Compute some insight into the aggregated shape
+            let total_resource_metrics = aggregated.resource_metrics.len();
+            let mut total_scope_metrics = 0usize;
+            let mut total_metrics = 0usize;
+            for rm in &aggregated.resource_metrics {
+                total_scope_metrics += rm.scope_metrics.len();
+                for sm in &rm.scope_metrics {
+                    total_metrics += sm.metrics.len();
+                }
+            }
+
+            let body = encode_request(&aggregated)?;
+
+            info!(
+                total_records,
+                total_messages_seen,
+                total_resource_metrics,
+                total_scope_metrics,
+                total_metrics,
+                bytes = body.len(),
+                "sending aggregated metrics payload"
+            );
+
+            coralogix_send(config, body).await.map_err(|e| {
+                let err = format!("failed to send aggregated metric data to coralogix: {}", e);
+                error!("{}", err);
+                err
+            })?;
+        } else {
+            info!("batching enabled but no aggregated resource_metrics to send");
+        }
+    } else {
+        info!("batching enabled but aggregator not initialized");
+    }
+    Ok(())
+}
+
 // transform_firehose_event - processes the KinesisFirehoseEvent and sends the transformed data to Coralogix
 pub async fn transform_firehose_event(
     config: &Config,
     event: KinesisFirehoseEvent,
 ) -> Result<KinesisFirehoseResponse, Error> {
-    // Iterate over all records in the KinesisFirehoseEvent
-    let mut results = Vec::new();
-
-    // High-level batching diagnostics
+    // Log start
     info!(
         batching_enabled = config.batching_enabled,
         total_records = event.records.len(),
@@ -176,214 +380,60 @@ pub async fn transform_firehose_event(
         subsystem = %config.sub_name,
         "metrics transform start"
     );
-    // When batching is enabled, aggregate all messages across the entire event
+
+    // Initialize batch aggregator if batching is enabled
     let mut aggregated_opt: Option<ExportMetricsServiceRequest> = if config.batching_enabled {
-        Some(ExportMetricsServiceRequest { ..Default::default() })
+        Some(ExportMetricsServiceRequest {
+            ..Default::default()
+        })
     } else {
         None
     };
+
     let mut total_messages_seen: usize = 0;
+    let mut results = Vec::new();
+
+    // Process each record
     for (idx, record) in event.records.clone().into_iter().enumerate() {
         let otel_payload = record.data.clone();
-        let messages = split_length_delimited(&otel_payload.0)
-            .map_err(|e| {
-                let err = format!("failed to split length-delimited data: {}", e);
-                error!("{}", err);
-                err
-            })?;
-        debug!(record_index = idx, message_count = messages.len(), "record parsed");
+        
+        // Split length-delimited messages
+        let messages = split_length_delimited(&otel_payload.0).map_err(|e| {
+            let err = format!("failed to split length-delimited data: {}", e);
+            error!("{}", err);
+            err
+        })?;
+        
+        debug!(
+            record_index = idx,
+            message_count = messages.len(),
+            "record parsed"
+        );
         total_messages_seen += messages.len();
 
+        // Route to appropriate processor based on batching mode
         if config.batching_enabled {
-            // Aggregate messages across all records; send once after the loop
-            for message in messages {
-                let transformed_message = transform_message(
-                    message,
-                    &config.app_name,
-                    &config.sub_name,
-                )
-                .map_err(|e| {
-                    let err = format!("failed to transform message: {}", e);
-                    error!("{}", err);
-                    err
-                })?;
-
-                // Initialize aggregator lazily
-                let aggregated = aggregated_opt.get_or_insert_with(|| ExportMetricsServiceRequest { ..Default::default() });
-
-                // Compute prospective size if we were to add this message to the current batch
-                let mut prospective = aggregated.clone();
-                prospective.resource_metrics.extend(transformed_message.resource_metrics.clone());
-                let mut buf = Vec::new();
-                if let Err(e) = prospective.encode(&mut buf) {
-                    let err = format!("failed to encode prospective aggregated message: {}", e);
-                    error!("{}", err);
-                    return Err(err.into());
-                }
-
-                if buf.len() > config.batch_max_size_bytes && !aggregated.resource_metrics.is_empty() {
-                    // Flush current aggregator first
-                    let mut current_body = Vec::new();
-                    if let Err(e) = aggregated.encode(&mut current_body) {
-                        let err = format!("failed to encode aggregated message for flush: {}", e);
-                        error!("{}", err);
-                        return Err(err.into());
-                    }
-                    info!(
-                        bytes = current_body.len(),
-                        max_bytes = config.batch_max_size_bytes,
-                        resource_metrics = aggregated.resource_metrics.len(),
-                        "flushing aggregated metrics due to batch size threshold"
-                    );
-                    coralogix_send(&config, current_body)
-                        .await
-                        .map_err(|e| {
-                            let err = format!("failed to send aggregated metric data to coralogix: {}", e);
-                            error!("{}", err);
-                            err
-                        })?;
-
-                    // Start a new batch with this transformed message (or send directly if still too big)
-                    *aggregated = ExportMetricsServiceRequest { ..Default::default() };
-
-                    // Check if the single transformed message alone exceeds the limit; if so, send alone
-                    let mut single_body = Vec::new();
-                    let mut single_only = ExportMetricsServiceRequest { ..Default::default() };
-                    single_only.resource_metrics.extend(transformed_message.resource_metrics.clone());
-                    if let Err(e) = single_only.encode(&mut single_body) {
-                        let err = format!("failed to encode single transformed message: {}", e);
-                        error!("{}", err);
-                        return Err(err.into());
-                    }
-                    if single_body.len() > config.batch_max_size_bytes {
-                        info!(
-                            bytes = single_body.len(),
-                            max_bytes = config.batch_max_size_bytes,
-                            "single transformed message exceeds batch size; sending as-is"
-                        );
-                        coralogix_send(&config, single_body)
-                            .await
-                            .map_err(|e| {
-                                let err = format!("failed to send oversize single metric payload to coralogix: {}", e);
-                                error!("{}", err);
-                                err
-                            })?;
-                    } else {
-                        let before_rm = aggregated.resource_metrics.len();
-                        aggregated.resource_metrics.extend(transformed_message.resource_metrics);
-                        let after_rm = aggregated.resource_metrics.len();
-                        debug!(
-                            added_resource_metrics = (after_rm.saturating_sub(before_rm)),
-                            total_resource_metrics = after_rm,
-                            "batched metrics aggregated (new batch)"
-                        );
-                    }
-                } else {
-                    // Safe to add to existing batch
-                    let before_rm = aggregated.resource_metrics.len();
-                    aggregated.resource_metrics.extend(transformed_message.resource_metrics);
-                    let after_rm = aggregated.resource_metrics.len();
-                    debug!(
-                        added_resource_metrics = (after_rm.saturating_sub(before_rm)),
-                        total_resource_metrics = after_rm,
-                        "batched metrics aggregated"
-                    );
-                }
-            }
+            process_messages_with_batching(config, messages, &mut aggregated_opt).await?;
         } else {
-            info!(per_record_messages = messages.len(), "batching disabled; sending individually");
-            for (midx, message) in messages.into_iter().enumerate() {
-                let transformed_message = transform_message(
-                    message,
-                    &config.app_name,
-                    &config.sub_name,
-                )
-                .map_err(|e| {
-                    let err = format!("failed to transform message: {}", e);
-                    error!("{}", err);
-                    err
-                })?;
-
-                let mut modified_message_vec = Vec::new();
-                transformed_message
-                    .encode(&mut modified_message_vec)
-                    .map_err(|e| {
-                        let err = format!("failed to encode modified message: {}", e);
-                        error!("{}", err);
-                        err
-                    })?;
-                debug!(record_index = idx, message_index = midx, bytes = modified_message_vec.len(), "sending single metrics payload");
-                coralogix_send(&config, modified_message_vec)
-                    .await
-                    .map_err(|e| {
-                        let err = format!("failed to send metric data to coralogix: {}", e);
-                        error!("{}", err);
-                        err
-                    })?;
-            }
+            process_messages_without_batching(config, messages, idx).await?;
         }
 
-        // Add the record to the results to be dropped
+        // Build response record
         results.push(KinesisFirehoseResponseRecord {
             metadata: KinesisFirehoseResponseRecordMetadata {
                 partition_keys: std::collections::HashMap::new(),
-            }, 
+            },
             record_id: record.record_id,
             result: Some("Dropped".to_string()),
             data: record.data,
         });
-    };
-    // If batching enabled, send once for the full aggregated payload
-    if config.batching_enabled {
-        if let Some(aggregated) = aggregated_opt {
-            if !aggregated.resource_metrics.is_empty() {
-                // Compute some insight into the aggregated shape
-                let total_resource_metrics = aggregated.resource_metrics.len();
-                let mut total_scope_metrics = 0usize;
-                let mut total_metrics = 0usize;
-                for rm in &aggregated.resource_metrics {
-                    total_scope_metrics += rm.scope_metrics.len();
-                    for sm in &rm.scope_metrics {
-                        total_metrics += sm.metrics.len();
-                    }
-                }
-
-                let mut body = Vec::new();
-                aggregated
-                    .encode(&mut body)
-                    .map_err(|e| {
-                        let err = format!("failed to encode aggregated message: {}", e);
-                        error!("{}", err);
-                        err
-                    })?;
-
-                info!(
-                    total_records = event.records.len(),
-                    total_messages_seen,
-                    total_resource_metrics,
-                    total_scope_metrics,
-                    total_metrics,
-                    bytes = body.len(),
-                    "sending aggregated metrics payload"
-                );
-
-                coralogix_send(&config, body)
-                    .await
-                    .map_err(|e| {
-                        let err = format!("failed to send aggregated metric data to coralogix: {}", e);
-                        error!("{}", err);
-                        err
-                    })?;
-            } else {
-                info!("batching enabled but no aggregated resource_metrics to send");
-            }
-        } else {
-            info!("batching enabled but aggregator not initialized");
-        }
     }
 
-    // if all is well, return an empty response to firehose
-    Ok(KinesisFirehoseResponse {
-        records: results,
-    })
+    // Send final batch if batching is enabled
+    if config.batching_enabled {
+        send_final_batch(config, aggregated_opt, event.records.len(), total_messages_seen).await?;
+    }
+
+    // Return response to Firehose
+    Ok(KinesisFirehoseResponse { records: results })
 }
