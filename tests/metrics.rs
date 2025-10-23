@@ -117,3 +117,91 @@ async fn test_firehose_transform_flow() {
     assert_eq!(message_count.lock().unwrap().clone(), 2);
 }
 
+#[tokio::test]
+async fn test_firehose_transform_flow_batched() {
+
+    let message_count = Arc::new(std::sync::Mutex::new(0));
+    let counter = message_count.clone();
+
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/v1/metrics"))
+        .and(move |r: &wiremock::Request| -> bool {
+            let mut count = counter.lock().unwrap();
+
+            let buffer = r.body.clone();
+            let metrics = ExportMetricsServiceRequest::decode(&*buffer).unwrap();
+
+            for resource in metrics.resource_metrics {
+                for scope_metrics in resource.scope_metrics {
+                  for metric in scope_metrics.metrics.iter() {
+
+                    assert!(metric.unit == "");
+                    let data = metric.data.clone().ok_or("no metric data").unwrap();
+                    
+                    match data {
+                        Summary(summary) => {
+                            summary.data_points.iter().for_each(|dp| {
+                                let expected_sub_name = any_value::Value::StringValue("testsubsystem".to_string());
+                                let expected_app_name = any_value::Value::StringValue("testapp".to_string());
+                                
+                                assert!(dp.attributes.iter().any(|label| {
+                                    label.key == "cx.application.name"
+                                }) == true);
+                                
+                                assert!(dp.attributes.iter().any(|label| {
+                                    label.key == "cx.subsystem.name"
+                                }) == true);
+
+                                dp.attributes.iter().for_each(|label| {
+                                    if label.key == "cx.application.name" {
+                                        let v = label.value.clone()
+                                            .ok_or("no label value for metric")
+                                            .unwrap()
+                                            .value
+                                            .unwrap();
+                                        assert!(v == expected_app_name);
+                                    }
+
+                                    if label.key == "cx.subsystem.name" {
+                                        let v = label.value.clone()
+                                            .ok_or("no label value for metric")
+                                            .unwrap()
+                                            .value
+                                            .unwrap();
+                                        assert!(v == expected_sub_name);
+                                    }
+                                })
+                            })
+                        },
+                        _ => continue
+                    }
+                  }
+                }
+            }
+            *count += 1;
+            true
+        })
+        .respond_with(wiremock::ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("testapp")),
+            ("SUB_NAME", Some("testsubsystem")),
+            ("CORALOGIX_ENDPOINT", Some(server.uri().as_str())),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("TELEMETRY_MODE", Some("metrics")),
+            ("BATCH_METRICS", Some("1")),
+        ],
+        run_test_firehose_transform_flow(),
+    )
+    .await;
+
+    // With batching enabled, we expect a single POST for the record,
+    // even if the record contained multiple length-delimited OTel messages.
+    assert_eq!(message_count.lock().unwrap().clone(), 1);
+}
