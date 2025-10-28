@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.13 / 2025-10-28
+### 💡 Enhancements 💡
+- Add batching support for metrics processing
+
 ## v1.3.12 / 2025-10-07
 ### 💡 Enhancements 💡
 - Update CoralogixRegionMap to use new standardized endpoint format
