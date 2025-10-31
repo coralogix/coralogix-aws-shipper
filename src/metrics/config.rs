@@ -1,6 +1,6 @@
 use cx_sdk_rest_logs::auth::ApiKey;
-use std::string::String;
 use std::env;
+use std::string::String;
 
 pub struct Config {
     pub api_key: ApiKey,
@@ -55,7 +55,6 @@ impl Config {
         })
     }
 }
-
 
 impl Clone for Config {
     fn clone(&self) -> Self {
