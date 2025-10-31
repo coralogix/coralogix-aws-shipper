@@ -1,6 +1,6 @@
 use cx_sdk_rest_logs::auth::ApiKey;
-use std::string::String;
 use std::env;
+use std::string::String;
 
 pub struct Config {
     pub api_key: ApiKey,
@@ -9,6 +9,9 @@ pub struct Config {
     pub sub_name: String,
     pub retry_limit: usize,
     pub retry_delay: u64,
+    pub batching_enabled: bool,
+    // Maximum batch size in bytes for metrics payloads (encoded protobuf)
+    pub batch_max_size_bytes: usize,
 }
 
 impl Config {
@@ -29,6 +32,17 @@ impl Config {
             .parse()
             .unwrap_or(5);
 
+        let batching_enabled = env::var("BATCH_METRICS")
+            .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+
+        // Metrics batch max size (in MB); default 4MB similar to logs
+        let batch_max_size_mb: usize = env::var("METRICS_BATCH_MAX_SIZE")
+            .unwrap_or_else(|_| "4".to_string())
+            .parse()
+            .unwrap_or(4);
+        let batch_max_size_bytes = batch_max_size_mb * 1024 * 1024;
+
         Ok(Config {
             api_key,
             endpoint,
@@ -36,10 +50,11 @@ impl Config {
             sub_name,
             retry_limit,
             retry_delay,
+            batching_enabled,
+            batch_max_size_bytes,
         })
     }
 }
-
 
 impl Clone for Config {
     fn clone(&self) -> Self {
@@ -50,6 +65,8 @@ impl Clone for Config {
             sub_name: self.sub_name.clone(),
             retry_limit: self.retry_limit.clone(),
             retry_delay: self.retry_delay.clone(),
+            batching_enabled: self.batching_enabled,
+            batch_max_size_bytes: self.batch_max_size_bytes,
         }
     }
 }
