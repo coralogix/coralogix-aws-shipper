@@ -15,6 +15,30 @@ use reqwest;
 use std::time::Instant;
 use tracing::{debug, error, info};
 
+#[derive(Debug, Default)]
+struct MetricsBatch {
+    request: ExportMetricsServiceRequest,
+    encoded_size: usize,
+}
+
+impl MetricsBatch {
+    fn is_empty(&self) -> bool {
+        self.request.resource_metrics.is_empty()
+    }
+
+    fn extend(&mut self, message: ExportMetricsServiceRequest, encoded_len: usize) {
+        self.request
+            .resource_metrics
+            .extend(message.resource_metrics.into_iter());
+        self.encoded_size += encoded_len;
+    }
+
+    fn clear(&mut self) {
+        self.request = ExportMetricsServiceRequest::default();
+        self.encoded_size = 0;
+    }
+}
+
 fn split_length_delimited(data: &[u8]) -> Result<Vec<&[u8]>, String> {
     let mut chunks = Vec::new();
     let mut remaining = data;
@@ -76,14 +100,14 @@ fn transform_message(
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::Sum(sum) => debug!("Sum: {:?}", sum),
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::Histogram(histogram) => debug!("Histogram: {:?}", histogram),
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::ExponentialHistogram(exponential_histogram) => debug!("ExponentialHistogram: {:?}", exponential_histogram),
-                        
+
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::Summary(summary) => {
                             debug!("Summary: {:?}", summary);
-                
+
                             // Iterate over mutable references to data_points to modify them directly
                             summary.data_points.iter_mut().for_each(|data_point| {
                                 let mut new_attributes = Vec::new();
-                                
+
                                 // Collect attributes if the key is "Dimensions"
                                 data_point.attributes.iter().for_each(|label| {
                                     if label.key == "Dimensions" {
@@ -109,7 +133,7 @@ fn transform_message(
                                     }),
 
                                 });
-                                
+
                                 debug!("Data Point Attributes: {:?}", new_attributes);
                                 data_point.attributes = data_point
                                     .attributes
@@ -122,7 +146,7 @@ fn transform_message(
                                 //data_point.attributes.extend(new_attributes.iter().cloned());
                                 debug!("Final DataPoint: {:?}", data_point);
                             });
-                
+
                             // Print the metric after all modifications
                             debug!("Final Metric Details: {:?}", metric);
                         }
@@ -177,12 +201,17 @@ fn encode_request(request: &ExportMetricsServiceRequest) -> Result<Vec<u8>, Erro
 }
 
 /// flush_batch - sends the current batch to Coralogix
-async fn flush_batch(config: &Config, batch: &ExportMetricsServiceRequest) -> Result<(), Error> {
-    let body = encode_request(batch)?;
+async fn flush_batch(config: &Config, batch: &mut MetricsBatch) -> Result<(), Error> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+
+    let body = encode_request(&batch.request)?;
     info!(
         bytes = body.len(),
+        tracked_bytes = batch.encoded_size,
         max_bytes = config.batch_max_size_bytes,
-        resource_metrics = batch.resource_metrics.len(),
+        resource_metrics = batch.request.resource_metrics.len(),
         "flushing aggregated metrics due to batch size threshold"
     );
     coralogix_send(config, body).await.map_err(|e| {
@@ -190,86 +219,55 @@ async fn flush_batch(config: &Config, batch: &ExportMetricsServiceRequest) -> Re
         error!("{}", err);
         err
     })?;
+    batch.clear();
     Ok(())
 }
 
 /// try_add_to_batch - attempts to add a transformed message to the batch, flushing if needed
 async fn try_add_to_batch(
     config: &Config,
-    aggregated_opt: &mut Option<ExportMetricsServiceRequest>,
+    aggregated_opt: &mut Option<MetricsBatch>,
     transformed_message: ExportMetricsServiceRequest,
+    message_body: Vec<u8>,
 ) -> Result<(), Error> {
-    // Initialize aggregator lazily
-    let aggregated = aggregated_opt.get_or_insert_with(|| ExportMetricsServiceRequest {
-        ..Default::default()
-    });
+    let message_size = message_body.len();
 
-    // Compute prospective size if we were to add this message to the current batch
-    let mut prospective = aggregated.clone();
-    prospective
-        .resource_metrics
-        .extend(transformed_message.resource_metrics.clone());
-    let prospective_buf = encode_request(&prospective)?;
-
-    if prospective_buf.len() > config.batch_max_size_bytes
-        && !aggregated.resource_metrics.is_empty()
-    {
-        // Flush current aggregator first
-        flush_batch(config, aggregated).await?;
-
-        // Start a new batch with this transformed message (or send directly if still too big)
-        *aggregated = ExportMetricsServiceRequest {
-            ..Default::default()
-        };
-
-        // Check if the single transformed message alone exceeds the limit; if so, send alone
-        let mut single_only = ExportMetricsServiceRequest {
-            ..Default::default()
-        };
-        single_only
-            .resource_metrics
-            .extend(transformed_message.resource_metrics.clone());
-        let single_body = encode_request(&single_only)?;
-
-        if single_body.len() > config.batch_max_size_bytes {
-            info!(
-                bytes = single_body.len(),
-                max_bytes = config.batch_max_size_bytes,
-                "single transformed message exceeds batch size; sending as-is"
-            );
-            coralogix_send(config, single_body).await.map_err(|e| {
-                let err = format!(
-                    "failed to send oversize single metric payload to coralogix: {}",
-                    e
-                );
-                error!("{}", err);
-                err
-            })?;
-        } else {
-            let before_rm = aggregated.resource_metrics.len();
-            aggregated
-                .resource_metrics
-                .extend(transformed_message.resource_metrics);
-            let after_rm = aggregated.resource_metrics.len();
-            debug!(
-                added_resource_metrics = (after_rm.saturating_sub(before_rm)),
-                total_resource_metrics = after_rm,
-                "batched metrics aggregated (new batch)"
-            );
+    if message_size > config.batch_max_size_bytes {
+        if let Some(batch) = aggregated_opt.as_mut() {
+            if !batch.is_empty() {
+                flush_batch(config, batch).await?;
+            }
         }
 
+        info!(
+            bytes = message_size,
+            max_bytes = config.batch_max_size_bytes,
+            "single transformed message exceeds batch size; sending as-is"
+        );
+        coralogix_send(config, message_body).await.map_err(|e| {
+            let err = format!(
+                "failed to send oversize single metric payload to coralogix: {}",
+                e
+            );
+            error!("{}", err);
+            err
+        })?;
         return Ok(());
     }
 
-    // Safe to add to existing batch
-    let before_rm = aggregated.resource_metrics.len();
-    aggregated
-        .resource_metrics
-        .extend(transformed_message.resource_metrics);
-    let after_rm = aggregated.resource_metrics.len();
+    let batch = aggregated_opt.get_or_insert_with(MetricsBatch::default);
+
+    if !batch.is_empty() && batch.encoded_size + message_size > config.batch_max_size_bytes {
+        flush_batch(config, batch).await?;
+    }
+
+    let before_rm = batch.request.resource_metrics.len();
+    batch.extend(transformed_message, message_size);
+    let after_rm = batch.request.resource_metrics.len();
     debug!(
         added_resource_metrics = (after_rm.saturating_sub(before_rm)),
         total_resource_metrics = after_rm,
+        tracked_bytes = batch.encoded_size,
         "batched metrics aggregated"
     );
 
@@ -280,7 +278,7 @@ async fn try_add_to_batch(
 async fn process_messages_with_batching(
     config: &Config,
     messages: Vec<&[u8]>,
-    aggregated_opt: &mut Option<ExportMetricsServiceRequest>,
+    aggregated_opt: &mut Option<MetricsBatch>,
 ) -> Result<(), Error> {
     for message in messages {
         let transformed_message = transform_message(message, &config.app_name, &config.sub_name)
@@ -290,7 +288,8 @@ async fn process_messages_with_batching(
                 err
             })?;
 
-        try_add_to_batch(config, aggregated_opt, transformed_message).await?;
+        let message_body = encode_request(&transformed_message)?;
+        try_add_to_batch(config, aggregated_opt, transformed_message, message_body).await?;
     }
     Ok(())
 }
@@ -334,28 +333,28 @@ async fn process_messages_without_batching(
 /// send_final_batch - sends the remaining aggregated batch if any
 async fn send_final_batch(
     config: &Config,
-    aggregated_opt: Option<ExportMetricsServiceRequest>,
+    aggregated_opt: &mut Option<MetricsBatch>,
     total_records: usize,
     total_messages_seen: usize,
 ) -> Result<(), Error> {
-    if let Some(aggregated) = aggregated_opt {
-        if aggregated.resource_metrics.is_empty() {
+    if let Some(batch) = aggregated_opt.as_mut() {
+        if batch.is_empty() {
             info!("batching enabled but no aggregated resource_metrics to send");
             return Ok(());
         }
-        
+
         // Compute some insight into the aggregated shape
-        let total_resource_metrics = aggregated.resource_metrics.len();
+        let total_resource_metrics = batch.request.resource_metrics.len();
         let mut total_scope_metrics = 0usize;
         let mut total_metrics = 0usize;
-        for rm in &aggregated.resource_metrics {
+        for rm in &batch.request.resource_metrics {
             total_scope_metrics += rm.scope_metrics.len();
             for sm in &rm.scope_metrics {
                 total_metrics += sm.metrics.len();
             }
         }
 
-        let body = encode_request(&aggregated)?;
+        let body = encode_request(&batch.request)?;
 
         info!(
             total_records,
@@ -364,6 +363,7 @@ async fn send_final_batch(
             total_scope_metrics,
             total_metrics,
             bytes = body.len(),
+            tracked_bytes = batch.encoded_size,
             "sending aggregated metrics payload"
         );
 
@@ -372,6 +372,8 @@ async fn send_final_batch(
             error!("{}", err);
             err
         })?;
+
+        batch.clear();
 
         return Ok(());
     }
@@ -396,10 +398,8 @@ pub async fn transform_firehose_event(
     );
 
     // Initialize batch aggregator if batching is enabled
-    let mut aggregated_opt: Option<ExportMetricsServiceRequest> = if config.batching_enabled {
-        Some(ExportMetricsServiceRequest {
-            ..Default::default()
-        })
+    let mut aggregated_opt: Option<MetricsBatch> = if config.batching_enabled {
+        Some(MetricsBatch::default())
     } else {
         None
     };
@@ -447,7 +447,7 @@ pub async fn transform_firehose_event(
     if config.batching_enabled {
         send_final_batch(
             config,
-            aggregated_opt,
+            &mut aggregated_opt,
             event.records.len(),
             total_messages_seen,
         )
