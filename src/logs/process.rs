@@ -256,7 +256,7 @@ pub async fn kinesis_logs(
     let decompressed_data = match gunzip(v.clone(), String::new()) {
         Ok(data) => data,
         Err(_) => {
-            tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
+            tracing::debug!("Data does not appear to be valid gzip format. Treating as UTF-8");
             v // set decompressed_data to the original data if decompression fails
         }
     };
@@ -264,7 +264,7 @@ pub async fn kinesis_logs(
     let decoded_data = match String::from_utf8(decompressed_data) {
         Ok(s) => s,
         Err(error) => {
-            tracing::error!(?error, "Failed to decode data");
+            tracing::debug!(?error, "Failed to decode data");
             String::new()
         }
     };
@@ -275,7 +275,7 @@ pub async fn kinesis_logs(
             process_cloudwatch_logs(&mctx, logs, config.sampling, &config.blocking_pattern).await?
         }
         Err(_) => {
-            tracing::error!("Failed to decode data");
+            tracing::debug!("Failed to decode data");
             if decoded_data.is_empty() {
                 Vec::new()
             } else {
