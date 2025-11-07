@@ -1,6 +1,9 @@
 use crate::metrics::config::Config;
 // use aws_lambda_events::encodings::Base64Data;
-use aws_lambda_events::event::firehose::{KinesisFirehoseResponse, KinesisFirehoseEvent, KinesisFirehoseResponseRecord, KinesisFirehoseResponseRecordMetadata};
+use aws_lambda_events::event::firehose::{
+    KinesisFirehoseEvent, KinesisFirehoseResponse, KinesisFirehoseResponseRecord,
+    KinesisFirehoseResponseRecordMetadata,
+};
 use lambda_runtime::Error;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value;
@@ -9,8 +12,32 @@ use opentelemetry_proto::tonic::common::v1::KeyValue;
 use prost::encoding::{decode_varint, encode_varint};
 use prost::Message;
 use reqwest;
-use tracing::{debug, error};
+use std::time::Instant;
+use tracing::{debug, error, info};
 
+#[derive(Debug, Default)]
+struct MetricsBatch {
+    request: ExportMetricsServiceRequest,
+    encoded_size: usize,
+}
+
+impl MetricsBatch {
+    fn is_empty(&self) -> bool {
+        self.request.resource_metrics.is_empty()
+    }
+
+    fn extend(&mut self, message: ExportMetricsServiceRequest, encoded_len: usize) {
+        self.request
+            .resource_metrics
+            .extend(message.resource_metrics.into_iter());
+        self.encoded_size += encoded_len;
+    }
+
+    fn clear(&mut self) {
+        self.request = ExportMetricsServiceRequest::default();
+        self.encoded_size = 0;
+    }
+}
 
 fn split_length_delimited(data: &[u8]) -> Result<Vec<&[u8]>, String> {
     let mut chunks = Vec::new();
@@ -52,7 +79,11 @@ fn re_batch(chunks: Vec<Vec<u8>>) -> Vec<u8> {
 }
 
 /// handle_mesage - decodes messages, updates datapoints/attributes with cx_application_name and cx_subsystem_name
-fn transform_message(message: &[u8], app_name: &str, subsystem_name: &str) -> Result<ExportMetricsServiceRequest, Error> {
+fn transform_message(
+    message: &[u8],
+    app_name: &str,
+    subsystem_name: &str,
+) -> Result<ExportMetricsServiceRequest, Error> {
     let mut decoded_message = ExportMetricsServiceRequest::decode(&*message)?;
     debug!("decoded metrics: {:?}", decoded_message);
 
@@ -69,14 +100,14 @@ fn transform_message(message: &[u8], app_name: &str, subsystem_name: &str) -> Re
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::Sum(sum) => debug!("Sum: {:?}", sum),
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::Histogram(histogram) => debug!("Histogram: {:?}", histogram),
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::ExponentialHistogram(exponential_histogram) => debug!("ExponentialHistogram: {:?}", exponential_histogram),
-                        
+
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::Summary(summary) => {
                             debug!("Summary: {:?}", summary);
-                
+
                             // Iterate over mutable references to data_points to modify them directly
                             summary.data_points.iter_mut().for_each(|data_point| {
                                 let mut new_attributes = Vec::new();
-                                
+
                                 // Collect attributes if the key is "Dimensions"
                                 data_point.attributes.iter().for_each(|label| {
                                     if label.key == "Dimensions" {
@@ -102,7 +133,7 @@ fn transform_message(message: &[u8], app_name: &str, subsystem_name: &str) -> Re
                                     }),
 
                                 });
-                                
+
                                 debug!("Data Point Attributes: {:?}", new_attributes);
                                 data_point.attributes = data_point
                                     .attributes
@@ -115,7 +146,7 @@ fn transform_message(message: &[u8], app_name: &str, subsystem_name: &str) -> Re
                                 //data_point.attributes.extend(new_attributes.iter().cloned());
                                 debug!("Final DataPoint: {:?}", data_point);
                             });
-                
+
                             // Print the metric after all modifications
                             debug!("Final Metric Details: {:?}", metric);
                         }
@@ -123,19 +154,21 @@ fn transform_message(message: &[u8], app_name: &str, subsystem_name: &str) -> Re
                 }
             }
         }
-    };
+    }
 
     Ok(decoded_message)
 }
 
 /// coralogix_send - sends metrics to Coralogix
 async fn coralogix_send(config: &Config, message: Vec<u8>) -> Result<(), Error> {
-    let uri = &format!("{}/v1/metrics", config.endpoint);
+    let uri = format!("{}/v1/metrics", config.endpoint);
 
     debug!("sending to metric data to uri: {:?}", uri);
-    
-    reqwest::Client::new()
-        .post(uri)
+
+    let start = Instant::now();
+    let bytes = message.len();
+    let response = reqwest::Client::new()
+        .post(&uri)
         .header("Content-Type", "application/x-protobuf")
         .header(
             "Authorization",
@@ -145,7 +178,208 @@ async fn coralogix_send(config: &Config, message: Vec<u8>) -> Result<(), Error> 
         .send()
         .await?;
 
-    Ok(())    
+    info!(
+        status = %response.status(),
+        bytes,
+        elapsed_ms = start.elapsed().as_millis(),
+        uri = %uri,
+        "metrics HTTP request completed"
+    );
+
+    Ok(())
+}
+
+/// encode_request - encodes an ExportMetricsServiceRequest to bytes
+fn encode_request(request: &ExportMetricsServiceRequest) -> Result<Vec<u8>, Error> {
+    let mut buf = Vec::new();
+    request.encode(&mut buf).map_err(|e| {
+        let err = format!("failed to encode request: {}", e);
+        error!("{}", err);
+        err
+    })?;
+    Ok(buf)
+}
+
+/// flush_batch - sends the current batch to Coralogix
+async fn flush_batch(config: &Config, batch: &mut MetricsBatch) -> Result<(), Error> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+
+    let body = encode_request(&batch.request)?;
+    info!(
+        bytes = body.len(),
+        tracked_bytes = batch.encoded_size,
+        max_bytes = config.batch_max_size_bytes,
+        resource_metrics = batch.request.resource_metrics.len(),
+        "flushing aggregated metrics due to batch size threshold"
+    );
+    coralogix_send(config, body).await.map_err(|e| {
+        let err = format!("failed to send aggregated metric data to coralogix: {}", e);
+        error!("{}", err);
+        err
+    })?;
+    batch.clear();
+    Ok(())
+}
+
+/// try_add_to_batch - attempts to add a transformed message to the batch, flushing if needed
+async fn try_add_to_batch(
+    config: &Config,
+    aggregated_opt: &mut Option<MetricsBatch>,
+    transformed_message: ExportMetricsServiceRequest,
+    message_body: Vec<u8>,
+) -> Result<(), Error> {
+    let message_size = message_body.len();
+
+    if message_size > config.batch_max_size_bytes {
+        if let Some(batch) = aggregated_opt.as_mut() {
+            if !batch.is_empty() {
+                flush_batch(config, batch).await?;
+            }
+        }
+
+        info!(
+            bytes = message_size,
+            max_bytes = config.batch_max_size_bytes,
+            "single transformed message exceeds batch size; sending as-is"
+        );
+        coralogix_send(config, message_body).await.map_err(|e| {
+            let err = format!(
+                "failed to send oversize single metric payload to coralogix: {}",
+                e
+            );
+            error!("{}", err);
+            err
+        })?;
+        return Ok(());
+    }
+
+    let batch = aggregated_opt.get_or_insert_with(MetricsBatch::default);
+
+    if !batch.is_empty() && batch.encoded_size + message_size > config.batch_max_size_bytes {
+        flush_batch(config, batch).await?;
+    }
+
+    let before_rm = batch.request.resource_metrics.len();
+    batch.extend(transformed_message, message_size);
+    let after_rm = batch.request.resource_metrics.len();
+    debug!(
+        added_resource_metrics = (after_rm.saturating_sub(before_rm)),
+        total_resource_metrics = after_rm,
+        tracked_bytes = batch.encoded_size,
+       "batched metrics aggregated"
+    );
+
+    Ok(())
+}
+
+/// process_messages_with_batching - processes messages in batching mode
+async fn process_messages_with_batching(
+    config: &Config,
+    messages: Vec<&[u8]>,
+    aggregated_opt: &mut Option<MetricsBatch>,
+) -> Result<(), Error> {
+    for message in messages {
+        let transformed_message = transform_message(message, &config.app_name, &config.sub_name)
+            .map_err(|e| {
+                let err = format!("failed to transform message: {}", e);
+                error!("{}", err);
+                err
+            })?;
+
+        let message_body = encode_request(&transformed_message)?;
+        try_add_to_batch(config, aggregated_opt, transformed_message, message_body).await?;
+   }
+    Ok(())
+}
+
+/// process_messages_without_batching - processes messages without batching (send individually)
+async fn process_messages_without_batching(
+    config: &Config,
+    messages: Vec<&[u8]>,
+    record_index: usize,
+) -> Result<(), Error> {
+    info!(
+        per_record_messages = messages.len(),
+        "batching disabled; sending individually"
+    );
+
+    for (midx, message) in messages.into_iter().enumerate() {
+        let transformed_message = transform_message(message, &config.app_name, &config.sub_name)
+            .map_err(|e| {
+                let err = format!("failed to transform message: {}", e);
+                error!("{}", err);
+                err
+            })?;
+
+        let body = encode_request(&transformed_message)?;
+        debug!(
+            record_index = record_index,
+            message_index = midx,
+            bytes = body.len(),
+            "sending single metrics payload"
+        );
+
+        coralogix_send(config, body).await.map_err(|e| {
+            let err = format!("failed to send metric data to coralogix: {}", e);
+            error!("{}", err);
+            err
+        })?;
+    }
+    Ok(())
+}
+
+/// send_final_batch - sends the remaining aggregated batch if any
+async fn send_final_batch(
+    config: &Config,
+    aggregated_opt: &mut Option<MetricsBatch>,
+    total_records: usize,
+    total_messages_seen: usize,
+) -> Result<(), Error> {
+    if let Some(batch) = aggregated_opt.as_mut() {
+        if batch.is_empty() {
+            info!("batching enabled but no aggregated resource_metrics to send");
+            return Ok(());
+        }
+
+        // Compute some insight into the aggregated shape
+        let total_resource_metrics = batch.request.resource_metrics.len();
+        let mut total_scope_metrics = 0usize;
+        let mut total_metrics = 0usize;
+        for rm in &batch.request.resource_metrics {
+            total_scope_metrics += rm.scope_metrics.len();
+            for sm in &rm.scope_metrics {
+                total_metrics += sm.metrics.len();
+            }
+        }
+
+        let body = encode_request(&batch.request)?;
+
+        info!(
+            total_records,
+            total_messages_seen,
+            total_resource_metrics,
+            total_scope_metrics,
+            total_metrics,
+            bytes = body.len(),
+            tracked_bytes = batch.encoded_size,
+            "sending aggregated metrics payload"
+        );
+
+        coralogix_send(config, body).await.map_err(|e| {
+            let err = format!("failed to send aggregated metric data to coralogix: {}", e);
+            error!("{}", err);
+            err
+        })?;
+
+        batch.clear();
+
+        return Ok(());
+    }
+
+    info!("batching enabled but aggregator not initialized");
+   Ok(())
 }
 
 // transform_firehose_event - processes the KinesisFirehoseEvent and sends the transformed data to Coralogix
@@ -153,56 +387,73 @@ pub async fn transform_firehose_event(
     config: &Config,
     event: KinesisFirehoseEvent,
 ) -> Result<KinesisFirehoseResponse, Error> {
-    // Iterate over all records in the KinesisFirehoseEvent
-    let mut results = Vec::new();
-    for record in event.records.clone() {
-        let otel_payload = record.data.clone();
-        let messages = split_length_delimited(&otel_payload.0)
-            .map_err(|e| {
-                let err = format!("failed to split length-delimited data: {}", e);
-                error!("{}", err);
-                err
-            })?;
-    
-        for message in messages {            
-            let transformed_message = transform_message(message, &config.app_name, &config.sub_name)
-                .map_err(|e| {
-                    let err = format!("failed to transform message: {}", e);
-                    error!("{}", err);
-                    err
-                })?;
-    
-            let mut modified_message_vec = Vec::new();
-            transformed_message.encode(&mut modified_message_vec)
-                .map_err(|e| {
-                    let err = format!("failed to encode modified message: {}", e);
-                    error!("{}", err);
-                    err
-                })?;
-      
-            // TODO: look into whether these messages can be batched instead of sending one at a time via rebatch function
-            coralogix_send(&config, modified_message_vec).await
-                .map_err(|e| {
-                    let err = format!("failed to send metric data to coralogix: {}", e);
-                    error!("{}", err);
-                    err
-                })?;  
-        };
+    // Log start
+    info!(
+        batching_enabled = config.batching_enabled,
+        total_records = event.records.len(),
+        endpoint = %config.endpoint,
+        app = %config.app_name,
+        subsystem = %config.sub_name,
+        "metrics transform start"
+    );
 
-        // Add the record to the results to be dropped
+    // Initialize batch aggregator if batching is enabled
+    let mut aggregated_opt: Option<MetricsBatch> = if config.batching_enabled {
+        Some(MetricsBatch::default())
+   } else {
+        None
+    };
+
+    let mut total_messages_seen: usize = 0;
+    let mut results = Vec::new();
+
+    // Process each record
+    for (idx, record) in event.records.clone().into_iter().enumerate() {
+        let otel_payload = record.data.clone();
+
+       // Split length-delimited messages
+        let messages = split_length_delimited(&otel_payload.0).map_err(|e| {
+            let err = format!("failed to split length-delimited data: {}", e);
+            error!("{}", err);
+            err
+        })?;
+
+       debug!(
+            record_index = idx,
+            message_count = messages.len(),
+            "record parsed"
+        );
+        total_messages_seen += messages.len();
+
+        // Route to appropriate processor based on batching mode
+        if config.batching_enabled {
+            process_messages_with_batching(config, messages, &mut aggregated_opt).await?;
+        } else {
+            process_messages_without_batching(config, messages, idx).await?;
+        }
+
+        // Build response record
         results.push(KinesisFirehoseResponseRecord {
             metadata: KinesisFirehoseResponseRecordMetadata {
                 partition_keys: std::collections::HashMap::new(),
-            }, 
+            },
             record_id: record.record_id,
             result: Some("Dropped".to_string()),
             data: record.data,
         });
-    };
-    
+    }
 
-    // if all is well, return an empty response to firehose
-    Ok(KinesisFirehoseResponse {
-        records: results,
-    })
+    // Send final batch if batching is enabled
+    if config.batching_enabled {
+        send_final_batch(
+            config,
+            &mut aggregated_opt,
+            event.records.len(),
+            total_messages_seen,
+        )
+        .await?;
+   }
+
+    // Return response to Firehose
+    Ok(KinesisFirehoseResponse { records: results })
 }
