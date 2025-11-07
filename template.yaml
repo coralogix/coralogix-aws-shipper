@@ -457,6 +457,19 @@ Parameters:
     Description: The filter for the metrics to exclude from the stream, should be valid json that contains the keys Namespace and MetricNames
     Default: ''
 
+  BatchMetrics:
+    Type: String
+    Description: Enable batching of OpenTelemetry metric messages into a single POST to /v1/metrics (true/false).
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  MetricsBatchMaxSize:
+    Type: Number
+    Description: Maximum aggregated metrics payload size in MB before flushing when batching is enabled.
+    Default: 4
+
 Mappings:
   CoralogixRegionMap:
     EU1:
@@ -945,6 +958,8 @@ Resources:
             - !Ref LambdaAssumeRoleARN
             - !Ref AWS::NoValue
           TELEMETRY_MODE: !Ref TelemetryMode
+          BATCH_METRICS: !Ref BatchMetrics
+          METRICS_BATCH_MAX_SIZE: !Ref MetricsBatchMaxSize
 
   SNSNotificationSubscription:
     DependsOn: CustomResourceFunction

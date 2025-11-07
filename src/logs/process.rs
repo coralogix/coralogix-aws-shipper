@@ -115,7 +115,7 @@ impl MetadataContext {
             let captures = re
                 .captures(&v)
                 .map_err(|e| format!("regex capture group error: {}", e))?;
-            
+
             // If regex doesn't match, fall back to the raw metadata value
             if let Some(captures) = captures {
                 // Try capture groups 1, 2, 3... to handle alternation patterns
@@ -132,7 +132,11 @@ impl MetadataContext {
                 tracing::warn!("Regex '{}' matched but all capture groups were empty for value '{}', falling back to raw value", reg, v);
                 return Ok(v);
             } else {
-                tracing::warn!("Regex '{}' did not match value '{}', falling back to raw value", reg, v);
+                tracing::warn!(
+                    "Regex '{}' did not match value '{}', falling back to raw value",
+                    reg,
+                    v
+                );
                 return Ok(v);
             }
         };
@@ -252,7 +256,7 @@ pub async fn kinesis_logs(
     let decompressed_data = match gunzip(v.clone(), String::new()) {
         Ok(data) => data,
         Err(_) => {
-            tracing::error!("Data does not appear to be valid gzip format. Treating as UTF-8");
+            tracing::debug!("Data does not appear to be valid gzip format. Treating as UTF-8");
             v // set decompressed_data to the original data if decompression fails
         }
     };
@@ -260,7 +264,7 @@ pub async fn kinesis_logs(
     let decoded_data = match String::from_utf8(decompressed_data) {
         Ok(s) => s,
         Err(error) => {
-            tracing::error!(?error, "Failed to decode data");
+            tracing::debug!(?error, "Failed to decode data");
             String::new()
         }
     };
@@ -271,7 +275,7 @@ pub async fn kinesis_logs(
             process_cloudwatch_logs(&mctx, logs, config.sampling, &config.blocking_pattern).await?
         }
         Err(_) => {
-            tracing::error!("Failed to decode data");
+            tracing::debug!("Failed to decode data");
             if decoded_data.is_empty() {
                 Vec::new()
             } else {
@@ -890,30 +894,42 @@ at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1210)"#
     #[test]
     fn test_metadata_context_regex_fallback() {
         let metadata = super::MetadataContext::new();
-        
+
         // Test case: ECS log group that should match the first part of the regex
-        metadata.insert("cw.log.group".to_string(), Some("/ecs/my-service-prod_logs_abc123".to_string()));
-        
+        metadata.insert(
+            "cw.log.group".to_string(),
+            Some("/ecs/my-service-prod_logs_abc123".to_string()),
+        );
+
         // Customer's regex pattern - should extract "my-service" from the ECS pattern
-        let customer_regex = r#"{{ cw.log.group | r'^/ecs/([a-z0-9-]+?)(?:-[a-z]+)?_logs_[a-z0-9]+$|^(.*)$' }}"#;
+        let customer_regex =
+            r#"{{ cw.log.group | r'^/ecs/([a-z0-9-]+?)(?:-[a-z]+)?_logs_[a-z0-9]+$|^(.*)$' }}"#;
         let result = metadata.evaluate(customer_regex.to_string()).unwrap();
         assert_eq!(result, "my-service");
-        
+
         // Test case: Non-ECS log group that should fall back to the second part of the regex
-        metadata.insert("cw.log.group".to_string(), Some("/some/other/log-group".to_string()));
+        metadata.insert(
+            "cw.log.group".to_string(),
+            Some("/some/other/log-group".to_string()),
+        );
         let result = metadata.evaluate(customer_regex.to_string()).unwrap();
         assert_eq!(result, "/some/other/log-group");
-        
+
         // Test case: Regex that doesn't match anything - should fall back to raw value
-        metadata.insert("cw.log.group".to_string(), Some("test-log-group".to_string()));
+        metadata.insert(
+            "cw.log.group".to_string(),
+            Some("test-log-group".to_string()),
+        );
         let non_matching_regex = r#"{{ cw.log.group | r'^/this/will/never/match/([a-z]+)$' }}"#;
         let result = metadata.evaluate(non_matching_regex.to_string()).unwrap();
         assert_eq!(result, "test-log-group"); // Should fall back to raw value
-        
+
         // Test case: Missing metadata key
         let missing_key_regex = r#"{{ nonexistent.key | r'^(.*)$' }}"#;
         let result = metadata.evaluate(missing_key_regex.to_string());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("metadata key 'nonexistent.key' not found"));
+        assert!(result
+            .unwrap_err()
+            .contains("metadata key 'nonexistent.key' not found"));
     }
 }

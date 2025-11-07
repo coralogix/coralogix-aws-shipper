@@ -13,10 +13,14 @@ pub async fn handler(
     event: LambdaEvent<events::Combined>,
 ) -> Result<KinesisFirehoseResponse, Error> {
     match event.payload {
-        events::Combined::Firehose(firehose_event) => process::transform_firehose_event(config, firehose_event).await,
+        events::Combined::Firehose(firehose_event) => {
+            process::transform_firehose_event(config, firehose_event).await
+        }
         _ => {
             error!("incompatible event type for metrics telemetry mode");
-            Err("incompatible event type for metrics telemetry mode".to_string().into())
+            Err("incompatible event type for metrics telemetry mode"
+                .to_string()
+                .into())
         }
     }
 }
