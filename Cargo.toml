@@ -10,6 +10,7 @@ aws-config = "1.6.2"
 aws-sdk-s3 = "1.83.0"
 aws-sdk-ecr = "1.71.0"
 aws-sdk-secretsmanager = "1.69.0"
+aws-sdk-cloudwatchlogs = "1.65.0"
 cx_sdk_rest_logs = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false, features=["rustls"] }
 cx_sdk_core = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false}
 derive_more = { version = "2.0.1", features = ["from", "add"] }

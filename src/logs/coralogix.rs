@@ -146,6 +146,8 @@ struct JsonMessage {
     sqs_event_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "sqs.event.id")]
     sqs_event_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cw.tags")]
+    cw_tags: Option<Value>,
 
     // to be deprecated
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -180,6 +182,9 @@ impl From<&process::MetadataContext> for JsonMessage {
             ecr_scan_source: mctx.get("ecr.scan.source"),
             sqs_event_source: mctx.get("sqs.event.source"),
             sqs_event_id: mctx.get("sqs.event.id"),
+            cw_tags: mctx.get("cw.tags").and_then(|tags_json| {
+                serde_json::from_str::<Value>(&tags_json).ok()
+            }),
 
             // to be deprecated
             stream_name: mctx.get("cw.log.stream"),
@@ -210,6 +215,7 @@ impl JsonMessage {
             ecr_scan_source: None,
             sqs_event_source: None,
             sqs_event_id: None,
+            cw_tags: None,
             stream_name: None,
             loggroup_name: None,
             bucket_name: None,
@@ -270,6 +276,7 @@ impl JsonMessage {
             || self.ecr_scan_source.is_some()
             || self.sqs_event_source.is_some()
             || self.sqs_event_id.is_some()
+            || self.cw_tags.is_some()
           
             // to be deprecated
             || self.stream_name.is_some()
@@ -402,10 +409,48 @@ fn convert_to_log_entry(
         }
     }
     debug!("Message metadata: {:?}", message.custom_metadata);
+    
+    // Get tags if they exist
+    let tags_value = mctx.get("cw.tags").and_then(|tags_json| {
+        serde_json::from_str::<Value>(&tags_json).ok()
+    });
+    
+    // Build the body with tags at root level
     let body = if message.has_metadata() {
-        serde_json::to_value(&message).unwrap_or(message.message)
+        // If there's metadata, use the JsonMessage structure
+        let mut body_value = serde_json::to_value(&message).unwrap_or(message.message);
+        
+        // If tags exist, merge them at root level
+        if let Some(tags) = tags_value {
+            if let Value::Object(ref mut body_map) = body_value {
+                body_map.insert("cw.tags".to_string(), tags);
+            }
+        }
+        body_value
     } else {
-        message.message
+        // No metadata - check if we need to wrap string message or add tags
+        match (message.message, tags_value) {
+            (Value::String(text), Some(tags)) => {
+                // String message with tags - wrap in object with "text" key and add tags at root
+                let mut obj = serde_json::Map::new();
+                obj.insert("text".to_string(), Value::String(text));
+                obj.insert("cw.tags".to_string(), tags);
+                Value::Object(obj)
+            }
+            (msg, Some(tags)) => {
+                // JSON message with tags - merge tags into the object at root level
+                if let Value::Object(mut obj) = msg {
+                    obj.insert("cw.tags".to_string(), tags);
+                    Value::Object(obj)
+                } else {
+                    msg
+                }
+            }
+            (msg, None) => {
+                // No tags - return message as-is (backward compatibility)
+                msg
+            }
+        }
     };
 
     LogSinglesEntry {
@@ -500,6 +545,7 @@ mod tests {
             dlq_retry_limit: None,
             dlq_s3_bucket: None,
             lambda_assume_role: None,
+            enable_log_group_tags: false,
         }
     }
 

@@ -4,6 +4,7 @@ use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::encodings::Base64Data;
 use aws_lambda_events::kafka::KafkaRecord;
 use aws_sdk_ecr::Client as EcrClient;
+use aws_sdk_cloudwatchlogs::Client as LogsClient;
 use aws_sdk_s3::Client;
 use base64::prelude::*;
 use cx_sdk_rest_logs::DynLogExporter;
@@ -19,9 +20,9 @@ use std::io::Read;
 use std::ops::Range;
 use std::path::Path;
 use std::string::String;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
@@ -142,6 +143,75 @@ impl MetadataContext {
         };
 
         Err(format!("metadata key '{}' not found", key))
+    }
+}
+
+// Static cache for log group tags, shared across Lambda invocations
+static LOG_GROUP_TAGS_CACHE: Lazy<Mutex<HashMap<String, HashMap<String, String>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Fetches tags for a CloudWatch Log Group, using a static cache to avoid repeated API calls.
+/// Returns an empty HashMap on error (errors are logged but don't fail processing).
+async fn fetch_log_group_tags(
+    logs_client: &LogsClient,
+    log_group_name: &str,
+) -> HashMap<String, String> {
+    // Check cache first
+    {
+        let cache = LOG_GROUP_TAGS_CACHE.lock().unwrap();
+        if let Some(cached_tags) = cache.get(log_group_name) {
+            debug!("Using cached tags for log group: {}", log_group_name);
+            return cached_tags.clone();
+        }
+    }
+
+    // Cache miss - fetch from API
+    debug!("Fetching tags for log group: {}", log_group_name);
+    let tags_result = logs_client
+        .list_tags_log_group()
+        .log_group_name(log_group_name)
+        .send()
+        .await;
+
+    match tags_result {
+        Ok(response) => {
+            let mut tags = HashMap::new();
+            if let Some(tags_map) = response.tags() {
+                debug!("Tags map from API ({} tags): {:?}", tags_map.len(), tags_map);
+                // Iterate through ALL tags - ensure we get all of them
+                for (key, value) in tags_map.iter() {
+                    debug!("Adding tag: {} = {}", key, value);
+                    tags.insert(key.to_string(), value.to_string());
+                }
+                // Verify we got all tags
+                if tags.len() != tags_map.len() {
+                    warn!(
+                        "Tag count mismatch: expected {} tags, got {} tags for log group: {}",
+                        tags_map.len(),
+                        tags.len(),
+                        log_group_name
+                    );
+                }
+            } else {
+                debug!("No tags found in response for log group: {}", log_group_name);
+            }
+
+            // Update cache
+            {
+                let mut cache = LOG_GROUP_TAGS_CACHE.lock().unwrap();
+                cache.insert(log_group_name.to_string(), tags.clone());
+            }
+
+            debug!("Fetched {} tags for log group: {} - Tags: {:?}", tags.len(), log_group_name, tags);
+            tags
+        }
+        Err(e) => {
+            warn!(
+                "Failed to fetch tags for log group {}: {:?}. Continuing without tags.",
+                log_group_name, e
+            );
+            HashMap::new()
+        }
     }
 }
 
@@ -371,6 +441,25 @@ pub async fn cloudwatch_logs(
     } else {
         cloudwatch_event_log.data.log_group.to_string()
     };
+
+    // Fetch log group tags if enabled
+    if config.enable_log_group_tags {
+        let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        let logs_client = LogsClient::new(&aws_config);
+        let tags = fetch_log_group_tags(&logs_client, &cloudwatch_event_log.data.log_group).await;
+        
+        // Serialize tags to JSON string and store in MetadataContext
+        if !tags.is_empty() {
+            match serde_json::to_string(&tags) {
+                Ok(tags_json) => {
+                    mctx.insert("cw.tags".to_string(), Some(tags_json));
+                }
+                Err(e) => {
+                    warn!("Failed to serialize log group tags to JSON: {:?}", e);
+                }
+            }
+        }
+    }
 
     let logs = match config.integration_type {
         IntegrationType::CloudWatch => {
