@@ -28,6 +28,7 @@ pub struct Config {
     pub dlq_retry_limit: Option<String>,
     pub dlq_s3_bucket: Option<String>,
     pub lambda_assume_role: Option<String>,
+    pub enable_log_group_tags: bool,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -121,6 +122,10 @@ impl Config {
             dlq_retry_limit: env::var("DLQ_RETRY_LIMIT").ok(),
             dlq_s3_bucket: env::var("DLQ_S3_BUCKET").ok(),
             lambda_assume_role: env::var("LAMBDA_ASSUME_ROLE").ok(),
+            enable_log_group_tags: env::var("ENABLE_LOG_GROUP_TAGS")
+                .unwrap_or("false".to_string())
+                .parse::<bool>()
+                .unwrap_or(false),
         };
 
         Ok(conf)

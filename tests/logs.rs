@@ -2,6 +2,7 @@ use anyhow;
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_ecr::Client as EcrClient;
+use aws_sdk_cloudwatchlogs::Client as LogsClient;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sqs::Client as SqsClient;
 // use coralogix_aws_shipper::combined_event::Combined;
@@ -166,6 +167,41 @@ fn get_mock_sqsclient(src: Option<&str>) -> Result<SqsClient, String> {
         .build();
 
     Ok(aws_sdk_sqs::Client::from_conf(conf))
+}
+
+fn get_mock_logsclient(src: Option<&str>) -> Result<LogsClient, String> {
+    let data = match src {
+        Some(source) => {
+            let data = std::fs::read(source).map_err(|e| e.to_string())?;
+            aws_smithy_types::body::SdkBody::from(data)
+        }
+        None => aws_smithy_types::body::SdkBody::empty(),
+    };
+
+    let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+        http::Request::builder()
+            .body(aws_smithy_types::body::SdkBody::from(""))
+            .unwrap(),
+        http::Response::builder().status(200).body(data).unwrap(),
+    );
+
+    let replay_client =
+        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![replay_event]);
+
+    let conf = aws_sdk_cloudwatchlogs::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .credentials_provider(aws_sdk_cloudwatchlogs::config::Credentials::new(
+            "SOMETESTKEYID",
+            "somesecretkey",
+            Some("somesessiontoken".to_string()),
+            None,
+            "",
+        ))
+        .region(aws_sdk_cloudwatchlogs::config::Region::new("eu-central-1"))
+        .http_client(replay_client)
+        .build();
+
+    Ok(aws_sdk_cloudwatchlogs::Client::from_conf(conf))
 }
 
 #[derive(Default, Debug, Clone)]
@@ -995,6 +1031,134 @@ async fn test_cloudwatchlogs_event() {
             ("INTEGRATION_TYPE", Some("CloudWatch")),
         ],
         run_cloudwatchlogs_event(),
+    )
+    .await;
+}
+
+async fn run_cloudwatchlogs_event_with_tags() {
+    let config = Config::load_from_env().unwrap();
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "awslogs": {
+              "data": "H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA=="
+            }
+          }"#)
+    .expect("failed to parse cloudwatchlogs event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = AwsClients {
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client,
+    };
+
+    // When ENABLE_LOG_GROUP_TAGS is true, the code will attempt to fetch tags
+    // The API call will fail (no real AWS credentials), but processing should continue
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 2);
+    
+    // Verify that processing completed successfully even though tag fetch failed
+    // Tags won't be present because the API call failed, but that's expected
+    let log_lines = vec!["[ERROR] First test message", "[ERROR] Second test message"];
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(
+            singles[0].entries[i].body.to_string().contains(log_line),
+            "log line: {}",
+            singles[0].entries[i].body
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_cloudwatchlogs_event_with_tags() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("CloudWatch")),
+            ("ENABLE_LOG_GROUP_TAGS", Some("true")),
+        ],
+        run_cloudwatchlogs_event_with_tags(),
+    )
+    .await;
+}
+
+async fn run_cloudwatchlogs_event_without_tags_enabled() {
+    let config = Config::load_from_env().unwrap();
+    // Verify that enable_log_group_tags is false
+    assert!(!config.enable_log_group_tags, "enable_log_group_tags should be false");
+    
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "awslogs": {
+              "data": "H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA=="
+            }
+          }"#)
+    .expect("failed to parse cloudwatchlogs event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = AwsClients {
+        s3: s3_client,
+        sqs: sqs_client,
+        ecr: ecr_client,
+    };
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    assert_eq!(singles[0].entries.len(), 2);
+    
+    // Verify logs are processed normally
+    let log_lines = vec!["[ERROR] First test message", "[ERROR] Second test message"];
+    for (i, log_line) in log_lines.iter().enumerate() {
+        assert!(
+            singles[0].entries[i].body.to_string().contains(log_line),
+            "log line: {}",
+            singles[0].entries[i].body
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_cloudwatchlogs_event_without_tags_enabled() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("CloudWatch")),
+            ("ENABLE_LOG_GROUP_TAGS", Some("false")),
+        ],
+        run_cloudwatchlogs_event_without_tags_enabled(),
     )
     .await;
 }
