@@ -29,6 +29,7 @@ pub struct Config {
     pub dlq_s3_bucket: Option<String>,
     pub lambda_assume_role: Option<String>,
     pub enable_log_group_tags: bool,
+    pub log_group_tags_cache_ttl_seconds: u64,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -126,6 +127,10 @@ impl Config {
                 .unwrap_or("false".to_string())
                 .parse::<bool>()
                 .unwrap_or(false),
+            log_group_tags_cache_ttl_seconds: env::var("LOG_GROUP_TAGS_CACHE_TTL_SECONDS")
+                .unwrap_or("300".to_string())
+                .parse::<u64>()
+                .map_err(|e| format!("Error parsing LOG_GROUP_TAGS_CACHE_TTL_SECONDS to u64 - {}", e))?,
         };
 
         Ok(conf)

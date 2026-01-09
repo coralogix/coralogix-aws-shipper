@@ -546,6 +546,7 @@ mod tests {
             dlq_s3_bucket: None,
             lambda_assume_role: None,
             enable_log_group_tags: false,
+            log_group_tags_cache_ttl_seconds: 300,
         }
     }
 
