@@ -28,6 +28,10 @@ use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
 use crate::logs::ecr;
 
+// Type alias for the error type returned by list_tags_log_group
+// Using Box<dyn Error> to handle the SDK error type which has private generic parameters
+type LogGroupTagsError = Box<dyn std::error::Error + Send + Sync>;
+
 // Lazy initialization with once_cell
 static METADATA_EVALUATION_WITH_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"\{\{\s*(?<key>[a-z\.0-9_]+)\s*\|?\s*r'(?<regex>.*)'\s*\}\}"#)
@@ -157,12 +161,20 @@ static LOG_GROUP_TAGS_CACHE: Lazy<Mutex<HashMap<String, TagCacheEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Fetches tags for a CloudWatch Log Group, using a static cache to avoid repeated API calls.
-/// Returns an empty HashMap on error (errors are logged but don't fail processing).
+/// 
+/// # Returns
+/// - `Ok(HashMap<String, String>)` on successful fetch (from cache or API), even if the log group has no tags
+/// - `Err(Error)` on API failures - errors are NOT cached and allow immediate retry on next invocation
+/// 
+/// # Caching Behavior
+/// - Successful fetches (even with empty tags) are cached with the specified TTL
+/// - Errors are NOT cached, allowing immediate retry on the next Lambda invocation
+/// - Cache is bypassed entirely if `cache_ttl` is zero
 async fn fetch_log_group_tags(
     logs_client: &LogsClient,
     log_group_name: &str,
     cache_ttl: Duration,
-) -> HashMap<String, String> {
+) -> Result<HashMap<String, String>, LogGroupTagsError> {
     let use_cache = !cache_ttl.is_zero();
 
     debug!(
@@ -229,7 +241,7 @@ async fn fetch_log_group_tags(
 
     // If we have cached tags, return them
     if let Some(tags) = cached_tags {
-        return tags;
+        return Ok(tags);
     }
 
     // Cache miss or expired - fetch from API
@@ -238,44 +250,65 @@ async fn fetch_log_group_tags(
         log_group_name
     );
     let fetch_start = Instant::now();
-    let tags = fetch_log_group_tags_from_api(logs_client, log_group_name).await;
+    let tags_result = fetch_log_group_tags_from_api(logs_client, log_group_name).await;
     let fetch_duration = fetch_start.elapsed();
 
-    debug!(
-        "Fetched {} tags from API for log group: {} in {:?}",
-        tags.len(),
-        log_group_name,
-        fetch_duration
-    );
+    match tags_result {
+        Ok(tags) => {
+            debug!(
+                "Fetched {} tags from API for log group: {} in {:?}",
+                tags.len(),
+                log_group_name,
+                fetch_duration
+            );
 
-    // Update cache
-    {
-        let mut cache = LOG_GROUP_TAGS_CACHE.lock().unwrap();
-        let cache_size_before = cache.len();
-        cache.insert(
-            log_group_name.to_string(),
-            TagCacheEntry {
-                tags: tags.clone(),
-                fetched_at: Instant::now(),
-            },
-        );
-        let cache_size_after = cache.len();
-        debug!(
-            "CACHE UPDATE: Stored {} tags for log group: {} in cache (cache size: {} -> {})",
-            tags.len(),
-            log_group_name,
-            cache_size_before,
-            cache_size_after
-        );
+            // Only cache successful results
+            {
+                let mut cache = LOG_GROUP_TAGS_CACHE.lock().unwrap();
+                let cache_size_before = cache.len();
+                cache.insert(
+                    log_group_name.to_string(),
+                    TagCacheEntry {
+                        tags: tags.clone(),
+                        fetched_at: Instant::now(),
+                    },
+                );
+                let cache_size_after = cache.len();
+                debug!(
+                    "CACHE UPDATE: Stored {} tags for log group: {} in cache (cache size: {} -> {})",
+                    tags.len(),
+                    log_group_name,
+                    cache_size_before,
+                    cache_size_after
+                );
+            }
+
+            Ok(tags)
+        }
+        Err(e) => {
+            debug!(
+                "API call failed for log group: {} in {:?}. Error will NOT be cached, allowing immediate retry on next invocation.",
+                log_group_name,
+                fetch_duration
+            );
+            Err(e)
+        }
     }
-
-    tags
 }
 
+/// Fetches tags for a CloudWatch Log Group from the AWS API.
+/// 
+/// # Returns
+/// - `Ok(HashMap<String, String>)` on successful API call, even if the log group has no tags (empty HashMap)
+/// - `Err(SdkError)` on API failures (throttling, IAM errors, network issues, etc.)
+/// 
+/// # Errors
+/// This function will return an error if the API call fails for any reason.
+/// Errors are NOT cached and will allow immediate retry on the next invocation.
 async fn fetch_log_group_tags_from_api(
     logs_client: &LogsClient,
     log_group_name: &str,
-) -> HashMap<String, String> {
+) -> Result<HashMap<String, String>, LogGroupTagsError> {
     debug!("Fetching tags for log group: {}", log_group_name);
     let tags_result = logs_client
         .list_tags_log_group()
@@ -312,14 +345,14 @@ async fn fetch_log_group_tags_from_api(
                 log_group_name,
                 tags
             );
-            tags
+            Ok(tags)
         }
         Err(e) => {
             warn!(
-                "Failed to fetch tags for log group {}: {:?}. Continuing without tags.",
+                "Failed to fetch tags for log group {}: {:?}",
                 log_group_name, e
             );
-            HashMap::new()
+            Err(Box::new(e) as LogGroupTagsError)
         }
     }
 }
@@ -567,38 +600,51 @@ pub async fn cloudwatch_logs(
             cache_ttl,
             config.log_group_tags_cache_ttl_seconds
         );
-        let tags =
+        let tags_result =
             fetch_log_group_tags(&logs_client, &cloudwatch_event_log.data.log_group, cache_ttl)
                 .await;
-        debug!(
-            "Received {} tags for log group: {} - Tags: {:?}",
-            tags.len(),
-            cloudwatch_event_log.data.log_group,
-            tags
-        );
         
-        // Serialize tags to JSON string and store in MetadataContext
-        if !tags.is_empty() {
-            match serde_json::to_string(&tags) {
-                Ok(tags_json) => {
+        match tags_result {
+            Ok(tags) => {
+                debug!(
+                    "Received {} tags for log group: {} - Tags: {:?}",
+                    tags.len(),
+                    cloudwatch_event_log.data.log_group,
+                    tags
+                );
+                
+                // Serialize tags to JSON string and store in MetadataContext
+                if !tags.is_empty() {
+                    match serde_json::to_string(&tags) {
+                        Ok(tags_json) => {
+                            debug!(
+                                "Storing {} tags in metadata context for log group: {} (JSON length: {} bytes)",
+                                tags.len(),
+                                cloudwatch_event_log.data.log_group,
+                                tags_json.len()
+                            );
+                            mctx.insert("cw.tags".to_string(), Some(tags_json));
+                            debug!("Successfully stored tags in metadata context as cw.tags");
+                        }
+                        Err(e) => {
+                            warn!("Failed to serialize log group tags to JSON: {:?}", e);
+                        }
+                    }
+                } else {
                     debug!(
-                        "Storing {} tags in metadata context for log group: {} (JSON length: {} bytes)",
-                        tags.len(),
-                        cloudwatch_event_log.data.log_group,
-                        tags_json.len()
+                        "No tags to store for log group: {} (tags map is empty)",
+                        cloudwatch_event_log.data.log_group
                     );
-                    mctx.insert("cw.tags".to_string(), Some(tags_json));
-                    debug!("Successfully stored tags in metadata context as cw.tags");
-                }
-                Err(e) => {
-                    warn!("Failed to serialize log group tags to JSON: {:?}", e);
                 }
             }
-        } else {
-            debug!(
-                "No tags to store for log group: {} (tags map is empty)",
-                cloudwatch_event_log.data.log_group
-            );
+            Err(e) => {
+                warn!(
+                    "Failed to fetch tags for log group {}: {:?}. Continuing without tags.",
+                    cloudwatch_event_log.data.log_group,
+                    e
+                );
+                // Error is not cached, so next invocation will retry
+            }
         }
     }
 
