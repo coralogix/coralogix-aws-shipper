@@ -428,7 +428,8 @@ fn convert_to_log_entry(
         }
         body_value
     } else {
-        // No metadata - check if we need to wrap string message or add tags
+        // No metadata - check if we need to wrap message or add tags
+        // Strings are wrapped with "text" key, non-object JSON values (arrays/numbers/bools/null) are wrapped with "message" key
         match (message.message, tags_value) {
             (Value::String(text), Some(tags)) => {
                 // String message with tags - wrap in object with "text" key and add tags at root
@@ -440,10 +441,15 @@ fn convert_to_log_entry(
             (msg, Some(tags)) => {
                 // JSON message with tags - merge tags into the object at root level
                 if let Value::Object(mut obj) = msg {
+                    // Message is already an object - merge tags directly
                     obj.insert("cw.tags".to_string(), tags);
                     Value::Object(obj)
                 } else {
-                    msg
+                    // Message is array/number/bool/null - wrap in object with "message" key
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("message".to_string(), msg);
+                    obj.insert("cw.tags".to_string(), tags);
+                    Value::Object(obj)
                 }
             }
             (msg, None) => {
