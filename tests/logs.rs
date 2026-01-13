@@ -2,6 +2,8 @@ use anyhow;
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_ecr::Client as EcrClient;
+use aws_sdk_cloudwatchlogs::config::Credentials as LogsCredentials;
+use aws_sdk_cloudwatchlogs::config::Region as LogsRegion;
 use aws_sdk_cloudwatchlogs::Client as LogsClient;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sqs::Client as SqsClient;
@@ -169,39 +171,35 @@ fn get_mock_sqsclient(src: Option<&str>) -> Result<SqsClient, String> {
     Ok(aws_sdk_sqs::Client::from_conf(conf))
 }
 
-fn get_mock_logsclient(src: Option<&str>) -> Result<LogsClient, String> {
-    let data = match src {
-        Some(source) => {
-            let data = std::fs::read(source).map_err(|e| e.to_string())?;
-            aws_smithy_types::body::SdkBody::from(data)
-        }
-        None => aws_smithy_types::body::SdkBody::empty(),
-    };
-
-    let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
-        http::Request::builder()
-            .body(aws_smithy_types::body::SdkBody::from(""))
-            .unwrap(),
-        http::Response::builder().status(200).body(data).unwrap(),
-    );
-
+fn get_mock_logsclient(_src: Option<&str>) -> Result<LogsClient, String> {
+    // No HTTP calls are expected in current tests; provide a replay client to satisfy the SDK.
     let replay_client =
-        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![replay_event]);
+        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![]);
 
     let conf = aws_sdk_cloudwatchlogs::Config::builder()
         .behavior_version(BehaviorVersion::latest())
-        .credentials_provider(aws_sdk_cloudwatchlogs::config::Credentials::new(
+        .credentials_provider(LogsCredentials::new(
             "SOMETESTKEYID",
             "somesecretkey",
             Some("somesessiontoken".to_string()),
             None,
             "",
         ))
-        .region(aws_sdk_cloudwatchlogs::config::Region::new("eu-central-1"))
+        .region(LogsRegion::new("eu-central-1"))
         .http_client(replay_client)
         .build();
 
     Ok(aws_sdk_cloudwatchlogs::Client::from_conf(conf))
+}
+
+fn build_test_clients(s3: S3Client, sqs: SqsClient, ecr: EcrClient) -> AwsClients {
+    let logs = get_mock_logsclient(None).expect("failed to create logs client");
+    AwsClients {
+        s3,
+        sqs,
+        ecr,
+        logs,
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -305,11 +303,7 @@ async fn run_test_s3_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -358,11 +352,7 @@ async fn run_test_s3_event_with_periods_in_bucket_name() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -445,11 +435,7 @@ async fn run_test_folder_s3_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
@@ -520,11 +506,7 @@ async fn run_cloudtraillogs_s3_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -592,11 +574,7 @@ async fn run_csv_s3_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -665,11 +643,7 @@ async fn run_vpcflowlgos_s3_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -755,11 +729,7 @@ async fn run_sns_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -827,11 +797,7 @@ async fn run_test_s3_event_large() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -909,11 +875,7 @@ async fn run_test_s3_event_large_with_sampling() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -980,11 +942,7 @@ async fn run_cloudwatchlogs_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1050,11 +1008,7 @@ async fn run_cloudwatchlogs_event_with_tags() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     // When ENABLE_LOG_GROUP_TAGS is true, the code will attempt to fetch tags
     // The API call will fail (no real AWS credentials), but processing should continue
@@ -1117,11 +1071,7 @@ async fn run_cloudwatchlogs_event_without_tags_enabled() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1181,11 +1131,7 @@ async fn run_blocking_and_newline_pattern() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1255,11 +1201,7 @@ async fn run_test_empty_s3_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
         .unwrap();
@@ -1322,11 +1264,7 @@ async fn run_sqs_s3_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1407,11 +1345,7 @@ async fn run_sqs_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1492,11 +1426,7 @@ async fn run_kinesis_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1577,11 +1507,7 @@ async fn run_kinesis_with_cloudwatch_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1649,11 +1575,7 @@ async fn run_cloudfront_s3_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1720,11 +1642,7 @@ async fn run_test_s3_event_with_metadata() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1793,11 +1711,7 @@ async fn run_test_s3_event_elb() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1903,11 +1817,7 @@ async fn run_kafka_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -1990,11 +1900,7 @@ async fn run_kafka_event_with_base64() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -2125,11 +2031,7 @@ async fn run_test_ecrscan_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -2262,11 +2164,7 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = make_client!(aws_sdk_s3, s3_relay_client);
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     let config = Config::load_from_env().expect("failed to load config from env");
 
@@ -2408,11 +2306,7 @@ async fn run_test_cloudwatch_retry_limit_reached_dlq_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = make_client!(aws_sdk_s3, s3_relay_client);
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     let config = Config::load_from_env().expect("failed to load config from env");
 
@@ -2555,11 +2449,7 @@ async fn run_test_route_failed_event_to_dlq() {
     let sqs_client = make_client!(aws_sdk_sqs, sqs_replay_client);
     let s3_client = make_client!(aws_sdk_s3, s3_relay_client);
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
@@ -2659,11 +2549,7 @@ async fn run_dlq_success_msg() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = get_mock_s3client(Some("./tests/fixtures/s3.log")).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
@@ -2762,11 +2648,7 @@ async fn run_test_s3_event_with_custom_metadata() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await
@@ -2834,11 +2716,7 @@ async fn run_csv_s3_custom_headers_event() {
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
-    let clients = AwsClients {
-        s3: s3_client,
-        sqs: sqs_client,
-        ecr: ecr_client,
-    };
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
     coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, event)
         .await

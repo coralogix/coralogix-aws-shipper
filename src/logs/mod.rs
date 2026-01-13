@@ -99,8 +99,14 @@ pub async fn handler(
         events::Combined::CloudWatchLogs(logs_event) => {
             info!("CLOUDWATCH EVENT Detected");
             let cloudwatch_event_log = handle_cloudwatch_logs_event(logs_event).await?;
-            process::cloudwatch_logs(&mctx, cloudwatch_event_log, coralogix_exporter, config)
-                .await?;
+            process::cloudwatch_logs(
+                &mctx,
+                cloudwatch_event_log,
+                coralogix_exporter,
+                config,
+                &clients.logs,
+            )
+            .await?;
         }
         events::Combined::Sqs(sqs_event) => {
             debug!("SQS Event: {:?}", sqs_event.records[0]);

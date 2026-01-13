@@ -569,6 +569,7 @@ pub async fn cloudwatch_logs(
     cloudwatch_event_log: AwsLogs,
     coralogix_exporter: DynLogExporter,
     config: &Config,
+    logs_client: &LogsClient,
 ) -> Result<(), Error> {
     let defined_app_name = config
         .app_name
@@ -591,8 +592,6 @@ pub async fn cloudwatch_logs(
             cloudwatch_event_log.data.log_group,
             config.log_group_tags_cache_ttl_seconds
         );
-        let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-        let logs_client = LogsClient::new(&aws_config);
         let cache_ttl = Duration::from_secs(config.log_group_tags_cache_ttl_seconds);
         debug!(
             "Calling fetch_log_group_tags for log group: {} with cache_ttl: {:?} ({} seconds)",
@@ -600,9 +599,12 @@ pub async fn cloudwatch_logs(
             cache_ttl,
             config.log_group_tags_cache_ttl_seconds
         );
-        let tags_result =
-            fetch_log_group_tags(&logs_client, &cloudwatch_event_log.data.log_group, cache_ttl)
-                .await;
+        let tags_result = fetch_log_group_tags(
+            logs_client,
+            &cloudwatch_event_log.data.log_group,
+            cache_ttl,
+        )
+        .await;
         
         match tags_result {
             Ok(tags) => {
