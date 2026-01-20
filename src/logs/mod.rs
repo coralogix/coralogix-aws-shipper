@@ -20,6 +20,7 @@ pub mod config;
 pub mod coralogix;
 pub mod ecr;
 pub mod process;
+pub mod transform;
 
 pub fn set_up_coralogix_exporter(config: &config::Config) -> Result<DynLogExporter, Error> {
     let backoff = BackoffConfig {

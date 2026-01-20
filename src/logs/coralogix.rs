@@ -1,4 +1,5 @@
 use crate::logs::config::Config;
+use crate::logs::transform;
 use crate::logs::*;
 use cx_sdk_rest_logs::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
@@ -36,6 +37,13 @@ pub async fn process_batches(
         .into_iter()
         .filter(|log| !log.trim().is_empty())
         .collect();
+
+    // Apply transformation pipeline (Starlark if configured, otherwise passthrough)
+    let logs = transform::transform_logs(logs, config).map_err(|e| {
+        error!("Log transformation failed: {}", e);
+        Error::from(e.to_string())
+    })?;
+
     let number_of_logs = logs.len();
     if number_of_logs == 0 {
         info!("No logs to send");
@@ -500,6 +508,7 @@ mod tests {
             dlq_retry_limit: None,
             dlq_s3_bucket: None,
             lambda_assume_role: None,
+            starlark_script: None,
         }
     }
 

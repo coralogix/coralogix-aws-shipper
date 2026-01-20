@@ -8,6 +8,7 @@ use aws_sdk_sqs::Client as SqsClient;
 use coralogix_aws_shipper::clients::AwsClients;
 use coralogix_aws_shipper::events::Combined;
 use coralogix_aws_shipper::logs::config::Config;
+use coralogix_aws_shipper::logs::transform::{StarlarkError, StarlarkTransformer};
 use cx_sdk_core::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogBulkRequest, LogSinglesRequest};
 use cx_sdk_rest_logs::LogExporter;
@@ -2723,4 +2724,162 @@ async fn test_csv_s3_custom_headers_event() {
         run_csv_s3_custom_headers_event(),
     )
     .await;
+}
+
+// =============================================================================
+// Starlark Transformation Tests (CDS-2349)
+// =============================================================================
+
+#[test]
+fn test_starlark_simple_passthrough() {
+    let script = r#"
+def transform(event):
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "hello"}"#).unwrap();
+    assert_eq!(result.len(), 1);
+    assert!(result[0].contains("hello"));
+}
+
+#[test]
+fn test_starlark_unnest_array() {
+    let script = r#"
+def transform(event):
+    if "logs" in event and type(event["logs"]) == "list":
+        return event["logs"]
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+
+    // Test with nested array
+    let input = r#"{"logs": [{"msg": "log1"}, {"msg": "log2"}, {"msg": "log3"}]}"#;
+    let result = transformer.transform(input).unwrap();
+    assert_eq!(result.len(), 3);
+    assert!(result[0].contains("log1"));
+    assert!(result[1].contains("log2"));
+    assert!(result[2].contains("log3"));
+}
+
+#[test]
+fn test_starlark_filter_logs() {
+    let script = r#"
+def transform(event):
+    if event.get("level") == "DEBUG":
+        return []  # Filter out debug logs
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+
+    // Debug log should be filtered
+    let debug_log = r#"{"level": "DEBUG", "msg": "debug message"}"#;
+    let result = transformer.transform(debug_log).unwrap();
+    assert_eq!(result.len(), 0);
+
+    // Info log should pass through
+    let info_log = r#"{"level": "INFO", "msg": "info message"}"#;
+    let result = transformer.transform(info_log).unwrap();
+    assert_eq!(result.len(), 1);
+}
+
+#[test]
+fn test_starlark_transform_and_enrich() {
+    let script = r#"
+def transform(event):
+    event["processed"] = True
+    event["source"] = "aws-shipper"
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "hello"}"#).unwrap();
+    assert_eq!(result.len(), 1);
+    assert!(result[0].contains("processed"));
+    assert!(result[0].contains("aws-shipper"));
+}
+
+#[test]
+fn test_starlark_missing_transform_function() {
+    let script = r#"
+def process(event):
+    return [event]
+"#;
+    let result = StarlarkTransformer::new(script);
+    assert!(matches!(result, Err(StarlarkError::TransformFunctionNotFound)));
+}
+
+#[test]
+fn test_starlark_syntax_error() {
+    let script = r#"
+def transform(event)  # Missing colon
+    return [event]
+"#;
+    let result = StarlarkTransformer::new(script);
+    assert!(matches!(result, Err(StarlarkError::ParseError(_))));
+}
+
+#[test]
+fn test_starlark_non_json_passthrough() {
+    let script = r#"
+def transform(event):
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    // Non-JSON input should be wrapped as a string
+    let result = transformer.transform("plain text log message").unwrap();
+    assert_eq!(result.len(), 1);
+    assert!(result[0].contains("plain text log message"));
+}
+
+#[test]
+fn test_starlark_batch_transform() {
+    let script = r#"
+def transform(event):
+    if "logs" in event and type(event["logs"]) == "list":
+        return event["logs"]
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+
+    let logs = vec![
+        r#"{"logs": [{"a": 1}, {"b": 2}]}"#.to_string(),
+        r#"{"msg": "standalone"}"#.to_string(),
+    ];
+
+    let result = transformer.transform_batch(logs).unwrap();
+    assert_eq!(result.len(), 3); // 2 from first + 1 from second
+}
+
+#[test]
+fn test_starlark_demo_unnest_with_output() {
+    let script = r#"
+def transform(event):
+    if "logs" in event and type(event["logs"]) == "list":
+        return event["logs"]
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+
+    // Simulate the batched log from test-event.json (demo-004-batch)
+    let batched_input = r#"{"logs": [{"level": "INFO", "message": "Batch log entry 1", "timestamp": "2026-01-19T09:00:00Z"}, {"level": "DEBUG", "message": "Batch log entry 2", "timestamp": "2026-01-19T09:00:01Z"}, {"level": "ERROR", "message": "Batch log entry 3 - Something went wrong!", "timestamp": "2026-01-19T09:00:02Z"}]}"#;
+
+    println!("\n========== STARLARK TRANSFORMATION DEMO ==========");
+    println!("\n📥 INPUT (1 batched JSON with nested 'logs' array):");
+    println!("{}", batched_input);
+
+    let result = transformer.transform(batched_input).unwrap();
+
+    println!("\n📤 OUTPUT ({} individual log entries):", result.len());
+    for (i, log) in result.iter().enumerate() {
+        let parsed: serde_json::Value = serde_json::from_str(log).unwrap();
+        println!(
+            "  [{}] {}",
+            i + 1,
+            serde_json::to_string_pretty(&parsed)
+                .unwrap()
+                .replace('\n', "\n      ")
+        );
+    }
+    println!("\n===================================================\n");
+
+    assert_eq!(result.len(), 3);
 }
