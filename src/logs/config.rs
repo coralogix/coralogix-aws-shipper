@@ -28,6 +28,9 @@ pub struct Config {
     pub dlq_retry_limit: Option<String>,
     pub dlq_s3_bucket: Option<String>,
     pub lambda_assume_role: Option<String>,
+    /// Optional Starlark script for custom log transformations.
+    /// Can unnest JSON arrays, filter, or transform logs before sending.
+    pub starlark_script: Option<String>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -121,6 +124,7 @@ impl Config {
             dlq_retry_limit: env::var("DLQ_RETRY_LIMIT").ok(),
             dlq_s3_bucket: env::var("DLQ_S3_BUCKET").ok(),
             lambda_assume_role: env::var("LAMBDA_ASSUME_ROLE").ok(),
+            starlark_script: env::var("STARLARK_SCRIPT").ok().filter(|s| !s.trim().is_empty()),
         };
 
         Ok(conf)
