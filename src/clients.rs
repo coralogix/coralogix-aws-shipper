@@ -1,5 +1,7 @@
 use crate::assume_role;
 use aws_config::SdkConfig;
+use aws_sdk_cloudwatchlogs::config::Credentials as LogsCredentials;
+use aws_sdk_cloudwatchlogs::Client as LogsClient;
 use aws_sdk_ecr::config::Credentials as EcrCredentials;
 use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_s3::config::Credentials as S3Credentials;
@@ -14,6 +16,7 @@ pub struct AwsClients {
     pub s3: S3Client,
     pub ecr: EcrClient,
     pub sqs: SqsClient,
+    pub logs: LogsClient,
 }
 
 impl AwsClients {
@@ -22,6 +25,7 @@ impl AwsClients {
             s3: S3Client::new(&sdk_config),
             ecr: EcrClient::new(&sdk_config),
             sqs: SqsClient::new(&sdk_config),
+            logs: LogsClient::new(&sdk_config),
         }
     }
 
@@ -51,7 +55,7 @@ impl AwsClients {
             ),
             ecr: assume_role!(
                 "ecrprovider",
-                role_ar,
+                role_arn,
                 creds,
                 EcrCredentials,
                 EcrClient,
@@ -60,6 +64,14 @@ impl AwsClients {
 
             // SQS permissions are only required for managing DLQ. The default client is sufficient for this.
             sqs: SqsClient::new(&sdk_config),
+            logs: assume_role!(
+                "logsprovider",
+                role_arn,
+                creds,
+                LogsCredentials,
+                LogsClient,
+                sdk_config
+            ),
         })
     }
 }

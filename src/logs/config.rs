@@ -28,9 +28,9 @@ pub struct Config {
     pub dlq_retry_limit: Option<String>,
     pub dlq_s3_bucket: Option<String>,
     pub lambda_assume_role: Option<String>,
-    /// Optional Starlark script for custom log transformations.
-    /// Can unnest JSON arrays, filter, or transform logs before sending.
     pub starlark_script: Option<String>,
+    pub enable_log_group_tags: bool,
+    pub log_group_tags_cache_ttl_seconds: u64,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -125,6 +125,14 @@ impl Config {
             dlq_s3_bucket: env::var("DLQ_S3_BUCKET").ok(),
             lambda_assume_role: env::var("LAMBDA_ASSUME_ROLE").ok(),
             starlark_script: env::var("STARLARK_SCRIPT").ok().filter(|s| !s.trim().is_empty()),
+            enable_log_group_tags: env::var("ENABLE_LOG_GROUP_TAGS")
+                .unwrap_or("false".to_string())
+                .parse::<bool>()
+                .unwrap_or(false),
+            log_group_tags_cache_ttl_seconds: env::var("LOG_GROUP_TAGS_CACHE_TTL_SECONDS")
+                .unwrap_or("300".to_string())
+                .parse::<u64>()
+                .map_err(|e| format!("Error parsing LOG_GROUP_TAGS_CACHE_TTL_SECONDS to u64 - {}", e))?,
         };
 
         Ok(conf)

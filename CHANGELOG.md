@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.14 / 2026-01-09
+### 💡 Enhancements 💡
+- Add support for CloudWatch log group tags. Tags are automatically fetched and included in log metadata as `cw.tags`. Includes configurable TTL-based caching to optimize API calls. Errors are not cached, allowing immediate retry on transient failures.
+
 ## v1.3.13 / 2025-11-06
 ### 💡 Enhancements 💡
 - Add batching support for metrics processing
