@@ -30,8 +30,9 @@ use starlark::eval::Evaluator;
 use starlark::starlark_module;
 use starlark::syntax::{AstModule, Dialect};
 use starlark::values::dict::DictRef;
+use starlark::values::float::StarlarkFloat;
 use starlark::values::list::ListRef;
-use starlark::values::{Heap, Value};
+use starlark::values::{Heap, Value, ValueLike};
 use tracing::{debug, error, info, warn};
 
 // ============================================================================
@@ -231,7 +232,8 @@ fn json_to_starlark<'v>(heap: &'v Heap, json: &serde_json::Value) -> Result<Valu
         serde_json::Value::Bool(b) => Ok(Value::new_bool(*b)),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Ok(heap.alloc(i as i32))
+                // Preserve large integers - Starlark supports arbitrary precision integers
+                Ok(heap.alloc(i))
             } else if let Some(f) = n.as_f64() {
                 Ok(heap.alloc(f))
             } else {
@@ -268,6 +270,56 @@ fn starlark_to_json(value: Value) -> Result<serde_json::Value, String> {
 
     if let Some(i) = value.unpack_i32() {
         return Ok(serde_json::Value::Number(i.into()));
+    }
+
+    // Handle floats explicitly to preserve numeric types
+    if let Some(float) = value.downcast_ref::<StarlarkFloat>() {
+        let f = float.0;
+        if f.is_finite() {
+            return serde_json::Number::from_f64(f)
+                .map(serde_json::Value::Number)
+                .ok_or_else(|| format!("Cannot represent float as JSON number: {}", f));
+        } else {
+            return Err(format!("Cannot represent {} as JSON number", f));
+        }
+    }
+
+    // Handle large integers (beyond i32 range)
+    if value.get_type() == "int" {
+        // First try to_json_value() - it may return a Number that preserves precision
+        if let Ok(json_val) = value.to_json_value() {
+            match json_val {
+                serde_json::Value::Number(n) => {
+                    // Check if the Number supports as_u64() or as_i64()
+                    // If it does, use it directly (preserves precision)
+                    if n.as_u64().is_some() || n.as_i64().is_some() {
+                        return Ok(serde_json::Value::Number(n));
+                    }
+                    // Number doesn't preserve precision, reconstruct from string
+                }
+                serde_json::Value::String(_) => {
+                    // Very large integer returned as string, will handle below
+                }
+                _ => {
+                    // Unexpected type, continue with manual handling
+                }
+            }
+        }
+        // Reconstruct from string representation to ensure precision
+        let int_str = value.to_string();
+        // Try to parse as u64 first (handles u64::MAX and positive i64 values)
+        if let Ok(parsed_u64) = int_str.parse::<u64>() {
+            // Create Number from u64 using Number::from for better precision handling
+            return Ok(serde_json::Value::Number(serde_json::Number::from(parsed_u64)));
+        }
+        // Try i64 for negative numbers
+        if let Ok(parsed_i64) = int_str.parse::<i64>() {
+            return Ok(serde_json::Value::Number(serde_json::Number::from(parsed_i64)));
+        }
+        // If parsing fails, use to_json_value() result (will be a string for very large integers)
+        if let Ok(json_val) = value.to_json_value() {
+            return Ok(json_val);
+        }
     }
 
     if let Some(s) = value.unpack_str() {
