@@ -51,3 +51,10 @@ starlark = "0.13"
 pretty_assertions_sorted = "1.2.1"
 test-log = "0.2.16"
 wiremock = "0.6.3"
+criterion = "0.5"
+proptest = "1.4"
+
+[[bench]]
+name = "starlark"
+path = "tests/starlark/benches.rs"
+harness = false
