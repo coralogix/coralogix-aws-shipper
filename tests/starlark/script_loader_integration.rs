@@ -1,13 +1,13 @@
-use aws_config::BehaviorVersion;
+use aws_config::{BehaviorVersion, SharedCredentialsProvider, SdkConfig};
 use aws_sdk_s3::config::Credentials as S3Credentials;
 use aws_sdk_s3::config::Region as S3Region;
 use aws_smithy_runtime::client::http::test_util::ReplayEvent;
 use aws_smithy_runtime::client::http::test_util::StaticReplayClient;
 use aws_smithy_types::body::SdkBody;
+use base64::Engine;
 use coralogix_aws_shipper::logs::config::{Config, IntegrationType, ScriptLoadError};
 use cx_sdk_rest_logs::auth::ApiKey;
 use http::Response;
-use temp_env::with_vars;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wiremock::matchers::{method, path};
 
@@ -54,7 +54,7 @@ async fn test_load_script_from_http_success() {
     let script_url = format!("{}/script.star", mock_server.uri());
     let config = create_test_config(Some(script_url));
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -76,7 +76,7 @@ async fn test_load_script_from_http_404() {
     let script_url = format!("{}/script.star", mock_server.uri());
     let config = create_test_config(Some(script_url));
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -100,7 +100,7 @@ async fn test_load_script_from_http_timeout() {
     let script_url = format!("{}/script.star", mock_server.uri());
     let config = create_test_config(Some(script_url));
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -136,15 +136,15 @@ async fn test_load_script_from_s3_mock() {
     
     let replay_client = StaticReplayClient::new(vec![replay_event]);
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
-        .credentials_provider(S3Credentials::new(
+        .credentials_provider(SharedCredentialsProvider::new(S3Credentials::new(
             "SOMETESTKEYID",
             "somesecretkey",
             Some("somesessiontoken".to_string()),
             None,
             "",
-        ))
+        )))
         .region(S3Region::new("us-east-1"))
         .http_client(replay_client)
         .build();
@@ -160,7 +160,7 @@ async fn test_load_script_from_s3_mock() {
 async fn test_load_script_from_s3_invalid_path() {
     let config = create_test_config(Some("s3://bucket".to_string())); // Missing key
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -176,7 +176,7 @@ async fn test_load_script_from_base64() {
     
     let config = create_test_config(Some(encoded));
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -189,7 +189,7 @@ async fn test_load_script_from_base64() {
 async fn test_load_script_from_base64_invalid() {
     let config = create_test_config(Some("not valid base64!!!".to_string()));
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -204,7 +204,7 @@ async fn test_load_script_raw() {
     let script = "def transform(event):\n    return [event]";
     let config = create_test_config(Some(script.to_string()));
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -217,7 +217,7 @@ async fn test_load_script_raw() {
 async fn test_load_script_none() {
     let config = create_test_config(None);
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -230,7 +230,7 @@ async fn test_load_script_none() {
 async fn test_priority_s3_over_url() {
     // S3 path should take priority over URL
     let mock_server = MockServer::start().await;
-    let script_url = format!("{}/script.star", mock_server.uri());
+    let _script_url = format!("{}/script.star", mock_server.uri());
     
     // Create config with both S3 and URL (though Config only has one field)
     // In reality, CloudFormation validation ensures only one is set
@@ -238,7 +238,7 @@ async fn test_priority_s3_over_url() {
     let s3_path = "s3://bucket/key";
     let config = create_test_config(Some(s3_path.to_string()));
     
-    let aws_config = aws_config::Config::builder()
+    let aws_config = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(S3Region::new("us-east-1"))
         .build();
@@ -262,7 +262,7 @@ async fn test_base64_padding_variants() {
         let encoded = base64::engine::general_purpose::STANDARD.encode(script);
         let config = create_test_config(Some(encoded));
         
-        let aws_config = aws_config::Config::builder()
+        let aws_config = SdkConfig::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(S3Region::new("us-east-1"))
             .build();
