@@ -762,7 +762,7 @@ Resources:
             - Effect: Allow
               Action:
                 - 's3:GetObject'
-              Resource: 'arn:aws:s3:::/*'
+              Resource: 'arn:aws:s3:::*/*'
             - !Ref AWS::NoValue
 
           # KMS Policy for S3 bucket encryption
