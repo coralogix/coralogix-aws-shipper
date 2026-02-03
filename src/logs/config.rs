@@ -216,10 +216,14 @@ impl Config {
             return Self::load_from_url(trimmed).await.map(Some);
         }
 
-        // Auto-detect Base64: single line, base64 characters only, reasonable length
+        // Before Base64 detection, strip all whitespace for wrapped base64 support
+        // (base64 command wraps output at 76 chars by default)
+        let stripped = trimmed.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+
+        // Auto-detect Base64: base64 characters only, reasonable length
         // Base64 strings are typically longer and don't contain spaces/newlines when encoded
-        if Self::looks_like_base64(trimmed) {
-            return Self::decode_base64(trimmed).map(Some);
+        if Self::looks_like_base64(&stripped) {
+            return Self::decode_base64(&stripped).map(Some);
         }
 
         // Otherwise, treat as raw script
@@ -229,11 +233,11 @@ impl Config {
     /// Heuristic to detect if a string looks like base64-encoded content
     fn looks_like_base64(s: &str) -> bool {
         // Base64 strings are typically:
-        // - Single line (no newlines)
         // - At least 20 characters (reasonable minimum for encoded script)
         // - Only contain base64 characters (A-Z, a-z, 0-9, +, /, =)
         // - Length is a multiple of 4 (or ends with padding)
-        if s.contains('\n') || s.len() < 20 {
+        // Note: Whitespace (including newlines) should be stripped before calling this function
+        if s.len() < 20 {
             return false;
         }
 
@@ -355,8 +359,10 @@ mod script_loading_tests {
         let encoded = BASE64_STANDARD.encode(script);
         assert!(Config::looks_like_base64(&encoded));
         
-        // Invalid - contains newline
-        assert!(!Config::looks_like_base64("ZGVmIHRyYW5zZm9ybShldmVudCk6\nICAgIHJldHVybiBbZXZlbnRd"));
+        // Valid - base64 with newlines (whitespace should be stripped before calling)
+        let wrapped = "ZGVmIHRyYW5zZm9ybShldmVudCk6\nICAgIHJldHVybiBbZXZlbnRd";
+        let stripped: String = wrapped.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(Config::looks_like_base64(&stripped));
         
         // Invalid - too short
         assert!(!Config::looks_like_base64("ZGVm"));
@@ -369,5 +375,31 @@ mod script_loading_tests {
         
         // Valid base64 with padding
         assert!(Config::looks_like_base64("ZGVmIHRyYW5zZm9ybShldmVudCk6CiAgICByZXR1cm4gW2V2ZW50XQ=="));
+    }
+
+    #[test]
+    fn test_looks_like_base64_with_wrapped_output() {
+        use base64::prelude::*;
+        
+        // Simulate wrapped base64 (newlines every 76 chars, as produced by default base64 command)
+        let script = "def transform(event):\n    return [event]";
+        let encoded = BASE64_STANDARD.encode(script);
+        
+        // Simulate base64 command wrapping at 76 characters
+        let wrapped: String = encoded
+            .chars()
+            .collect::<Vec<_>>()
+            .chunks(76)
+            .map(|chunk| chunk.iter().collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        // After stripping whitespace (as done in resolve_starlark_script), should be detected as base64
+        let stripped: String = wrapped.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(Config::looks_like_base64(&stripped));
+        
+        // Verify it can be decoded correctly
+        let decoded = Config::decode_base64(&stripped).unwrap();
+        assert_eq!(decoded, script);
     }
 }

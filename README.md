@@ -496,9 +496,10 @@ StarlarkScript: https://raw.githubusercontent.com/myorg/scripts/main/transform.s
 For complex multi-line scripts that are difficult to embed as parameters, use Base64 encoding. The system automatically detects base64-encoded strings:
 
 ```bash
-# Encode your script
+# Encode your script (works on macOS and Linux)
 cat transform.star | base64
 
+# The shipper handles both wrapped and unwrapped base64 output
 # Use the output as the StarlarkScript parameter
 StarlarkScript: ZGVmIHRyYW5zZm9ybShldmVudCk6CiAgICByZXR1cm4gW2V2ZW50XQ==
 ```
