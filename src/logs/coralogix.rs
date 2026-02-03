@@ -1,6 +1,7 @@
 use crate::logs::config::Config;
 use crate::logs::transform;
 use crate::logs::*;
+use aws_config::SdkConfig;
 use cx_sdk_rest_logs::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
 use cx_sdk_rest_logs::DynLogExporter;
@@ -32,6 +33,7 @@ pub async fn process_batches(
     config: &Config,
     mctx: &process::MetadataContext,
     exporter: DynLogExporter,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let logs: Vec<String> = logs
         .into_iter()
@@ -39,7 +41,7 @@ pub async fn process_batches(
         .collect();
 
     // Apply transformation pipeline (Starlark if configured, otherwise passthrough)
-    let logs = transform::transform_logs(logs, config).map_err(|e| {
+    let logs = transform::transform_logs(logs, config, aws_config).await.map_err(|e| {
         error!("Log transformation failed: {}", e);
         Error::from(e.to_string())
     })?;

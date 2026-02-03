@@ -23,6 +23,7 @@
 //! ```
 
 use crate::logs::config::Config;
+use aws_config::SdkConfig;
 use starlark::collections::SmallMap;
 use starlark::environment::{FrozenModule, Globals, GlobalsBuilder, Module};
 use starlark::eval::Evaluator;
@@ -39,12 +40,23 @@ use tracing::{debug, error, info, warn};
 
 /// Apply log transformation based on config.
 ///
-/// If `config.starlark_script` is set, compiles and applies the transformation.
+/// Resolves the Starlark script from S3, URL, Base64, or raw script (in that priority order).
+/// If a script is found, compiles and applies the transformation.
 /// Otherwise, returns the logs unchanged.
 ///
 /// This is the main entry point for the transformation pipeline.
-pub fn transform_logs(logs: Vec<String>, config: &Config) -> Result<Vec<String>, TransformError> {
-    let Some(ref script) = config.starlark_script else {
+pub async fn transform_logs(
+    logs: Vec<String>,
+    config: &Config,
+    aws_config: &SdkConfig,
+) -> Result<Vec<String>, TransformError> {
+    // Resolve script from any configured source
+    let resolved_script = config
+        .resolve_starlark_script(aws_config)
+        .await
+        .map_err(|e| TransformError::EvalError(format!("Failed to load script: {}", e)))?;
+
+    let Some(ref script) = resolved_script else {
         return Ok(logs);
     };
 

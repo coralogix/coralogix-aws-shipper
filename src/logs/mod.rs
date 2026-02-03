@@ -52,6 +52,7 @@ pub async fn handler(
     clients: &AwsClients,
     coralogix_exporter: DynLogExporter,
     config: &config::Config,
+    aws_config: &aws_config::SdkConfig,
     evt: LambdaEvent<events::Combined>,
 ) -> Result<(), Error> {
     info!("Handling lambda invocation");
@@ -66,7 +67,7 @@ pub async fn handler(
         events::Combined::S3(s3_event) => {
             info!("S3 EVENT Detected");
             let (bucket, key) = handle_s3_event(s3_event).await?;
-            crate::logs::process::s3(&mctx, &clients.s3, coralogix_exporter, config, bucket, key)
+            crate::logs::process::s3(&mctx, &clients.s3, coralogix_exporter, config, aws_config, bucket, key)
                 .await?;
         }
         events::Combined::Sns(sns_event) => {
@@ -82,6 +83,7 @@ pub async fn handler(
                     &clients.s3,
                     coralogix_exporter,
                     config,
+                    aws_config,
                     bucket,
                     key,
                 )
@@ -93,6 +95,7 @@ pub async fn handler(
                     sns_event.records[0].sns.message.clone(),
                     coralogix_exporter,
                     config,
+                    aws_config,
                 )
                 .await?;
             }
@@ -106,6 +109,7 @@ pub async fn handler(
                 coralogix_exporter,
                 config,
                 &clients.logs,
+                aws_config,
             )
             .await?;
         }
@@ -125,7 +129,7 @@ pub async fn handler(
                         // here as recursiion will only be called as many times as there are nested
                         // events in an SQS message
                         let result =
-                            handler(clients, coralogix_exporter.clone(), config, internal_event)
+                            handler(clients, coralogix_exporter.clone(), config, aws_config, internal_event)
                                 .await;
 
                         if result.is_ok() {
@@ -207,6 +211,7 @@ pub async fn handler(
                             message.to_owned(),
                             coralogix_exporter.clone(),
                             config,
+                            aws_config,
                         )
                         .await?;
                     }
@@ -229,7 +234,7 @@ pub async fn handler(
                 debug!("Kinesis record: {:?}", record);
                 let message = record.kinesis.data;
                 debug!("Kinesis data: {:?}", &message);
-                process::kinesis_logs(&mctx, message, coralogix_exporter.clone(), config).await?;
+                process::kinesis_logs(&mctx, message, coralogix_exporter.clone(), config, aws_config).await?;
             }
         }
         events::Combined::Kafka(kafka_event) => {
@@ -238,7 +243,7 @@ pub async fn handler(
                 debug!("Kafka record: {topic_partition:?} --> {records:?}");
                 all_records.append(&mut records)
             }
-            process::kafka_logs(&mctx, all_records, coralogix_exporter.clone(), config).await?;
+            process::kafka_logs(&mctx, all_records, coralogix_exporter.clone(), config, aws_config).await?;
         }
         events::Combined::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);
@@ -251,6 +256,7 @@ pub async fn handler(
                 ecr_scan_event,
                 coralogix_exporter.clone(),
                 config,
+                aws_config,
             )
             .await?;
         }
