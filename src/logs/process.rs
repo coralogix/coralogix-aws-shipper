@@ -1,4 +1,3 @@
-use aws_config::SdkConfig;
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::cloudwatch_logs::LogData;
 use aws_lambda_events::ecr_scan::EcrScanEvent;

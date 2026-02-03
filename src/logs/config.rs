@@ -8,7 +8,6 @@ use aws_config::SdkConfig;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_secretsmanager::operation::get_secret_value::GetSecretValueError;
 use cx_sdk_rest_logs::auth::ApiKey;
-use futures::stream::StreamExt;
 use thiserror::Error;
 
 pub struct Config {

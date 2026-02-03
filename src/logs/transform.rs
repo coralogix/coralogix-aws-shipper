@@ -232,8 +232,11 @@ fn json_to_starlark<'v>(heap: &'v Heap, json: &serde_json::Value) -> Result<Valu
         serde_json::Value::Bool(b) => Ok(Value::new_bool(*b)),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                // Preserve large integers - Starlark supports arbitrary precision integers
+                // Fits in i64 - common case
                 Ok(heap.alloc(i))
+            } else if let Some(u) = n.as_u64() {
+                // Fits in u64 but not i64 (e.g., values between i64::MAX+1 and u64::MAX)
+                Ok(heap.alloc(u))
             } else if let Some(f) = n.as_f64() {
                 Ok(heap.alloc(f))
             } else {
@@ -273,6 +276,7 @@ fn starlark_to_json(value: Value) -> Result<serde_json::Value, String> {
     }
 
     // Handle floats explicitly to preserve numeric types
+    // Check both downcast_ref and type string for robustness
     if let Some(float) = value.downcast_ref::<StarlarkFloat>() {
         let f = float.0;
         if f.is_finite() {
@@ -281,6 +285,23 @@ fn starlark_to_json(value: Value) -> Result<serde_json::Value, String> {
                 .ok_or_else(|| format!("Cannot represent float as JSON number: {}", f));
         } else {
             return Err(format!("Cannot represent {} as JSON number", f));
+        }
+    }
+    // Fallback: check type string in case downcast_ref doesn't work
+    if value.get_type() == "float" {
+        // Try to_json_value() which should handle floats correctly
+        if let Ok(json_val) = value.to_json_value() {
+            if let serde_json::Value::Number(_) = json_val {
+                return Ok(json_val);
+            }
+        }
+        // If to_json_value doesn't work, try parsing from string representation
+        if let Ok(f) = value.to_string().parse::<f64>() {
+            if f.is_finite() {
+                return serde_json::Number::from_f64(f)
+                    .map(serde_json::Value::Number)
+                    .ok_or_else(|| format!("Cannot represent float as JSON number: {}", f));
+            }
         }
     }
 

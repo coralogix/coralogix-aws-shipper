@@ -1,7 +1,6 @@
 use crate::logs::config::Config;
 use crate::logs::transform;
 use crate::logs::*;
-use aws_config::SdkConfig;
 use cx_sdk_rest_logs::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
 use cx_sdk_rest_logs::DynLogExporter;
