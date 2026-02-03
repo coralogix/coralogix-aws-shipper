@@ -301,14 +301,32 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
+    
+    // Test epoch milliseconds (large i64 value)
+    let epoch_ms = 1706745600000i64;
+    let input = format!(r#"{{"timestamp": {}}}"#, epoch_ms);
+    let result = transformer.transform(&input).unwrap();
+    assert_eq!(result.len(), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+    assert!(parsed.get("timestamp").is_some());
+    assert_eq!(parsed["timestamp"].as_i64(), Some(epoch_ms));
+    
     // Test large i64 value (near i32::MAX)
     let large_num = i64::from(i32::MAX) + 1000;
     let input = format!(r#"{{"large_num": {}}}"#, large_num);
     let result = transformer.transform(&input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
-    // Note: Starlark uses i32, so large i64 values may be converted
     assert!(parsed.get("large_num").is_some());
+    assert_eq!(parsed["large_num"].as_i64(), Some(large_num));
+    
+    // Test negative large values
+    let negative_large = -1706745600000i64;
+    let input = format!(r#"{{"negative": {}}}"#, negative_large);
+    let result = transformer.transform(&input).unwrap();
+    assert_eq!(result.len(), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+    assert_eq!(parsed["negative"].as_i64(), Some(negative_large));
 }
 
 #[test]
@@ -322,8 +340,15 @@ def transform(event):
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+    
+    // Verify floats remain as numbers (not strings)
     assert!(parsed.get("pi").is_some());
+    assert!(parsed["pi"].is_f64());
+    assert_eq!(parsed["pi"].as_f64(), Some(3.141592653589793));
+    
     assert!(parsed.get("small").is_some());
+    assert!(parsed["small"].is_f64());
+    assert_eq!(parsed["small"].as_f64(), Some(0.0000001));
 }
 
 #[test]
@@ -369,4 +394,96 @@ def transform(event):
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert_eq!(parsed["true_val"], true);
     assert_eq!(parsed["false_val"], false);
+}
+
+// =============================================================================
+// Large Integer and Float Edge Case Tests
+// =============================================================================
+
+#[test]
+fn test_very_large_integers() {
+    let script = r#"
+def transform(event):
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    
+    // Test integer larger than u64::MAX (will be represented as string in JSON)
+    let very_large = "999999999999999999999999999999999999999999999";
+    let input = format!(r#"{{"very_large": {}}}"#, very_large);
+    let result = transformer.transform(&input).unwrap();
+    assert_eq!(result.len(), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+    assert!(parsed.get("very_large").is_some());
+    // Very large integers outside i64/u64 range will be strings
+    if let Some(s) = parsed["very_large"].as_str() {
+        assert_eq!(s, very_large);
+    } else {
+        // If it fits in i64/u64, verify it's a number
+        assert!(parsed["very_large"].is_number());
+    }
+    
+    // Test u64::MAX
+    let u64_max = u64::MAX;
+    let input = format!(r#"{{"u64_max": {}}}"#, u64_max);
+    let result = transformer.transform(&input).unwrap();
+    assert_eq!(result.len(), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+    assert_eq!(parsed["u64_max"].as_u64(), Some(u64_max));
+}
+
+#[test]
+fn test_float_nan_infinity() {
+    let script = r#"
+def transform(event):
+    # Create NaN and Infinity in Starlark
+    event["nan_val"] = float("nan")
+    event["inf_val"] = float("inf")
+    event["neg_inf_val"] = float("-inf")
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{}"#);
+    
+    // NaN and Infinity cannot be represented in JSON, so this should fail
+    assert!(result.is_err());
+    let error_msg = format!("{}", result.unwrap_err());
+    assert!(error_msg.contains("NaN") || error_msg.contains("Infinity"));
+}
+
+#[test]
+fn test_mixed_numeric_types() {
+    let script = r#"
+def transform(event):
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    
+    // Test object with mixed int and float fields
+    let input = r#"{
+        "small_int": 42,
+        "large_int": 1706745600000,
+        "float_val": 3.14159,
+        "negative_int": -1000000,
+        "negative_float": -2.71828
+    }"#;
+    let result = transformer.transform(input).unwrap();
+    assert_eq!(result.len(), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+    
+    // Verify all numeric types are preserved correctly
+    assert_eq!(parsed["small_int"].as_i64(), Some(42));
+    assert_eq!(parsed["large_int"].as_i64(), Some(1706745600000));
+    assert!(parsed["float_val"].is_f64());
+    assert_eq!(parsed["float_val"].as_f64(), Some(3.14159));
+    assert_eq!(parsed["negative_int"].as_i64(), Some(-1000000));
+    assert!(parsed["negative_float"].is_f64());
+    assert_eq!(parsed["negative_float"].as_f64(), Some(-2.71828));
+    
+    // Verify none of them became strings
+    assert!(!parsed["small_int"].is_string());
+    assert!(!parsed["large_int"].is_string());
+    assert!(!parsed["float_val"].is_string());
+    assert!(!parsed["negative_int"].is_string());
+    assert!(!parsed["negative_float"].is_string());
 }
