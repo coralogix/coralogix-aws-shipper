@@ -4,7 +4,7 @@
 ### 🚀 New components 🚀
 - Add Starlark-based log transformation support via new `StarlarkScript` parameter. Scripts can transform, filter, unnest, or enrich logs before sending to Coralogix.
 - Script source auto-detection: supports S3 paths (`s3://bucket/key`), HTTP/HTTPS URLs, Base64-encoded scripts, or raw Starlark code.
-- Built-in helper functions: `parse_json()`, `to_json()`, `log_debug()`.
+- Built-in helper functions: `parse_json()`, `to_json()`, `print()`.
 - Large integer truncation when converting JSON numbers to Starlark values.
 - Float type handling in JSON-to-Starlark conversion.
 

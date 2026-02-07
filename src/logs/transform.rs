@@ -214,8 +214,8 @@ fn starlark_extras(builder: &mut GlobalsBuilder) {
         Ok(serde_json::to_string(&json)?)
     }
 
-    /// Log a debug message (useful for script debugging)
-    fn log_debug(msg: &str) -> anyhow::Result<starlark::values::none::NoneType> {
+    /// Print a debug message (useful for script debugging)
+    fn print(msg: &str) -> anyhow::Result<starlark::values::none::NoneType> {
         debug!("[Starlark] {}", msg);
         Ok(starlark::values::none::NoneType)
     }

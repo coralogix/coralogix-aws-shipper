@@ -473,7 +473,7 @@ The following helper functions are available in your Starlark scripts:
 |---------------------|--------------------------------------------------|
 | `parse_json(str)`   | Parse a JSON string into a Starlark value        |
 | `to_json(value)`    | Convert a Starlark value to a JSON string        |
-| `log_debug(msg)`    | Log a debug message (visible when LogLevel=DEBUG)|
+| `print(msg)`        | Print a debug message (visible when LogLevel=DEBUG)|
 
 ### Using S3 for Script Storage
 

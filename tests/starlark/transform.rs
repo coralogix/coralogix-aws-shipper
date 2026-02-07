@@ -197,10 +197,10 @@ def transform(event):
 }
 
 #[test]
-fn test_log_debug_builtin() {
+fn test_print_builtin() {
     let script = r#"
 def transform(event):
-    log_debug("Debug message from script")
+    print("Debug message from script")
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
