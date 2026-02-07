@@ -1,0 +1,16 @@
+[package]
+name = "coralogix-aws-shipper-fuzz"
+version = "0.0.0"
+authors = ["AutoFuzz <afl@example.com>"]
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+coralogix-aws-shipper = { path = "../../" }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "starlark_compile"
+path = "fuzz_targets/starlark_compile.rs"

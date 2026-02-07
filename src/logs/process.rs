@@ -362,6 +362,7 @@ pub async fn s3(
     s3_client: &Client,
     coralogix_exporter: DynLogExporter,
     config: &Config,
+    aws_config: &aws_config::SdkConfig,
     bucket: String,
     key: String,
 ) -> Result<(), Error> {
@@ -443,6 +444,7 @@ pub async fn s3(
         config,
         &mctx,
         coralogix_exporter,
+        aws_config,
     )
     .await?;
 
@@ -454,6 +456,7 @@ pub async fn kinesis_logs(
     kinesis_message: Base64Data,
     coralogix_exporter: DynLogExporter,
     config: &Config,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let defined_app_name = config
         .app_name
@@ -503,6 +506,7 @@ pub async fn kinesis_logs(
         config,
         &mctx,
         coralogix_exporter,
+        aws_config,
     )
     .await?;
     Ok(())
@@ -513,6 +517,7 @@ pub async fn sqs_logs(
     sqs_message: String,
     coralogix_exporter: DynLogExporter,
     config: &Config,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let defined_app_name = config
         .app_name
@@ -532,6 +537,7 @@ pub async fn sqs_logs(
         config,
         &mctx,
         coralogix_exporter,
+        aws_config,
     )
     .await?;
     Ok(())
@@ -541,6 +547,7 @@ pub async fn sns_logs(
     sns_message: String,
     coralogix_exporter: DynLogExporter,
     config: &Config,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let defined_app_name = config
         .app_name
@@ -560,6 +567,7 @@ pub async fn sns_logs(
         config,
         &mctx,
         coralogix_exporter,
+        aws_config,
     )
     .await?;
     Ok(())
@@ -570,6 +578,7 @@ pub async fn cloudwatch_logs(
     coralogix_exporter: DynLogExporter,
     config: &Config,
     logs_client: &LogsClient,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let defined_app_name = config
         .app_name
@@ -676,6 +685,7 @@ pub async fn cloudwatch_logs(
         config,
         &mctx,
         coralogix_exporter,
+        aws_config,
     )
     .await?;
 
@@ -688,6 +698,7 @@ pub async fn ecr_scan_logs(
     ecr_scan_event: EcrScanEvent,
     coralogix_exporter: DynLogExporter,
     config: &Config,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let defined_app_name = config
         .app_name
@@ -708,6 +719,7 @@ pub async fn ecr_scan_logs(
         config,
         &mctx,
         coralogix_exporter,
+        aws_config,
     )
     .await?;
     Ok(())
@@ -946,6 +958,7 @@ pub async fn kafka_logs(
     records: Vec<KafkaRecord>,
     coralogix_exporter: DynLogExporter,
     config: &Config,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let defined_app_name = config
         .app_name
@@ -977,6 +990,7 @@ pub async fn kafka_logs(
         config,
         &mctx,
         coralogix_exporter,
+        aws_config,
     )
     .await?;
 

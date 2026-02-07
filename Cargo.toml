@@ -1,6 +1,6 @@
 [package]
 name = "coralogix-aws-shipper"
-version = "1.3.14"
+version = "1.3.15"
 edition = "2021"
 
 [dependencies]
@@ -45,8 +45,16 @@ prost = "0.13.3"
 prost-types = "0.13.3"
 reqwest = "0.12.15"
 openssl = { version = "0.10.72", features = ["vendored"] }
+starlark = "0.13"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
 test-log = "0.2.16"
 wiremock = "0.6.3"
+criterion = "0.5"
+proptest = "1.4"
+
+[[bench]]
+name = "starlark"
+path = "tests/starlark/benches.rs"
+harness = false

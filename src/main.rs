@@ -98,7 +98,7 @@ async fn main() -> Result<(), Error> {
 
             let coralogix_exporter = crate::logs::set_up_coralogix_exporter(&conf)?;
             run(service_fn(|request: LambdaEvent<Combined>| {
-                logs::handler(&aws_clients, coralogix_exporter.clone(), &conf, request)
+                logs::handler(&aws_clients, coralogix_exporter.clone(), &conf, &aws_config, request)
             }))
             .await
         }
