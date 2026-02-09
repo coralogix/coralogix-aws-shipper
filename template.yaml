@@ -464,8 +464,7 @@ Parameters:
   ExecutionRoleARN:
     Type: String
     Description: The arn of a user defined role that will be used as the execution role for the lambda function
-    # placeholder value to avoid cfn-lint issues
-    Default: 'arn:aws:iam::123456789012:role/placeholder'
+    Default: ''
 
   TelemetryMode:
     Type: String
@@ -575,7 +574,7 @@ Conditions:
 
   S3BucketNameIsSet: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
   IsLambdaAssumeRoleEnable: !Not [!Equals [!Ref LambdaAssumeRoleARN, '']]
-  ExecutionRoleARNIsSet: !Not [!Equals [!Ref ExecutionRoleARN, 'arn:aws:iam::123456789012:role/placeholder']]
+  ExecutionRoleARNIsSet: !Not [!Equals [!Ref ExecutionRoleARN, '']]
   ReservedConcurrentExecutionsIsSet: !Not [!Equals [!Ref ReservedConcurrentExecutions, 0]]
   S3BucketKMSKeyARNIsSet: !Not [!Equals [!Ref S3BucketKMSKeyARN, '']]
 
