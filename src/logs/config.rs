@@ -6,7 +6,9 @@ use std::{env, fmt};
 
 use aws_config::SdkConfig;
 use aws_sdk_s3::Client as S3Client;
+use aws_sdk_s3::config::Credentials as S3Credentials;
 use aws_sdk_secretsmanager::operation::get_secret_value::GetSecretValueError;
+use aws_sdk_sts::Client as StsClient;
 use cx_sdk_rest_logs::auth::ApiKey;
 use thiserror::Error;
 
@@ -208,7 +210,7 @@ impl Config {
 
         // Auto-detect S3 path: starts with s3://
         if trimmed.starts_with("s3://") {
-            return Self::load_from_s3(trimmed, aws_config).await.map(Some);
+            return Self::load_from_s3(trimmed, aws_config, self.lambda_assume_role.as_deref()).await.map(Some);
         }
 
         // Auto-detect URL: starts with http:// or https://
@@ -261,10 +263,50 @@ impl Config {
     }
 
     /// Load a Starlark script from an S3 bucket
-    async fn load_from_s3(s3_path: &str, aws_config: &SdkConfig) -> Result<String, ScriptLoadError> {
+    async fn load_from_s3(
+        s3_path: &str,
+        aws_config: &SdkConfig,
+        assume_role_arn: Option<&str>,
+    ) -> Result<String, ScriptLoadError> {
         // Parse s3://bucket/key format
         let (bucket, key) = Self::parse_s3_path(s3_path)?;
-        let s3_client = S3Client::new(aws_config);
+        
+        // Build S3 client with assumed-role credentials if configured, otherwise use base config
+        let s3_client = if let Some(role_arn) = assume_role_arn {
+            // Perform STS assume-role to get temporary credentials
+            let sts_client = StsClient::new(aws_config);
+            let response = sts_client
+                .assume_role()
+                .role_arn(role_arn)
+                .role_session_name("CoralogixAWSShipperSession")
+                .send()
+                .await
+                .map_err(|e| ScriptLoadError::S3Error(format!("STS assume-role failed: {}", e)))?;
+
+            // Extract temporary credentials
+            let creds = response
+                .credentials()
+                .ok_or_else(|| ScriptLoadError::S3Error(format!("No credentials found for role_arn: {}", role_arn)))?;
+
+            // Build S3 client with assumed-role credentials
+            let credentials = S3Credentials::new(
+                creds.access_key_id(),
+                creds.secret_access_key(),
+                Some(creds.session_token().to_string()),
+                None,
+                "s3provider",
+            );
+
+            let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+                .credentials_provider(credentials)
+                .load()
+                .await;
+
+            S3Client::new(&config)
+        } else {
+            // Use base config (no assume-role)
+            S3Client::new(aws_config)
+        };
 
         let response = s3_client
             .get_object()
