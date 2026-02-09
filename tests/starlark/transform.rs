@@ -99,10 +99,10 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    // Non-JSON input should be wrapped as a string
+    // Non-JSON input must come back as the exact original string — no JSON quoting.
     let result = transformer.transform("plain text log message").unwrap();
     assert_eq!(result.len(), 1);
-    assert!(result[0].contains("plain text log message"));
+    assert_eq!(result[0], "plain text log message");
 }
 
 #[test]

@@ -582,6 +582,9 @@ Conditions:
   TelemetryModeIsMetrics: !Equals [!Ref TelemetryMode, metrics]
   EnableLogGroupTagsIsTrue: !Equals [!Ref EnableLogGroupTags, 'true']
   StarlarkScriptIsSet: !Not [!Equals [!Ref StarlarkScript, '']]
+  StarlarkScriptIsS3: !And
+    - !Not [!Equals [!Ref StarlarkScript, '']]
+    - !Equals [!Select [0, !Split ["s3://", !Ref StarlarkScript]], '']
   
 Rules:
   ValidateDLQ:
@@ -754,10 +757,10 @@ Resources:
               Resource: arn:aws:s3:::*
             - !Ref AWS::NoValue
 
-          # S3 Policy for Starlark Script (when STARLARK_SCRIPT starts with s3://)
+          # S3 Policy for Starlark Script (only when STARLARK_SCRIPT starts with s3://)
           # Note: Grants access to all S3 buckets. Users can restrict this manually if needed.
           - !If
-            - StarlarkScriptIsSet
+            - StarlarkScriptIsS3
             - Effect: Allow
               Action:
                 - 's3:GetObject'

@@ -398,16 +398,20 @@ fn starlark_to_json(value: Value) -> Result<serde_json::Value, String> {
     Ok(serde_json::Value::String(value.to_string()))
 }
 
-/// Convert a Starlark result (expected to be a list) to JSON strings
+/// Convert a Starlark result (expected to be a list) to JSON strings.
 fn starlark_to_json_strings(value: Value) -> Result<Vec<String>, TransformError> {
     if let Some(list) = ListRef::from_value(value) {
         let mut results = Vec::new();
         for item in list.iter() {
             let json = starlark_to_json(item).map_err(TransformError::ConversionError)?;
-            results.push(
-                serde_json::to_string(&json)
+            // Return plain strings directly to preserve original log content;
+            // only JSON-serialize structured values.
+            let serialized = match json {
+                serde_json::Value::String(s) => s,
+                other => serde_json::to_string(&other)
                     .map_err(|e| TransformError::ConversionError(e.to_string()))?,
-            );
+            };
+            results.push(serialized);
         }
         Ok(results)
     } else {
