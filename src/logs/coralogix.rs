@@ -39,6 +39,11 @@ pub async fn process_batches(
         .filter(|log| !log.trim().is_empty())
         .collect();
 
+    if logs.is_empty() {
+        info!("No logs to send");
+        return Ok(());
+    }
+
     // Apply transformation pipeline (Starlark if configured, otherwise passthrough)
     let logs = transform::transform_logs(logs, config, aws_config).await.map_err(|e| {
         error!("Log transformation failed: {}", e);
