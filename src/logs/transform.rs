@@ -33,7 +33,17 @@ use starlark::values::dict::DictRef;
 use starlark::values::float::StarlarkFloat;
 use starlark::values::list::ListRef;
 use starlark::values::{Heap, Value, ValueLike};
+use tokio::sync::OnceCell;
 use tracing::{debug, error, info, warn};
+
+// ============================================================================
+// Caching
+// ============================================================================
+
+/// Cached transformer - resolved and compiled once per Lambda container.
+/// This avoids repeated S3/HTTP fetches and recompilation for record-by-record
+/// event sources (Kinesis, SQS) where `process_batches()` is called multiple times.
+static CACHED_TRANSFORMER: OnceCell<Option<StarlarkTransformer>> = OnceCell::const_new();
 
 // ============================================================================
 // Public API
@@ -45,23 +55,41 @@ use tracing::{debug, error, info, warn};
 /// If a script is found, compiles and applies the transformation.
 /// Otherwise, returns the logs unchanged.
 ///
+/// The resolved and compiled transformer is cached per Lambda container to avoid
+/// repeated S3/HTTP fetches and recompilation for record-by-record event sources.
+///
 /// This is the main entry point for the transformation pipeline.
 pub async fn transform_logs(
     logs: Vec<String>,
     config: &Config,
     aws_config: &SdkConfig,
 ) -> Result<Vec<String>, TransformError> {
-    // Resolve script from any configured source
-    let resolved_script = config
-        .resolve_starlark_script(aws_config)
-        .await
-        .map_err(|e| TransformError::EvalError(format!("Failed to load script: {}", e)))?;
+    // Get or initialize the cached transformer
+    let transformer = CACHED_TRANSFORMER
+        .get_or_try_init(|| async {
+            // Resolve script from any configured source
+            let resolved_script = config
+                .resolve_starlark_script(aws_config)
+                .await
+                .map_err(|e| TransformError::EvalError(format!("Failed to load script: {}", e)))?;
 
-    let Some(ref script) = resolved_script else {
+            match resolved_script {
+                Some(script) => {
+                    debug!("Compiling Starlark script for caching");
+                    let transformer = StarlarkTransformer::new(&script)?;
+                    Ok(Some(transformer))
+                }
+                None => {
+                    debug!("No Starlark script configured, caching None");
+                    Ok(None)
+                }
+            }
+        })
+        .await?;
+
+    let Some(transformer) = transformer else {
         return Ok(logs);
     };
-
-    let transformer = StarlarkTransformer::new(script)?;
 
     info!("Applying Starlark transformation to {} logs", logs.len());
     let transformed = transformer.transform_batch(logs)?;
