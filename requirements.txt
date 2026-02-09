@@ -1,1 +1,1 @@
-cargo-lambda
+cargo-lambda==1.8.6
