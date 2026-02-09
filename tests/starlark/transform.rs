@@ -487,3 +487,80 @@ def transform(event):
     assert!(!parsed["negative_int"].is_string());
     assert!(!parsed["negative_float"].is_string());
 }
+
+// =============================================================================
+// Return Type Enforcement Tests
+// =============================================================================
+
+#[test]
+fn test_transform_must_return_list_none() {
+    let script = r#"
+def transform(event):
+    return None
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "test"}"#);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
+    let error_msg = format!("{}", result.unwrap_err());
+    assert!(error_msg.contains("must return a list"));
+    assert!(error_msg.contains("NoneType") || error_msg.contains("none"));
+}
+
+#[test]
+fn test_transform_must_return_list_string() {
+    let script = r#"
+def transform(event):
+    return "not a list"
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "test"}"#);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
+    let error_msg = format!("{}", result.unwrap_err());
+    assert!(error_msg.contains("must return a list"));
+    assert!(error_msg.contains("string"));
+}
+
+#[test]
+fn test_transform_must_return_list_dict() {
+    let script = r#"
+def transform(event):
+    return {"key": "value"}
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "test"}"#);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
+    let error_msg = format!("{}", result.unwrap_err());
+    assert!(error_msg.contains("must return a list"));
+    assert!(error_msg.contains("dict"));
+}
+
+#[test]
+fn test_transform_must_return_list_int() {
+    let script = r#"
+def transform(event):
+    return 42
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "test"}"#);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
+    let error_msg = format!("{}", result.unwrap_err());
+    assert!(error_msg.contains("must return a list"));
+}
+
+#[test]
+fn test_transform_must_return_list_bool() {
+    let script = r#"
+def transform(event):
+    return True
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "test"}"#);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
+    let error_msg = format!("{}", result.unwrap_err());
+    assert!(error_msg.contains("must return a list"));
+}

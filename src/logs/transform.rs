@@ -383,9 +383,9 @@ fn starlark_to_json_strings(value: Value) -> Result<Vec<String>, TransformError>
         }
         Ok(results)
     } else {
-        // If not a list, wrap in a list
-        let json = starlark_to_json(value).map_err(TransformError::ConversionError)?;
-        Ok(vec![serde_json::to_string(&json)
-            .map_err(|e| TransformError::ConversionError(e.to_string()))?])
+        Err(TransformError::InvalidReturnType(format!(
+            "got {} (type: {}), expected a list. Example: return [event] or return []",
+            value, value.get_type()
+        )))
     }
 }
