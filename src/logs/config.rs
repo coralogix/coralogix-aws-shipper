@@ -287,7 +287,11 @@ impl Config {
 
     /// Load a Starlark script from an HTTP/HTTPS URL
     async fn load_from_url(url: &str) -> Result<String, ScriptLoadError> {
-        let response = reqwest::get(url).await?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(ScriptLoadError::NetworkError)?;
+        let response = client.get(url).send().await?;
         if !response.status().is_success() {
             return Err(ScriptLoadError::HttpError(response.status()));
         }
