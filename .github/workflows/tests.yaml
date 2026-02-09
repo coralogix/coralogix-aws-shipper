@@ -32,7 +32,7 @@ jobs:
         # validate the template file 
       - name: Run cfn-lint
         run: |
-          cfn-lint --template template.yaml --region us-east-1 --ignore-checks W 
+          cfn-lint --template template.yaml --region us-east-1 
           
       - name: Install latest Rust
         uses: actions-rs/toolchain@v1
