@@ -45,6 +45,7 @@ prost = "0.13.3"
 prost-types = "0.13.3"
 reqwest = "0.13.1"
 openssl = { version = "0.10.75", features = ["vendored"] }
+starlark = "0.13.0"
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
