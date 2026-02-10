@@ -28,7 +28,7 @@ use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
 use crate::logs::ecr;
 
-// Type alias for the error type returned by list_tags_log_group
+// Type alias for the error type returned by list_tags_for_resource
 // Using Box<dyn Error> to handle the SDK error type which has private generic parameters
 type LogGroupTagsError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -310,6 +310,7 @@ async fn fetch_log_group_tags_from_api(
     log_group_name: &str,
 ) -> Result<HashMap<String, String>, LogGroupTagsError> {
     debug!("Fetching tags for log group: {}", log_group_name);
+    #[allow(deprecated)]
     let tags_result = logs_client
         .list_tags_log_group()
         .log_group_name(log_group_name)

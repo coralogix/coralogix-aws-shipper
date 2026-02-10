@@ -432,15 +432,14 @@ pub async fn transform_firehose_event(
             process_messages_without_batching(config, messages, idx).await?;
         }
 
-        // Build response record
-        results.push(KinesisFirehoseResponseRecord {
-            metadata: KinesisFirehoseResponseRecordMetadata {
-                partition_keys: std::collections::HashMap::new(),
-            },
-            record_id: record.record_id,
-            result: Some("Dropped".to_string()),
-            data: record.data,
-        });
+        let mut response_record: KinesisFirehoseResponseRecord = KinesisFirehoseResponseRecord::default();
+        let mut metadata: KinesisFirehoseResponseRecordMetadata = KinesisFirehoseResponseRecordMetadata::default();
+        metadata.partition_keys = std::collections::HashMap::new();
+        response_record.metadata = metadata;
+        response_record.record_id = record.record_id;
+        response_record.result = Some("Dropped".to_string());
+        response_record.data = record.data;
+        results.push(response_record);
     }
 
     // Send final batch if batching is enabled
@@ -455,5 +454,8 @@ pub async fn transform_firehose_event(
    }
 
     // Return response to Firehose
-    Ok(KinesisFirehoseResponse { records: results })
+    let mut response: KinesisFirehoseResponse = KinesisFirehoseResponse::default();
+    response.records = results;
+    Ok(response)
+
 }

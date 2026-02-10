@@ -4,48 +4,47 @@ version = "1.3.15"
 edition = "2021"
 
 [dependencies]
-aws-smithy-runtime-api = "1.7.3"
-aws_lambda_events = { version = "0.16.0", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan", "firehose"] }
-aws-config = "1.6.2"
-aws-sdk-s3 = "1.83.0"
-aws-sdk-ecr = "1.71.0"
-aws-sdk-secretsmanager = "1.69.0"
-aws-sdk-cloudwatchlogs = "1.65.0"
+aws-smithy-runtime-api = "1.11.3"
+aws_lambda_events = { version = "1.0.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan", "firehose"] }
+aws-config = "1.8.13"
+aws-sdk-s3 = "1.121.0"
+aws-sdk-ecr = "1.101.0"
+aws-sdk-secretsmanager = "1.97.0"
+aws-sdk-cloudwatchlogs = "1.101.0"
 cx_sdk_rest_logs = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false, features=["rustls"] }
 cx_sdk_core = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false}
 derive_more = { version = "2.0.1", features = ["from", "add"] }
 fancy-regex ="0.14.0"
 flate2 = "1.1.1"
-futures = "0.3.17"
+futures = "0.3.31"
 http = "1.3.1"
 itertools = "0.14.0"
-lambda_runtime = "0.13.0"
+lambda_runtime = "1.0.2"
 thiserror = "2.0.12"
-time = "0.3.31"
-tokio = { version = "1.44.2", features = ["full"] }
-tracing = { version = "0.1", features = ["log"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
-serde_json = "1.0.140"
-serde = { version = "1.0.219", features = ["derive"] }
+time = "0.3.47"
+tokio = { version = "1.49.0", features = ["full"] }
+tracing = { version = "0.1.44", features = ["log"] }
+tracing-subscriber = { version = "0.3.22", default-features = false, features = ["fmt", "env-filter"] }
+serde_json = "1.0.149"
+serde = { version = "1.0.228", features = ["derive"] }
 percent-encoding = "2.3.1"
 async-trait = "0.1.88"
 temp-env = { version = "0.3.6", features = ["async_closure"] }
-aws-smithy-runtime = { version = "1.1.7", features = ["test-util"] }
-aws-smithy-types = "1.1.7"
+aws-smithy-runtime = { version = "1.10.0", features = ["test-util"] }
+aws-smithy-types = "1.3.6"
 base64 = "0.22.1"
-aws-sdk-sqs = "1.65.0"
-chrono = "0.4.41"
+aws-sdk-sqs = "1.92.0"
+chrono = "0.4.43"
 async-recursion = "1.1.0"
 md5 = "0.7.0"
-anyhow = "1.0.98"
-aws-sdk-sts = "1.49.0"
+anyhow = "1.0.101"
+aws-sdk-sts = "1.96.0"
 once_cell = "1.21.3"
 opentelemetry-proto = "0.29.0"
 prost = "0.13.3"
 prost-types = "0.13.3"
-reqwest = "0.12.15"
-openssl = { version = "0.10.72", features = ["vendored"] }
-starlark = "0.13"
+reqwest = "0.13.1"
+openssl = { version = "0.10.75", features = ["vendored"] }
 
 [dev-dependencies]
 pretty_assertions_sorted = "1.2.1"
