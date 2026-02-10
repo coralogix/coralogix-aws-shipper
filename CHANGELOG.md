@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.16 / 2026-02-10
+### 💡 Enhancements 💡
+- Add Starlark scripting support for log transformation. Users can define a `transform(event)` function in a Starlark script to unnest, filter, enrich, or modify logs before shipping. Scripts can be loaded from S3, HTTP/HTTPS URLs, base64-encoded strings, or inline. Includes built-in `parse_json`, `to_json`, and `print` helpers. Fail-open behavior ensures original logs are preserved on transform errors.
+
 ## v1.3.15 / 2026-02-09
 ### 💡 Enhancements 💡
 - Update Rust dependencies and lockfile to address security advisories.
