@@ -33,8 +33,8 @@ use starlark::values::dict::DictRef;
 use starlark::values::float::StarlarkFloat;
 use starlark::values::list::ListRef;
 use starlark::values::{Heap, Value, ValueLike};
-use tokio::sync::OnceCell;
-use tracing::{debug, error, info, warn};
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 
 // ============================================================================
 // Caching
@@ -43,7 +43,8 @@ use tracing::{debug, error, info, warn};
 /// Cached transformer - resolved and compiled once per Lambda container.
 /// This avoids repeated S3/HTTP fetches and recompilation for record-by-record
 /// event sources (Kinesis, SQS) where `process_batches()` is called multiple times.
-static CACHED_TRANSFORMER: OnceCell<Option<StarlarkTransformer>> = OnceCell::const_new();
+/// Uses Mutex to allow test-only reset via reset_cache().
+static CACHED_TRANSFORMER: Mutex<Option<Option<StarlarkTransformer>>> = Mutex::const_new(None);
 
 // ============================================================================
 // Public API
@@ -65,27 +66,32 @@ pub async fn transform_logs(
     aws_config: &SdkConfig,
 ) -> Result<Vec<String>, TransformError> {
     // Get or initialize the cached transformer
-    let transformer = CACHED_TRANSFORMER
-        .get_or_try_init(|| async {
-            // Resolve script from any configured source
+    {
+        let guard = CACHED_TRANSFORMER.lock().await;
+        if guard.is_none() {
+            drop(guard);
+            // Resolve script from any configured source (must release lock before await)
             let resolved_script = config
                 .resolve_starlark_script(aws_config)
                 .await
                 .map_err(|e| TransformError::EvalError(format!("Failed to load script: {}", e)))?;
 
-            match resolved_script {
+            let transformer = match resolved_script {
                 Some(script) => {
                     debug!("Compiling Starlark script for caching");
-                    let transformer = StarlarkTransformer::new(&script)?;
-                    Ok(Some(transformer))
+                    Some(StarlarkTransformer::new(&script)?)
                 }
                 None => {
                     debug!("No Starlark script configured, caching None");
-                    Ok(None)
+                    None
                 }
-            }
-        })
-        .await?;
+            };
+            *CACHED_TRANSFORMER.lock().await = Some(transformer);
+        }
+    }
+
+    let guard = CACHED_TRANSFORMER.lock().await;
+    let transformer = guard.as_ref().unwrap();
 
     let Some(transformer) = transformer else {
         return Ok(logs);
@@ -99,6 +105,13 @@ pub async fn transform_logs(
     );
 
     Ok(transformed)
+}
+
+/// Reset the cached transformer. For use in tests only, to ensure test isolation
+/// when different tests need different STARLARK_SCRIPT configuration.
+#[doc(hidden)]
+pub async fn reset_cache() {
+    *CACHED_TRANSFORMER.lock().await = None;
 }
 
 // ============================================================================

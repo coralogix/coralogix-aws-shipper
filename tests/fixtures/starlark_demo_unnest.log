@@ -1,0 +1,1 @@
+{"logs": [{"level": "INFO", "message": "Batch log entry 1", "timestamp": "2026-01-19T09:00:00Z"}, {"level": "DEBUG", "message": "Batch log entry 2", "timestamp": "2026-01-19T09:00:01Z"}, {"level": "ERROR", "message": "Batch log entry 3 - Something went wrong!", "timestamp": "2026-01-19T09:00:02Z"}]}

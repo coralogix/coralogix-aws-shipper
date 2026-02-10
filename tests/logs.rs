@@ -2744,3 +2744,81 @@ async fn test_csv_s3_custom_headers_event() {
     )
     .await;
 }
+
+async fn run_test_s3_event_starlark_unnest() {
+    coralogix_aws_shipper::logs::transform::reset_cache().await;
+
+    let s3_client =
+        get_mock_s3client(Some("./tests/fixtures/starlark_unnest.log")).expect("failed to create s3 client");
+    let config = Config::load_from_env().expect("failed to load config from env");
+
+    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/starlark_unnest.log");
+    let evt: Combined = serde_json::from_str(s3event_string(bucket, key).as_str())
+        .expect("failed to parse s3_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1);
+    // The starlark script should unnest the logs array, so we should have 3 log entries
+    // (2 from the first line, 1 from the second line)
+    assert_eq!(singles[0].entries.len(), 2);
+
+    // Verify the log entries are the unnested individual logs
+    let expected_logs: Vec<Value> = vec![
+        serde_json::json!({"msg": "log1", "level": "info"}),
+        serde_json::json!({"msg": "log3", "level": "error"}),
+    ];
+
+    for (i, expected) in expected_logs.iter().enumerate() {
+        let actual: Value = serde_json::from_str(&singles[0].entries[i].body.to_string()).unwrap();
+        assert_eq!(actual, *expected, "Log entry {} did not match", i);
+    }
+
+    assert!(
+        singles[0].entries[0].application_name == "integration-testing",
+        "got application_name: {}",
+        singles[0].entries[0].application_name
+    );
+    assert!(
+        singles[0].entries[0].subsystem_name == "coralogix-serverless-repo",
+        "got subsystem_name: {}",
+        singles[0].entries[0].subsystem_name
+    );
+}
+
+#[tokio::test]
+async fn test_s3_event_starlark_unnest() {
+    use base64::Engine;
+
+    let starlark_script =
+        std::fs::read_to_string("tests/fixtures/starlark_unnest.star").expect("failed to read starlark script");
+    let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
+
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("INTEGRATION_TYPE", Some("S3")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("STARLARK_SCRIPT", Some(starlark_script_base64.as_str())),
+            ("DEBUG", Some("1")),
+        ],
+        run_test_s3_event_starlark_unnest(),
+    )
+    .await;
+}

@@ -2,7 +2,7 @@ use coralogix_aws_shipper::logs::transform::{StarlarkError, StarlarkTransformer}
 use serde_json;
 
 // =============================================================================
-// Starlark Transformation Tests
+// Happy Path
 // =============================================================================
 
 #[test]
@@ -12,7 +12,8 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "hello"}"#).unwrap();
+    let input = include_str!("../fixtures/starlark_simple_passthrough.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     assert!(result[0].contains("hello"));
 }
@@ -27,8 +28,7 @@ def transform(event):
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    // Test with nested array
-    let input = r#"{"logs": [{"msg": "log1"}, {"msg": "log2"}, {"msg": "log3"}]}"#;
+    let input = include_str!("../fixtures/starlark_unnest_array.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 3);
     assert!(result[0].contains("log1"));
@@ -46,13 +46,12 @@ def transform(event):
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    // Debug log should be filtered
-    let debug_log = r#"{"level": "DEBUG", "msg": "debug message"}"#;
+    let lines: Vec<&str> = include_str!("../fixtures/starlark_filter_logs.log").lines().collect();
+    let debug_log = lines[0].trim();
     let result = transformer.transform(debug_log).unwrap();
     assert_eq!(result.len(), 0);
 
-    // Info log should pass through
-    let info_log = r#"{"level": "INFO", "msg": "info message"}"#;
+    let info_log = lines[1].trim();
     let result = transformer.transform(info_log).unwrap();
     assert_eq!(result.len(), 1);
 }
@@ -66,11 +65,16 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "hello"}"#).unwrap();
+    let input = include_str!("../fixtures/starlark_transform_and_enrich.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     assert!(result[0].contains("processed"));
     assert!(result[0].contains("aws-shipper"));
 }
+
+// =============================================================================
+// Unhappy Path - Load/Compile (missing transform, syntax error)
+// =============================================================================
 
 #[test]
 fn test_starlark_missing_transform_function() {
@@ -93,14 +97,26 @@ def transform(event)  # Missing colon
 }
 
 #[test]
+fn test_starlark_load_time_error() {
+    let script = r#"
+x = 1 / 0
+def transform(event):
+    return [event]
+"#;
+    let result = StarlarkTransformer::new(script);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::EvalError(_))));
+}
+
+#[test]
 fn test_starlark_non_json_passthrough() {
     let script = r#"
 def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    // Non-JSON input must come back as the exact original string — no JSON quoting.
-    let result = transformer.transform("plain text log message").unwrap();
+    let input = include_str!("../fixtures/starlark_non_json_passthrough.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], "plain text log message");
 }
@@ -115,10 +131,11 @@ def transform(event):
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    let logs = vec![
-        r#"{"logs": [{"a": 1}, {"b": 2}]}"#.to_string(),
-        r#"{"msg": "standalone"}"#.to_string(),
-    ];
+    let logs: Vec<String> = include_str!("../fixtures/starlark_batch_transform.log")
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
 
     let result = transformer.transform_batch(logs).unwrap();
     assert_eq!(result.len(), 3); // 2 from first + 1 from second
@@ -134,8 +151,7 @@ def transform(event):
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    // Simulate the batched log from test-event.json (demo-004-batch)
-    let batched_input = r#"{"logs": [{"level": "INFO", "message": "Batch log entry 1", "timestamp": "2026-01-19T09:00:00Z"}, {"level": "DEBUG", "message": "Batch log entry 2", "timestamp": "2026-01-19T09:00:01Z"}, {"level": "ERROR", "message": "Batch log entry 3 - Something went wrong!", "timestamp": "2026-01-19T09:00:02Z"}]}"#;
+    let batched_input = include_str!("../fixtures/starlark_demo_unnest.log").trim();
 
     println!("\n========== STARLARK TRANSFORMATION DEMO ==========");
     println!("\n📥 INPUT (1 batched JSON with nested 'logs' array):");
@@ -160,7 +176,7 @@ def transform(event):
 }
 
 // =============================================================================
-// Built-in Function Tests (CDS-2349)
+// Built-in Functions
 // =============================================================================
 
 #[test]
@@ -171,7 +187,8 @@ def transform(event):
     return [{"original": event, "parsed": parsed}]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "test"}"#).unwrap();
+    let input = include_str!("../fixtures/starlark_parse_json_builtin.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert!(parsed.get("parsed").is_some());
@@ -186,7 +203,8 @@ def transform(event):
     return [{"serialized": json_str}]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{}"#).unwrap();
+    let input = include_str!("../fixtures/starlark_to_json_builtin.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert!(parsed.get("serialized").is_some());
@@ -204,8 +222,59 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "test"}"#).unwrap();
+    let input = include_str!("../fixtures/starlark_print_builtin.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
+}
+
+#[test]
+fn test_parse_json_builtin_invalid_json() {
+    let script = r#"
+def transform(event):
+    parsed = parse_json('not valid json')
+    return [parsed]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "test"}"#);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::EvalError(_))));
+}
+
+// =============================================================================
+// Unhappy Path - Runtime
+// =============================================================================
+
+#[test]
+fn test_starlark_runtime_error_key_error() {
+    let script = r#"
+def transform(event):
+    _ = event["missing_key"]
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "test"}"#);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::EvalError(_))));
+}
+
+#[test]
+fn test_starlark_batch_one_fails() {
+    let script = r#"
+def transform(event):
+    if "fail" in event and event["fail"]:
+        _ = event["missing_key"]
+    event["processed"] = True
+    return [event]
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let failing_log = r#"{"fail": true, "msg": "bad"}"#.to_string();
+    let ok_log = r#"{"msg": "ok"}"#.to_string();
+    let logs = vec![failing_log.clone(), ok_log];
+    let result = transformer.transform_batch(logs).unwrap();
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0], failing_log);
+    assert!(result[1].contains("processed"));
+    assert!(result[1].contains("ok"));
 }
 
 // =============================================================================
@@ -219,8 +288,8 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let deep = r#"{"a":{"b":{"c":{"d":{"e":{"f":{"g":"deep"}}}}}}}"#;
-    let result = transformer.transform(deep).unwrap();
+    let input = include_str!("../fixtures/starlark_deep_nesting.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert_eq!(parsed["a"]["b"]["c"]["d"]["e"]["f"]["g"], "deep");
@@ -257,12 +326,13 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"severity": "ERROR", "msg": "critical"}"#).unwrap();
+    let lines: Vec<&str> = include_str!("../fixtures/starlark_script_with_helpers.log").lines().collect();
+    let result = transformer.transform(lines[0].trim()).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert_eq!(parsed["flagged"], true);
-    
-    let result2 = transformer.transform(r#"{"severity": "INFO", "msg": "normal"}"#).unwrap();
+
+    let result2 = transformer.transform(lines[1].trim()).unwrap();
     let parsed2: serde_json::Value = serde_json::from_str(&result2[0]).unwrap();
     assert!(parsed2.get("flagged").is_none());
 }
@@ -275,7 +345,8 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "hello"}"#).unwrap();
+    let input = include_str!("../fixtures/starlark_unicode_handling.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert_eq!(parsed["unicode_test"], "测试 🚀 émoji");
@@ -288,7 +359,8 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform("{}").unwrap();
+    let input = include_str!("../fixtures/starlark_empty_input.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert!(parsed.as_object().unwrap().is_empty());
@@ -336,7 +408,7 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = r#"{"pi": 3.141592653589793, "small": 0.0000001}"#;
+    let input = include_str!("../fixtures/starlark_float_precision.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
@@ -358,7 +430,7 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = r#"{"special": "line1\nline2\ttab\"quote\\backslash"}"#;
+    let input = include_str!("../fixtures/starlark_special_characters.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
@@ -373,7 +445,8 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "test"}"#).unwrap();
+    let input = include_str!("../fixtures/starlark_null_values.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert!(parsed.get("null_field").is_some());
@@ -389,7 +462,8 @@ def transform(event):
     return [event]
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{}"#).unwrap();
+    let input = include_str!("../fixtures/starlark_boolean_values.log").trim();
+    let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert_eq!(parsed["true_val"], true);
@@ -459,14 +533,7 @@ def transform(event):
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
     
-    // Test object with mixed int and float fields
-    let input = r#"{
-        "small_int": 42,
-        "large_int": 1706745600000,
-        "float_val": 3.14159,
-        "negative_int": -1000000,
-        "negative_float": -2.71828
-    }"#;
+    let input = include_str!("../fixtures/starlark_mixed_numeric_types.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
@@ -499,7 +566,8 @@ def transform(event):
     return None
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "test"}"#);
+    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
     let error_msg = format!("{}", result.unwrap_err());
@@ -514,7 +582,8 @@ def transform(event):
     return "not a list"
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "test"}"#);
+    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
     let error_msg = format!("{}", result.unwrap_err());
@@ -529,7 +598,8 @@ def transform(event):
     return {"key": "value"}
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "test"}"#);
+    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
     let error_msg = format!("{}", result.unwrap_err());
@@ -544,7 +614,8 @@ def transform(event):
     return 42
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "test"}"#);
+    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
     let error_msg = format!("{}", result.unwrap_err());
@@ -558,7 +629,8 @@ def transform(event):
     return True
 "#;
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let result = transformer.transform(r#"{"msg": "test"}"#);
+    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
     let error_msg = format!("{}", result.unwrap_err());

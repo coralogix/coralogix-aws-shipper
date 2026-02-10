@@ -1,0 +1,2 @@
+{"logs": [{"msg": "log1", "level": "info"}, {"msg": "log2", "level": "warn"}]}
+{"logs": [{"msg": "log3", "level": "error"}]}
