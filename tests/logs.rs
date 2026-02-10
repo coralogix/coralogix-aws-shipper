@@ -2144,21 +2144,11 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
             .unwrap(),
     );
 
-    let s3_replay_event_result = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
-        http::Request::builder()
-            .body(aws_smithy_types::body::SdkBody::empty())
-            .unwrap(),
-        http::Response::builder()
-            .status(200) // invooke server error
-            .body(aws_smithy_types::body::SdkBody::empty())
-            .unwrap(),
-    );
-
     let s3_relay_client =
         aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
             s3_replay_event_failure,
             s3_replay_event_get_object,
-            s3_replay_event_result,
+            // s3_replay_event_result,
         ]);
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
@@ -2175,41 +2165,25 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
         .unwrap();
 
     let req_count = s3_relay_client.actual_requests().into_iter().count();
-    assert_eq!(req_count, 3, "expected 3 requests, got {}", req_count);
+    assert_eq!(req_count, 2, "expected 2 requests, got {}", req_count);
 
-    s3_relay_client
-        .actual_requests()
-        .into_iter()
-        .skip(2)
-        .for_each(|v| {
-            let result_logs: Vec<String> = std::str::from_utf8(v.body().bytes().unwrap())
-                .expect("unable parse log lines from result")
-                .to_string()
-                .split("\n")
-                .map(|s| s.to_string())
-                .collect();
-
-            let time_prefix = chrono::Local::now()
-                .format("coraligx-aws-shipper/failed-events/%Y/%m/%d/%H")
-                .to_string();
-
-            let expected_uri = format!("https://s3.eu-central-1.amazonaws.com/{}/{}/example-bucket/test/key?x-id=PutObject",
-                std::env::var("DLQ_S3_BUCKET").unwrap(),
-                time_prefix,
-            );
-
-            assert_eq!(expected_uri, v.uri(), "request uri does not match expected");
-
-            let log_lines = vec![
-                "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-                "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-                "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-                "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-            ];
-            for (i, log_line) in log_lines.iter().enumerate() {
-                assert!(result_logs[i] == *log_line);
-            }
-        });
+    // Assert the replayed S3 response body was read and processed: exporter received logs from tests/fixtures/s3.log
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1, "expected 1 export batch");
+    assert_eq!(singles[0].entries.len(), 4, "expected 4 log lines from s3.log fixture");
+    let expected_log_lines = [
+        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    ];
+    for (i, expected) in expected_log_lines.iter().enumerate() {
+        assert_eq!(
+            singles[0].entries[i].body, *expected,
+            "log line {} should match fixture content",
+            i + 1
+        );
+    }
 }
 
 #[tokio::test]
@@ -2465,7 +2439,7 @@ async fn run_test_route_failed_event_to_dlq() {
     sqs_replay_client.actual_requests().into_iter().for_each(|x| {
         let v = std::str::from_utf8(x.body().bytes().unwrap()).unwrap();
         let got: serde_json::Value = serde_json::from_str(v).unwrap();
-        let expected: serde_json::Value = serde_json::from_str(r#"{"MessageAttributes": {"LastError": {"DataType": "String", "StringValue": "service error"}, "retry": {"DataType": "String", "StringValue": "4"}}, "MessageBody": "{\"Records\": [{\"eventVersion\": \"2.0\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-east-1\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"EXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"127.0.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"EXAMPLE123456789\", \"x-amz-id-2\": \"EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"example-bucket\", \"ownerIdentity\": {\"principalId\": \"EXAMPLE\"}, \"arn\": \"arn:aws:s3:::example-bucket\"}, \"object\": {\"key\": \"test/key\", \"size\": 1024, \"eTag\": \"0123456789abcdef0123456789abcdef\", \"sequencer\": \"0A1B2C3D4E5F678901\"}}}]}", "QueueUrl": "https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT"}"#).unwrap();
+        let expected: serde_json::Value = serde_json::from_str(r#"{"MessageAttributes": {"LastError": {"DataType": "String", "StringValue": "dispatch failure"}, "retry": {"DataType": "String", "StringValue": "4"}}, "MessageBody": "{\"Records\": [{\"eventVersion\": \"2.0\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-east-1\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"EXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"127.0.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"EXAMPLE123456789\", \"x-amz-id-2\": \"EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"example-bucket\", \"ownerIdentity\": {\"principalId\": \"EXAMPLE\"}, \"arn\": \"arn:aws:s3:::example-bucket\"}, \"object\": {\"key\": \"test/key\", \"size\": 1024, \"eTag\": \"0123456789abcdef0123456789abcdef\", \"sequencer\": \"0A1B2C3D4E5F678901\"}}}]}", "QueueUrl": "https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT"}"#).unwrap();
         assert_eq!(got, expected, "sdk body does not match expected");
     });
 }

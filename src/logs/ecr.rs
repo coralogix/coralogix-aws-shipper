@@ -63,21 +63,6 @@ struct Attribute {
     key: String,
     value: String,
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
-enum FindingSeverity {
-    #[allow(missing_docs)]
-    Critical,
-    #[allow(missing_docs)]
-    High,
-    #[allow(missing_docs)]
-    Informational,
-    #[allow(missing_docs)]
-    Low,
-    #[allow(missing_docs)]
-    Medium,
-    #[allow(missing_docs)]
-    Undefined,
-}
 
 pub async fn process_ecr_scan_event(
     event: EcrScanEvent,
