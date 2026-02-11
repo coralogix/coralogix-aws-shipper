@@ -12,6 +12,9 @@ use aws_sdk_sts::Client as StsClient;
 use cx_sdk_rest_logs::auth::ApiKey;
 use thiserror::Error;
 
+/// Maximum allowed size for a downloaded Starlark script (1 MiB).
+const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
+
 pub struct Config {
     pub newline_pattern: String,  // this should be regex
     pub blocking_pattern: String, // this should be regex
@@ -193,6 +196,8 @@ pub enum ScriptLoadError {
     Base64Error(#[from] base64::DecodeError),
     #[error("Script is not valid UTF-8")]
     InvalidUtf8,
+    #[error("Script exceeds maximum allowed size of {max_bytes} bytes (got {actual_bytes} bytes)")]
+    ScriptTooLarge { max_bytes: usize, actual_bytes: usize },
 }
 
 impl Config {
@@ -317,11 +322,25 @@ impl Config {
             .await
             .map_err(|e| ScriptLoadError::S3Error(e.to_string()))?;
 
-        // Download the content similar to process.rs
+        if let Some(len) = response.content_length {
+            if len as usize > MAX_SCRIPT_BYTES {
+                return Err(ScriptLoadError::ScriptTooLarge {
+                    max_bytes: MAX_SCRIPT_BYTES,
+                    actual_bytes: len as usize,
+                });
+            }
+        }
+
         let mut data = Vec::new();
         let mut body = response.body;
         while let Some(result) = body.next().await {
             let bytes = result.map_err(|e| ScriptLoadError::S3Error(e.to_string()))?;
+            if data.len() + bytes.len() > MAX_SCRIPT_BYTES {
+                return Err(ScriptLoadError::ScriptTooLarge {
+                    max_bytes: MAX_SCRIPT_BYTES,
+                    actual_bytes: data.len() + bytes.len(),
+                });
+            }
             data.extend_from_slice(&bytes[..]);
         }
 
@@ -338,7 +357,22 @@ impl Config {
         if !response.status().is_success() {
             return Err(ScriptLoadError::HttpError(response.status()));
         }
-        response.text().await.map_err(ScriptLoadError::NetworkError)
+        if let Some(len) = response.content_length() {
+            if len as usize > MAX_SCRIPT_BYTES {
+                return Err(ScriptLoadError::ScriptTooLarge {
+                    max_bytes: MAX_SCRIPT_BYTES,
+                    actual_bytes: len as usize,
+                });
+            }
+        }
+        let bytes = response.bytes().await?;
+        if bytes.len() > MAX_SCRIPT_BYTES {
+            return Err(ScriptLoadError::ScriptTooLarge {
+                max_bytes: MAX_SCRIPT_BYTES,
+                actual_bytes: bytes.len(),
+            });
+        }
+        String::from_utf8(bytes.to_vec()).map_err(|_| ScriptLoadError::InvalidUtf8)
     }
 
     /// Decode a base64-encoded Starlark script
