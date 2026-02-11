@@ -1,3 +1,1 @@
-// Include starlark transform tests
-#[path = "starlark/transform.rs"]
-mod transform;
+mod starlark;

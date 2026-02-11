@@ -2,23 +2,14 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion, Benchmark
 use coralogix_aws_shipper::logs::transform::StarlarkTransformer;
 
 fn benchmark_script_compilation(c: &mut Criterion) {
-    let script = r#"
-def transform(event):
-    if "logs" in event:
-        return event["logs"]
-    return [event]
-"#;
+    let script = include_str!("../fixtures/scripts/bench_compile.star");
     c.bench_function("compile_script", |b| {
         b.iter(|| StarlarkTransformer::new(black_box(script)).unwrap())
     });
 }
 
 fn benchmark_single_transform(c: &mut Criterion) {
-    let script = r#"
-def transform(event):
-    event["processed"] = True
-    return [event]
-"#;
+    let script = include_str!("../fixtures/scripts/bench_transform.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     let log = r#"{"msg": "hello", "level": "INFO", "timestamp": "2024-01-01T00:00:00Z"}"#;
     
@@ -28,10 +19,7 @@ def transform(event):
 }
 
 fn benchmark_batch_transform(c: &mut Criterion) {
-    let script = r#"
-def transform(event):
-    return [event]
-"#;
+    let script = include_str!("../fixtures/scripts/bench_batch.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     
     let mut group = c.benchmark_group("batch_transform");
@@ -48,12 +36,7 @@ def transform(event):
 }
 
 fn benchmark_unnest_transform(c: &mut Criterion) {
-    let script = r#"
-def transform(event):
-    if "logs" in event:
-        return event["logs"]
-    return [event]
-"#;
+    let script = include_str!("../fixtures/scripts/bench_unnest.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     
     let mut group = c.benchmark_group("unnest_transform");

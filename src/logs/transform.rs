@@ -71,16 +71,30 @@ pub async fn transform_logs(
         if guard.is_none() {
             drop(guard);
             // Resolve script from any configured source (must release lock before await)
-            let resolved_script = config
-                .resolve_starlark_script(aws_config)
-                .await
-                .map_err(|e| TransformError::EvalError(format!("Failed to load script: {}", e)))?;
+            let resolved_script = match config.resolve_starlark_script(aws_config).await {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        "Starlark script resolution failed, passing through {} logs unchanged: {}",
+                        logs.len(),
+                        e
+                    );
+                    return Ok(logs);
+                }
+            };
 
             let transformer = match resolved_script {
-                Some(script) => {
-                    debug!("Compiling Starlark script for caching");
-                    Some(StarlarkTransformer::new(&script)?)
-                }
+                Some(script) => match StarlarkTransformer::new(&script) {
+                    Ok(t) => Some(t),
+                    Err(e) => {
+                        warn!(
+                            "Starlark script compilation failed, passing through {} logs unchanged: {}",
+                            logs.len(),
+                            e
+                        );
+                        return Ok(logs);
+                    }
+                },
                 None => {
                     debug!("No Starlark script configured, caching None");
                     None

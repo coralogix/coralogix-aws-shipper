@@ -1,15 +1,18 @@
-use aws_config::{BehaviorVersion, SharedCredentialsProvider, SdkConfig};
-use aws_sdk_s3::config::Credentials as S3Credentials;
+//! Pipeline integration tests: script loading (S3/HTTP/base64), caching, and fail-open behavior.
+
+use aws_config::{BehaviorVersion, SdkConfig};
+use aws_sdk_s3::config::{Credentials as S3Credentials, SharedCredentialsProvider};
 use aws_sdk_s3::config::Region as S3Region;
 use aws_smithy_runtime::client::http::test_util::ReplayEvent;
 use aws_smithy_runtime::client::http::test_util::StaticReplayClient;
 use aws_smithy_types::body::SdkBody;
 use base64::Engine;
 use coralogix_aws_shipper::logs::config::{Config, IntegrationType, ScriptLoadError};
+use coralogix_aws_shipper::logs::transform::{reset_cache, transform_logs};
 use cx_sdk_rest_logs::auth::ApiKey;
 use http::Response;
-use wiremock::{Mock, MockServer, ResponseTemplate};
 use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn create_test_config(starlark_script: Option<String>) -> Config {
     Config {
@@ -38,80 +41,83 @@ fn create_test_config(starlark_script: Option<String>) -> Config {
     }
 }
 
+fn aws_config() -> SdkConfig {
+    SdkConfig::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .region(S3Region::new("us-east-1"))
+        .build()
+}
+
+// =============================================================================
+// Script resolution
+// =============================================================================
+
 #[tokio::test]
 async fn test_load_script_from_http_success() {
     let mock_server = MockServer::start().await;
-    
+
     let script_content = "def transform(event):\n    return [event]";
-    
+
     Mock::given(method("GET"))
         .and(path("/script.star"))
-        .respond_with(ResponseTemplate::new(200)
-            .set_body_string(script_content))
+        .respond_with(ResponseTemplate::new(200).set_body_string(script_content))
         .mount(&mock_server)
         .await;
-    
+
     let script_url = format!("{}/script.star", mock_server.uri());
     let config = create_test_config(Some(script_url));
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    let result = config.resolve_starlark_script(&aws_config).await.unwrap();
+    let aws = aws_config();
+
+    let result = config.resolve_starlark_script(&aws).await.unwrap();
     assert_eq!(result, Some(script_content.to_string()));
 }
 
 #[tokio::test]
 async fn test_load_script_from_http_404() {
     let mock_server = MockServer::start().await;
-    
+
     Mock::given(method("GET"))
         .and(path("/script.star"))
         .respond_with(ResponseTemplate::new(404))
         .mount(&mock_server)
         .await;
-    
+
     let script_url = format!("{}/script.star", mock_server.uri());
     let config = create_test_config(Some(script_url));
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    let result = config.resolve_starlark_script(&aws_config).await;
-    assert!(matches!(result, Err(ScriptLoadError::HttpError(status)) if status.as_u16() == 404));
+    let aws = aws_config();
+
+    let result = config.resolve_starlark_script(&aws).await;
+    assert!(matches!(
+        result,
+        Err(ScriptLoadError::HttpError(status)) if status.as_u16() == 404
+    ));
 }
 
 #[tokio::test]
 async fn test_load_script_from_http_timeout() {
     let mock_server = MockServer::start().await;
-    
+
     Mock::given(method("GET"))
         .and(path("/script.star"))
-        .respond_with(ResponseTemplate::new(200)
-            .set_body_string("def transform(event):\n    return [event]")
-            .set_delay(std::time::Duration::from_secs(10)))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("def transform(event):\n    return [event]")
+                .set_delay(std::time::Duration::from_secs(10)),
+        )
         .mount(&mock_server)
         .await;
-    
+
     let script_url = format!("{}/script.star", mock_server.uri());
     let config = create_test_config(Some(script_url));
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    // This should timeout - we'll use tokio::time::timeout to test
+    let aws = aws_config();
+
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        config.resolve_starlark_script(&aws_config)
-    ).await;
-    
-    assert!(result.is_err()); // Timeout occurred
+        config.resolve_starlark_script(&aws),
+    )
+    .await;
+
+    assert!(result.is_err());
 }
 
 #[tokio::test]
@@ -119,8 +125,7 @@ async fn test_load_script_from_s3_mock() {
     let script_content = "def transform(event):\n    return [event]";
     let bucket = "test-bucket";
     let key = "scripts/transform.star";
-    
-    // Create a mock S3 response
+
     let response_body = SdkBody::from(script_content.as_bytes());
     let replay_event = ReplayEvent::new(
         http::Request::builder()
@@ -133,10 +138,10 @@ async fn test_load_script_from_s3_mock() {
             .body(response_body)
             .unwrap(),
     );
-    
+
     let replay_client = StaticReplayClient::new(vec![replay_event]);
-    
-    let aws_config = SdkConfig::builder()
+
+    let aws = SdkConfig::builder()
         .behavior_version(BehaviorVersion::latest())
         .credentials_provider(SharedCredentialsProvider::new(S3Credentials::new(
             "SOMETESTKEYID",
@@ -148,24 +153,20 @@ async fn test_load_script_from_s3_mock() {
         .region(S3Region::new("us-east-1"))
         .http_client(replay_client)
         .build();
-    
+
     let s3_path = format!("s3://{}/{}", bucket, key);
     let config = create_test_config(Some(s3_path));
-    
-    let result = config.resolve_starlark_script(&aws_config).await.unwrap();
+
+    let result = config.resolve_starlark_script(&aws).await.unwrap();
     assert_eq!(result, Some(script_content.to_string()));
 }
 
 #[tokio::test]
 async fn test_load_script_from_s3_invalid_path() {
-    let config = create_test_config(Some("s3://bucket".to_string())); // Missing key
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    let result = config.resolve_starlark_script(&aws_config).await;
+    let config = create_test_config(Some("s3://bucket".to_string()));
+    let aws = aws_config();
+
+    let result = config.resolve_starlark_script(&aws).await;
     assert!(matches!(result, Err(ScriptLoadError::InvalidS3Path(_))));
 }
 
@@ -173,29 +174,20 @@ async fn test_load_script_from_s3_invalid_path() {
 async fn test_load_script_from_base64() {
     let script = "def transform(event):\n    return [event]";
     let encoded = base64::engine::general_purpose::STANDARD.encode(script);
-    
+
     let config = create_test_config(Some(encoded));
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    let result = config.resolve_starlark_script(&aws_config).await.unwrap();
+    let aws = aws_config();
+
+    let result = config.resolve_starlark_script(&aws).await.unwrap();
     assert_eq!(result, Some(script.to_string()));
 }
 
 #[tokio::test]
 async fn test_load_script_from_base64_invalid() {
     let config = create_test_config(Some("not valid base64!!!".to_string()));
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    let result = config.resolve_starlark_script(&aws_config).await;
-    // Should fall back to treating as raw script since it doesn't look like base64
+    let aws = aws_config();
+
+    let result = config.resolve_starlark_script(&aws).await;
     assert!(result.is_ok());
 }
 
@@ -203,71 +195,123 @@ async fn test_load_script_from_base64_invalid() {
 async fn test_load_script_raw() {
     let script = "def transform(event):\n    return [event]";
     let config = create_test_config(Some(script.to_string()));
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    let result = config.resolve_starlark_script(&aws_config).await.unwrap();
+    let aws = aws_config();
+
+    let result = config.resolve_starlark_script(&aws).await.unwrap();
     assert_eq!(result, Some(script.to_string()));
 }
 
 #[tokio::test]
 async fn test_load_script_none() {
     let config = create_test_config(None);
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    let result = config.resolve_starlark_script(&aws_config).await.unwrap();
+    let aws = aws_config();
+
+    let result = config.resolve_starlark_script(&aws).await.unwrap();
     assert_eq!(result, None);
 }
 
 #[tokio::test]
 async fn test_priority_s3_over_url() {
-    // S3 path should take priority over URL
-    let mock_server = MockServer::start().await;
-    let _script_url = format!("{}/script.star", mock_server.uri());
-    
-    // Create config with both S3 and URL (though Config only has one field)
-    // In reality, CloudFormation validation ensures only one is set
-    // This test verifies S3 detection works
     let s3_path = "s3://bucket/key";
     let config = create_test_config(Some(s3_path.to_string()));
-    
-    let aws_config = SdkConfig::builder()
-        .behavior_version(BehaviorVersion::latest())
-        .region(S3Region::new("us-east-1"))
-        .build();
-    
-    // Should attempt S3 load (will fail without proper mock, but should detect S3 path)
-    let result = config.resolve_starlark_script(&aws_config).await;
-    // Should fail with S3 error, not HTTP error, proving S3 was attempted first
+    let aws = aws_config();
+
+    let result = config.resolve_starlark_script(&aws).await;
     assert!(result.is_err());
-    // Error should be S3-related, not HTTP-related
     assert!(!matches!(result, Err(ScriptLoadError::HttpError(_))));
 }
 
 #[tokio::test]
 async fn test_base64_padding_variants() {
-    // Test base64 with different padding scenarios
-    let script1 = "short";
-    let script2 = "medium length script";
+    // Scripts must be 15+ chars so encoded form meets looks_like_base64's 20-char minimum
+    let script1 = "short script here";
+    let script2 = "medium length script content";
     let script3 = "very long script content that needs proper encoding";
-    
+
     for script in [script1, script2, script3] {
         let encoded = base64::engine::general_purpose::STANDARD.encode(script);
         let config = create_test_config(Some(encoded));
-        
-        let aws_config = SdkConfig::builder()
-            .behavior_version(BehaviorVersion::latest())
-            .region(S3Region::new("us-east-1"))
-            .build();
-        
-        let result = config.resolve_starlark_script(&aws_config).await.unwrap();
+        let aws = aws_config();
+
+        let result = config.resolve_starlark_script(&aws).await.unwrap();
         assert_eq!(result, Some(script.to_string()));
     }
+}
+
+// =============================================================================
+// Fail-open behavior
+// =============================================================================
+
+#[tokio::test]
+async fn test_transform_logs_fail_open_on_script_resolution_failure() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/script.star"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&mock_server)
+        .await;
+
+    let script_url = format!("{}/script.star", mock_server.uri());
+    let config = create_test_config(Some(script_url));
+    let aws = aws_config();
+
+    reset_cache().await;
+
+    let logs = vec![
+        r#"{"msg": "log1", "level": "info"}"#.to_string(),
+        r#"{"msg": "log2", "level": "error"}"#.to_string(),
+    ];
+    let logs_clone = logs.clone();
+
+    let result = transform_logs(logs, &config, &aws).await;
+
+    assert!(result.is_ok(), "should pass through on resolution failure");
+    let passed = result.unwrap();
+    assert_eq!(passed, logs_clone, "should return original logs unchanged");
+}
+
+#[tokio::test]
+async fn test_transform_logs_fail_open_on_script_compilation_failure() {
+    let bad_script = r#"
+def process(event):
+    return [event]
+"#;
+    let config = create_test_config(Some(bad_script.to_string()));
+    let aws = aws_config();
+
+    reset_cache().await;
+
+    let logs = vec![
+        r#"{"msg": "log1", "level": "info"}"#.to_string(),
+        r#"{"msg": "log2", "level": "error"}"#.to_string(),
+    ];
+    let logs_clone = logs.clone();
+
+    let result = transform_logs(logs, &config, &aws).await;
+
+    assert!(result.is_ok(), "should pass through on compilation failure");
+    let passed = result.unwrap();
+    assert_eq!(passed, logs_clone, "should return original logs unchanged");
+}
+
+#[tokio::test]
+async fn test_transform_logs_fail_open_on_syntax_error() {
+    let bad_script = r#"
+def transform(event)  # Missing colon
+    return [event]
+"#;
+    let config = create_test_config(Some(bad_script.to_string()));
+    let aws = aws_config();
+
+    reset_cache().await;
+
+    let logs = vec![r#"{"msg": "test"}"#.to_string()];
+    let logs_clone = logs.clone();
+
+    let result = transform_logs(logs, &config, &aws).await;
+
+    assert!(result.is_ok(), "should pass through on syntax error");
+    let passed = result.unwrap();
+    assert_eq!(passed, logs_clone, "should return original logs unchanged");
 }
