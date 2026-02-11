@@ -270,8 +270,18 @@ fn starlark_extras(builder: &mut GlobalsBuilder) {
     }
 
     /// Print a debug message (useful for script debugging)
-    fn print(msg: &str) -> anyhow::Result<starlark::values::none::NoneType> {
-        debug!("[Starlark] {}", msg);
+    /// Accepts any value - strings are printed directly, other values are converted to JSON
+    fn print(v: Value) -> anyhow::Result<starlark::values::none::NoneType> {
+        // If it's a string, print it directly
+        if let Some(s) = v.unpack_str() {
+            debug!("[Starlark] {}", s);
+        } else {
+            // For other types, convert to JSON for readable output
+            match starlark_to_json(v) {
+                Ok(json) => debug!("[Starlark] {}", json),
+                Err(_) => debug!("[Starlark] {}", v.to_repr()),
+            }
+        }
         Ok(starlark::values::none::NoneType)
     }
 }
