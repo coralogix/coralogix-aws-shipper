@@ -428,6 +428,60 @@ Your script must define a `transform(event)` function that:
 - Takes a single `event` argument (a parsed JSON object or string)
 - Returns a **list** of events (can be empty, single, or multiple)
 
+### Understanding the Event Format
+
+The `event` passed to `transform(event)` is the **raw log content** — there is no wrapper or envelope added by the shipper. If the log string is valid JSON, `event` is a Starlark dict (object); otherwise it is a plain string.
+
+> [!NOTE]
+> The transform runs **before** any metadata (e.g., `s3.object.key`, `cw.log.group`) is attached. Your script only sees the raw log content, not shipper metadata.
+
+The structure of `event` depends on the source that triggered the Lambda:
+
+| Source | What `event` Contains | Typical Type |
+|--------|----------------------|--------------|
+| **CloudWatch Logs** | The `message` field from each log event | String or dict (depends on what your application logged) |
+| **Kinesis (CloudWatch subscription)** | Same as CloudWatch — the `message` field per log event | String or dict |
+| **Kinesis (raw)** | The decoded (and decompressed, if gzip) payload | String or dict |
+| **S3 (default)** | Each line of the file, split by the `NewlinePattern` | String or dict |
+| **S3 (CloudTrail)** | Each individual record from the CloudTrail `Records` array | Dict (CloudTrail event object) |
+| **S3 (VPC Flow Logs)** | Each flow log row, parsed into JSON using the flow log header as keys | Dict (e.g., `{"srcaddr": "10.0.0.1", "dstaddr": "10.0.0.2", "action": "ACCEPT", ...}`) |
+| **S3 (CSV / CloudFront)** | Each CSV row, parsed into JSON using the header row (or `CUSTOM_CSV_HEADER`) as keys | Dict |
+| **SQS** | The raw SQS message body | String or dict |
+| **SNS** | The raw SNS message body | String or dict |
+| **Kafka** | The message value (base64-decoded if needed) | String or dict |
+
+**If your logs are JSON**, `event` is a dict and you can access fields directly:
+
+```python
+def transform(event):
+    # event is {"level": "INFO", "msg": "hello"}
+    if event["level"] == "DEBUG":
+        return []
+    return [event]
+```
+
+**If your logs are plain text** (e.g., syslog, unstructured output), `event` is a string:
+
+```python
+def transform(event):
+    # event is "Feb 11 12:00:00 myhost sshd[1234]: Accepted publickey"
+    if "sshd" in event:
+        return [{"original": event, "service": "sshd"}]
+    return [event]
+```
+
+**If your logs contain embedded JSON** inside a string field, use `parse_json`:
+
+```python
+def transform(event):
+    # event is {"message": "{\"user\": \"alice\", \"action\": \"login\"}"}
+    inner = parse_json(event["message"])
+    return [inner]
+```
+
+> [!TIP]
+> To inspect the exact shape of your events, use `print(event)` in your script and set the `LogLevel` parameter to `DEBUG`. The event will appear in CloudWatch Logs for the Lambda function.
+
 **Example: Simple passthrough**
 ```python
 def transform(event):

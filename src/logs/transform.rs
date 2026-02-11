@@ -79,6 +79,7 @@ pub async fn transform_logs(
                         logs.len(),
                         e
                     );
+                    *CACHED_TRANSFORMER.lock().await = Some(None);
                     return Ok(logs);
                 }
             };
@@ -92,6 +93,7 @@ pub async fn transform_logs(
                             logs.len(),
                             e
                         );
+                        *CACHED_TRANSFORMER.lock().await = Some(None);
                         return Ok(logs);
                     }
                 },

@@ -272,6 +272,39 @@ async fn test_transform_logs_fail_open_on_script_resolution_failure() {
 }
 
 #[tokio::test]
+async fn test_transform_logs_caches_failure_on_script_resolution() {
+    // When resolution fails, we cache Some(None) so subsequent calls skip re-resolution.
+    // Without this, record-by-record handlers (Kinesis, SQS) would retry network per record.
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/script.star"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(1) // Assert exactly one HTTP request; second call must use cache
+        .mount(&mock_server)
+        .await;
+
+    let script_url = format!("{}/script.star", mock_server.uri());
+    let config = create_test_config(Some(script_url));
+    let aws = aws_config();
+
+    reset_cache().await;
+
+    let logs = vec![r#"{"msg": "log1"}"#.to_string()];
+    let logs_clone = logs.clone();
+
+    let result1 = transform_logs(logs.clone(), &config, &aws).await;
+    assert!(result1.is_ok());
+    assert_eq!(result1.unwrap(), logs_clone);
+
+    let result2 = transform_logs(logs, &config, &aws).await;
+    assert!(result2.is_ok());
+    assert_eq!(result2.unwrap(), logs_clone);
+
+    // MockServer verifies expect(1) on drop - if cache didn't work, we'd have 2 requests and panic
+}
+
+#[tokio::test]
 async fn test_transform_logs_fail_open_on_script_compilation_failure() {
     let bad_script = r#"
 def process(event):
@@ -293,6 +326,34 @@ def process(event):
     assert!(result.is_ok(), "should pass through on compilation failure");
     let passed = result.unwrap();
     assert_eq!(passed, logs_clone, "should return original logs unchanged");
+}
+
+#[tokio::test]
+async fn test_transform_logs_caches_failure_on_script_compilation() {
+    // When compilation fails (e.g. missing transform function), we cache Some(None)
+    // so subsequent calls skip re-compilation.
+    let bad_script = r#"
+def process(event):
+    return [event]
+"#;
+    let config = create_test_config(Some(bad_script.to_string()));
+    let aws = aws_config();
+
+    reset_cache().await;
+
+    let logs = vec![
+        r#"{"msg": "log1", "level": "info"}"#.to_string(),
+        r#"{"msg": "log2", "level": "error"}"#.to_string(),
+    ];
+    let logs_clone = logs.clone();
+
+    let result1 = transform_logs(logs.clone(), &config, &aws).await;
+    assert!(result1.is_ok(), "first call should pass through on compilation failure");
+    assert_eq!(result1.unwrap(), logs_clone);
+
+    let result2 = transform_logs(logs, &config, &aws).await;
+    assert!(result2.is_ok(), "second call should use cache and pass through without re-compiling");
+    assert_eq!(result2.unwrap(), logs_clone);
 }
 
 #[tokio::test]
