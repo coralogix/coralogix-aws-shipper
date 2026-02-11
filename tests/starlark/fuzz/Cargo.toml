@@ -8,7 +8,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
-coralogix-aws-shipper = { path = "../../" }
+coralogix-aws-shipper = { path = "../../../" }
 libfuzzer-sys = "0.4"
 
 [[bin]]
