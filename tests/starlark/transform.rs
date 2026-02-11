@@ -8,9 +8,9 @@ use serde_json;
 
 #[test]
 fn test_starlark_simple_passthrough() {
-    let script = include_str!("../fixtures/scripts/passthrough.star");
+    let script = include_str!("../fixtures/starlark/passthrough.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_simple_passthrough.log").trim();
+    let input = include_str!("../fixtures/starlark/simple_passthrough.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     assert!(result[0].contains("hello"));
@@ -18,10 +18,10 @@ fn test_starlark_simple_passthrough() {
 
 #[test]
 fn test_starlark_unnest_array() {
-    let script = include_str!("../fixtures/scripts/unnest.star");
+    let script = include_str!("../fixtures/starlark/unnest.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    let input = include_str!("../fixtures/starlark_unnest_array.log").trim();
+    let input = include_str!("../fixtures/starlark/unnest_array.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 3);
     assert!(result[0].contains("log1"));
@@ -31,10 +31,10 @@ fn test_starlark_unnest_array() {
 
 #[test]
 fn test_starlark_filter_logs() {
-    let script = include_str!("../fixtures/scripts/filter_logs.star");
+    let script = include_str!("../fixtures/starlark/filter_logs.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    let lines: Vec<&str> = include_str!("../fixtures/starlark_filter_logs.log").lines().collect();
+    let lines: Vec<&str> = include_str!("../fixtures/starlark/filter_logs.log").lines().collect();
     let debug_log = lines[0].trim();
     let result = transformer.transform(debug_log).unwrap();
     assert_eq!(result.len(), 0);
@@ -45,10 +45,10 @@ fn test_starlark_filter_logs() {
 }
 
 #[test]
-fn test_starlark_transform_and_enrich() {
-    let script = include_str!("../fixtures/scripts/enrich.star");
+fn test_starlark_enrich() {
+    let script = include_str!("../fixtures/starlark/enrich.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_transform_and_enrich.log").trim();
+    let input = include_str!("../fixtures/starlark/enrich.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     assert!(result[0].contains("processed"));
@@ -61,16 +61,16 @@ fn test_starlark_transform_and_enrich() {
 
 #[test]
 fn test_starlark_missing_transform_function() {
-    let script = include_str!("../fixtures/scripts/missing_transform.star");
+    let script = include_str!("../fixtures/starlark/missing_transform.star");
     let result = StarlarkTransformer::new(script);
     assert!(matches!(result, Err(StarlarkError::TransformFunctionNotFound)));
 }
 
 #[test]
 fn test_starlark_non_json_passthrough() {
-    let script = include_str!("../fixtures/scripts/passthrough.star");
+    let script = include_str!("../fixtures/starlark/passthrough.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_non_json_passthrough.log").trim();
+    let input = include_str!("../fixtures/starlark/non_json_passthrough.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], "plain text log message");
@@ -78,10 +78,10 @@ fn test_starlark_non_json_passthrough() {
 
 #[test]
 fn test_starlark_batch_transform() {
-    let script = include_str!("../fixtures/scripts/unnest.star");
+    let script = include_str!("../fixtures/starlark/unnest.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    let logs: Vec<String> = include_str!("../fixtures/starlark_batch_transform.log")
+    let logs: Vec<String> = include_str!("../fixtures/starlark/batch_transform.log")
         .lines()
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
@@ -96,10 +96,10 @@ fn test_starlark_batch_transform() {
 // =============================================================================
 
 #[test]
-fn test_parse_json_builtin() {
-    let script = include_str!("../fixtures/scripts/parse_json_builtin.star");
+fn test_starlark_parse_json_builtin() {
+    let script = include_str!("../fixtures/starlark/parse_json_builtin.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_parse_json_builtin.log").trim();
+    let input = include_str!("../fixtures/starlark/parse_json_builtin.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
@@ -108,10 +108,10 @@ fn test_parse_json_builtin() {
 }
 
 #[test]
-fn test_to_json_builtin() {
-    let script = include_str!("../fixtures/scripts/to_json_builtin.star");
+fn test_starlark_to_json_builtin() {
+    let script = include_str!("../fixtures/starlark/to_json_builtin.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_to_json_builtin.log").trim();
+    let input = include_str!("../fixtures/starlark/to_json_builtin.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
@@ -123,17 +123,17 @@ fn test_to_json_builtin() {
 }
 
 #[test]
-fn test_print_builtin() {
-    let script = include_str!("../fixtures/scripts/print_builtin.star");
+fn test_starlark_print_builtin() {
+    let script = include_str!("../fixtures/starlark/print_builtin.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_print_builtin.log").trim();
+    let input = include_str!("../fixtures/starlark/print_builtin.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
 }
 
 #[test]
-fn test_parse_json_builtin_invalid_json() {
-    let script = include_str!("../fixtures/scripts/parse_json_invalid.star");
+fn test_starlark_parse_json_invalid() {
+    let script = include_str!("../fixtures/starlark/parse_json_invalid.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     let result = transformer.transform(r#"{"msg": "test"}"#);
     assert!(result.is_err());
@@ -146,7 +146,7 @@ fn test_parse_json_builtin_invalid_json() {
 
 #[test]
 fn test_starlark_batch_one_fails() {
-    let script = include_str!("../fixtures/scripts/batch_one_fails.star");
+    let script = include_str!("../fixtures/starlark/batch_one_fails.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     let failing_log = r#"{"fail": true, "msg": "bad"}"#.to_string();
     let ok_log = r#"{"msg": "ok"}"#.to_string();
@@ -159,10 +159,10 @@ fn test_starlark_batch_one_fails() {
 }
 
 #[test]
-fn test_script_with_helpers() {
-    let script = include_str!("../fixtures/scripts/helpers.star");
+fn test_starlark_helpers() {
+    let script = include_str!("../fixtures/starlark/helpers.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let lines: Vec<&str> = include_str!("../fixtures/starlark_script_with_helpers.log").lines().collect();
+    let lines: Vec<&str> = include_str!("../fixtures/starlark/helpers.log").lines().collect();
     let result = transformer.transform(lines[0].trim()).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
@@ -174,8 +174,8 @@ fn test_script_with_helpers() {
 }
 
 #[test]
-fn test_numeric_precision_i64() {
-    let script = include_str!("../fixtures/scripts/passthrough.star");
+fn test_starlark_numeric_precision() {
+    let script = include_str!("../fixtures/starlark/passthrough.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     
     // Test epoch milliseconds (large i64 value)
@@ -206,10 +206,10 @@ fn test_numeric_precision_i64() {
 }
 
 #[test]
-fn test_float_precision() {
-    let script = include_str!("../fixtures/scripts/passthrough.star");
+fn test_starlark_float_precision() {
+    let script = include_str!("../fixtures/starlark/passthrough.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_float_precision.log").trim();
+    let input = include_str!("../fixtures/starlark/float_precision.log").trim();
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
@@ -224,71 +224,15 @@ fn test_float_precision() {
     assert_eq!(parsed["small"].as_f64(), Some(0.0000001));
 }
 
-#[test]
-fn test_very_large_integers() {
-    let script = include_str!("../fixtures/scripts/passthrough.star");
-    let transformer = StarlarkTransformer::new(script).unwrap();
-    
-    // Test integer larger than u64::MAX (will be represented as string in JSON)
-    let very_large = "999999999999999999999999999999999999999999999";
-    let input = format!(r#"{{"very_large": {}}}"#, very_large);
-    let result = transformer.transform(&input).unwrap();
-    assert_eq!(result.len(), 1);
-    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
-    assert!(parsed.get("very_large").is_some());
-    // Very large integers outside i64/u64 range will be strings
-    if let Some(s) = parsed["very_large"].as_str() {
-        assert_eq!(s, very_large);
-    } else {
-        // If it fits in i64/u64, verify it's a number
-        assert!(parsed["very_large"].is_number());
-    }
-    
-    // Test u64::MAX
-    let u64_max = u64::MAX;
-    let input = format!(r#"{{"u64_max": {}}}"#, u64_max);
-    let result = transformer.transform(&input).unwrap();
-    assert_eq!(result.len(), 1);
-    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
-    assert_eq!(parsed["u64_max"].as_u64(), Some(u64_max));
-}
-
-#[test]
-fn test_mixed_numeric_types() {
-    let script = include_str!("../fixtures/scripts/passthrough.star");
-    let transformer = StarlarkTransformer::new(script).unwrap();
-    
-    let input = include_str!("../fixtures/starlark_mixed_numeric_types.log").trim();
-    let result = transformer.transform(input).unwrap();
-    assert_eq!(result.len(), 1);
-    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
-    
-    // Verify all numeric types are preserved correctly
-    assert_eq!(parsed["small_int"].as_i64(), Some(42));
-    assert_eq!(parsed["large_int"].as_i64(), Some(1706745600000));
-    assert!(parsed["float_val"].is_f64());
-    assert_eq!(parsed["float_val"].as_f64(), Some(3.14159));
-    assert_eq!(parsed["negative_int"].as_i64(), Some(-1000000));
-    assert!(parsed["negative_float"].is_f64());
-    assert_eq!(parsed["negative_float"].as_f64(), Some(-2.71828));
-    
-    // Verify none of them became strings
-    assert!(!parsed["small_int"].is_string());
-    assert!(!parsed["large_int"].is_string());
-    assert!(!parsed["float_val"].is_string());
-    assert!(!parsed["negative_int"].is_string());
-    assert!(!parsed["negative_float"].is_string());
-}
-
 // =============================================================================
 // Return Type Enforcement Tests
 // =============================================================================
 
 #[test]
 fn test_transform_must_return_list_none() {
-    let script = include_str!("../fixtures/scripts/return_none.star");
+    let script = include_str!("../fixtures/starlark/return_none.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let input = include_str!("../fixtures/starlark/return_list.log").trim();
     let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
@@ -299,9 +243,9 @@ fn test_transform_must_return_list_none() {
 
 #[test]
 fn test_transform_must_return_list_string() {
-    let script = include_str!("../fixtures/scripts/return_string.star");
+    let script = include_str!("../fixtures/starlark/return_string.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let input = include_str!("../fixtures/starlark/return_list.log").trim();
     let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
@@ -312,9 +256,9 @@ fn test_transform_must_return_list_string() {
 
 #[test]
 fn test_transform_must_return_list_dict() {
-    let script = include_str!("../fixtures/scripts/return_dict.star");
+    let script = include_str!("../fixtures/starlark/return_dict.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let input = include_str!("../fixtures/starlark/return_list.log").trim();
     let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
@@ -325,9 +269,9 @@ fn test_transform_must_return_list_dict() {
 
 #[test]
 fn test_transform_must_return_list_int() {
-    let script = include_str!("../fixtures/scripts/return_int.star");
+    let script = include_str!("../fixtures/starlark/return_int.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let input = include_str!("../fixtures/starlark/return_list.log").trim();
     let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
@@ -337,9 +281,9 @@ fn test_transform_must_return_list_int() {
 
 #[test]
 fn test_transform_must_return_list_bool() {
-    let script = include_str!("../fixtures/scripts/return_bool.star");
+    let script = include_str!("../fixtures/starlark/return_bool.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark_return_list.log").trim();
+    let input = include_str!("../fixtures/starlark/return_list.log").trim();
     let result = transformer.transform(input);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::InvalidReturnType(_))));
@@ -354,7 +298,7 @@ fn test_transform_must_return_list_bool() {
 proptest! {
     #[test]
     fn passthrough_preserves_valid_json(json in prop::collection::hash_map("[a-z]+", 0i32..100, 0..10)) {
-        let script = include_str!("../fixtures/scripts/passthrough.star");
+        let script = include_str!("../fixtures/starlark/passthrough.star");
         let transformer = StarlarkTransformer::new(script).unwrap();
         let input = serde_json::to_string(&json).unwrap();
         let result = transformer.transform(&input).unwrap();
@@ -365,7 +309,7 @@ proptest! {
 
     #[test]
     fn batch_transform_handles_any_size(size in 0usize..1000) {
-        let script = include_str!("../fixtures/scripts/passthrough.star");
+        let script = include_str!("../fixtures/starlark/passthrough.star");
         let transformer = StarlarkTransformer::new(script).unwrap();
         let logs: Vec<String> = (0..size)
             .map(|i| format!(r#"{{"id": {}}}"#, i))

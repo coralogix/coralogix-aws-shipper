@@ -2749,7 +2749,7 @@ async fn run_test_s3_event_starlark_unnest() {
     coralogix_aws_shipper::logs::transform::reset_cache().await;
 
     let s3_client =
-        get_mock_s3client(Some("./tests/fixtures/starlark_unnest.log")).expect("failed to create s3 client");
+        get_mock_s3client(Some("./tests/fixtures/starlark/unnest.log")).expect("failed to create s3 client");
     let config = Config::load_from_env().expect("failed to load config from env");
 
     let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/starlark_unnest.log");
@@ -2804,7 +2804,7 @@ async fn test_s3_event_starlark_unnest() {
     use base64::Engine;
 
     let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark_unnest.star").expect("failed to read starlark script");
+        std::fs::read_to_string("tests/fixtures/starlark/unnest_filter.star").expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(

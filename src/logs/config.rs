@@ -299,6 +299,7 @@ impl Config {
 
             let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
                 .credentials_provider(credentials)
+                .region(aws_config.region().cloned())
                 .load()
                 .await;
 

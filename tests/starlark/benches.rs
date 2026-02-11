@@ -2,14 +2,14 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion, Benchmark
 use coralogix_aws_shipper::logs::transform::StarlarkTransformer;
 
 fn benchmark_script_compilation(c: &mut Criterion) {
-    let script = include_str!("../fixtures/scripts/bench_compile.star");
+    let script = include_str!("../fixtures/starlark/bench_compile.star");
     c.bench_function("compile_script", |b| {
         b.iter(|| StarlarkTransformer::new(black_box(script)).unwrap())
     });
 }
 
 fn benchmark_single_transform(c: &mut Criterion) {
-    let script = include_str!("../fixtures/scripts/bench_transform.star");
+    let script = include_str!("../fixtures/starlark/bench_transform.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     let log = r#"{"msg": "hello", "level": "INFO", "timestamp": "2024-01-01T00:00:00Z"}"#;
     
@@ -19,7 +19,7 @@ fn benchmark_single_transform(c: &mut Criterion) {
 }
 
 fn benchmark_batch_transform(c: &mut Criterion) {
-    let script = include_str!("../fixtures/scripts/bench_batch.star");
+    let script = include_str!("../fixtures/starlark/bench_batch.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     
     let mut group = c.benchmark_group("batch_transform");
@@ -36,7 +36,7 @@ fn benchmark_batch_transform(c: &mut Criterion) {
 }
 
 fn benchmark_unnest_transform(c: &mut Criterion) {
-    let script = include_str!("../fixtures/scripts/bench_unnest.star");
+    let script = include_str!("../fixtures/starlark/bench_unnest.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     
     let mut group = c.benchmark_group("unnest_transform");
