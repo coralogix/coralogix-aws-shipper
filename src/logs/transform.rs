@@ -184,6 +184,8 @@ pub enum TransformError {
     EvalError(String),
     #[error("Transform function not found in script. Define: def transform(event): ...")]
     TransformFunctionNotFound,
+    #[error("'transform' must be a function (def transform(event): ...), got {0}")]
+    TransformNotCallable(String),
     #[error("Transform function must return a list: {0}")]
     InvalidReturnType(String),
     #[error("Failed to convert value: {0}")]
@@ -229,9 +231,13 @@ impl StarlarkTransformer {
             .freeze()
             .map_err(|e| TransformError::EvalError(format!("{:?}", e)))?;
 
-        // Verify transform function exists
-        if frozen_module.get("transform").is_err() {
-            return Err(TransformError::TransformFunctionNotFound);
+        // Verify transform function exists and is callable
+        let transform_val = frozen_module
+            .get("transform")
+            .map_err(|_| TransformError::TransformFunctionNotFound)?;
+        let ty = transform_val.value().get_type();
+        if ty != "function" {
+            return Err(TransformError::TransformNotCallable(ty.to_string()));
         }
 
         debug!("Starlark transformer compiled successfully");

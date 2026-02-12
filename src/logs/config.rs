@@ -353,7 +353,7 @@ impl Config {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .map_err(ScriptLoadError::NetworkError)?;
-        let response = client.get(url).send().await?;
+        let mut response = client.get(url).send().await?;
         if !response.status().is_success() {
             return Err(ScriptLoadError::HttpError(response.status()));
         }
@@ -365,14 +365,17 @@ impl Config {
                 });
             }
         }
-        let bytes = response.bytes().await?;
-        if bytes.len() > MAX_SCRIPT_BYTES {
-            return Err(ScriptLoadError::ScriptTooLarge {
-                max_bytes: MAX_SCRIPT_BYTES,
-                actual_bytes: bytes.len(),
-            });
+        let mut data = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if data.len() + chunk.len() > MAX_SCRIPT_BYTES {
+                return Err(ScriptLoadError::ScriptTooLarge {
+                    max_bytes: MAX_SCRIPT_BYTES,
+                    actual_bytes: data.len() + chunk.len(),
+                });
+            }
+            data.extend_from_slice(&chunk);
         }
-        String::from_utf8(bytes.to_vec()).map_err(|_| ScriptLoadError::InvalidUtf8)
+        String::from_utf8(data).map_err(|_| ScriptLoadError::InvalidUtf8)
     }
 
     /// Decode a base64-encoded Starlark script

@@ -67,6 +67,16 @@ fn test_starlark_missing_transform_function() {
 }
 
 #[test]
+fn test_starlark_non_callable_transform() {
+    let script = include_str!("../fixtures/starlark/non_callable_transform.star");
+    let result = StarlarkTransformer::new(script);
+    assert!(matches!(result, Err(StarlarkError::TransformNotCallable(_))));
+    if let Err(e) = result {
+        assert!(format!("{}", e).contains("dict"));
+    }
+}
+
+#[test]
 fn test_starlark_non_json_passthrough() {
     let script = include_str!("../fixtures/starlark/passthrough.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
