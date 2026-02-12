@@ -1,4 +1,5 @@
 use crate::logs::config::Config;
+use crate::logs::transform;
 use crate::logs::*;
 use cx_sdk_rest_logs::auth::AuthData;
 use cx_sdk_rest_logs::model::{LogSinglesEntry, LogSinglesRequest, Severity};
@@ -31,11 +32,29 @@ pub async fn process_batches(
     config: &Config,
     mctx: &process::MetadataContext,
     exporter: DynLogExporter,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let logs: Vec<String> = logs
         .into_iter()
         .filter(|log| !log.trim().is_empty())
         .collect();
+
+    if logs.is_empty() {
+        info!("No logs to send");
+        return Ok(());
+    }
+
+    // Apply transformation pipeline (Starlark if configured, otherwise passthrough)
+    let logs = transform::transform_logs(logs, config, aws_config).await.map_err(|e| {
+        error!("Log transformation failed: {}", e);
+        Error::from(e.to_string())
+    })?;
+
+    let logs: Vec<String> = logs
+        .into_iter()
+        .filter(|log| !log.trim().is_empty())
+        .collect();
+
     let number_of_logs = logs.len();
     if number_of_logs == 0 {
         info!("No logs to send");
@@ -551,6 +570,7 @@ mod tests {
             dlq_retry_limit: None,
             dlq_s3_bucket: None,
             lambda_assume_role: None,
+            starlark_script: None,
             enable_log_group_tags: false,
             log_group_tags_cache_ttl_seconds: 300,
         }
@@ -989,5 +1009,27 @@ mod tests {
                 key
             );
         }
+    }
+
+    #[test]
+    fn test_into_batches_includes_empty_entries_without_filter() {
+        // Without the post-transform filter, empty/whitespace strings would be batched and shipped.
+        // This test validates that into_batches_of_estimated_size does not filter them -
+        // the caller (process_batches) must filter before batching.
+        let config = test_config();
+        let logs = vec![
+            "valid".to_string(),
+            "".to_string(),
+            "   ".to_string(),
+            "\t\n".to_string(),
+            "another valid".to_string(),
+        ];
+        let batches = into_batches_of_estimated_size(logs, &config);
+        let total: usize = batches.iter().map(|b| b.len()).sum();
+        assert_eq!(total, 5, "into_batches_of_estimated_size does not filter empty entries");
+
+        let flat: Vec<_> = batches.into_iter().flatten().collect();
+        assert!(flat.contains(&"".to_string()));
+        assert!(flat.contains(&"   ".to_string()));
     }
 }

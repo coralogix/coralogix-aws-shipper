@@ -32,6 +32,7 @@
    - [Metadata](#metadata)
    - [Advanced Configuration](#advanced-configuration)
    - [DLQ](#dlq)
+   - [Log Transformation (Starlark)](#log-transformation-starlark)
 5. [Troubleshooting](#troubleshooting)
 6. [Cloudwatch Metrics Stream via Firehose for PrivateLink (beta)](#cloudwatch-metrics-streaming-via-privatelink-beta)
 7. [Support](#support)
@@ -398,6 +399,167 @@ To enable the DLQ, provide the following parameters.
 > [!NOTE]
 > In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the Lambda is created you can manually change the permissions to only allow 
 > access to your S3 buckets.
+
+## Log Transformation (Starlark)
+
+The Coralogix AWS Shipper supports custom log transformation using [Starlark](https://github.com/bazelbuild/starlark) scripts. Starlark is a Python-like configuration language that allows you to:
+
+- **Unnest** JSON arrays into individual log entries
+- **Filter** logs based on custom conditions  
+- **Transform** log structure before sending to Coralogix
+- **Enrich** logs with additional fields
+
+### Configuration
+
+The `StarlarkScript` parameter automatically detects the source type based on the value provided:
+
+| Value Format | Detection | Example |
+|--------------|-----------|---------|
+| Starts with `s3://` | S3 bucket path | `s3://my-bucket/scripts/transform.star` |
+| Starts with `http://` or `https://` | HTTP/HTTPS URL | `https://raw.githubusercontent.com/user/repo/transform.star` |
+| Single line, base64 characters | Base64-encoded script | `ZGVmIHRyYW5zZm9ybShldmVudCk6CiAgICByZXR1cm4gW2V2ZW50XQ==` |
+| Multi-line with code keywords | Raw Starlark script | `def transform(event):\n    return [event]` |
+
+The system automatically detects which type you're using, so you only need to set the `StarlarkScript` parameter.
+
+### Writing a Transform Script
+
+Your script must define a `transform(event)` function that:
+- Takes a single `event` argument (a parsed JSON object or string)
+- Returns a **list** of events (can be empty, single, or multiple)
+
+### Understanding the Event Format
+
+The `event` passed to `transform(event)` is the **raw log content** — there is no wrapper or envelope added by the shipper. If the log string is valid JSON, `event` is a Starlark dict (object); otherwise it is a plain string.
+
+> [!NOTE]
+> The transform runs **before** any metadata (e.g., `s3.object.key`, `cw.log.group`) is attached. Your script only sees the raw log content, not shipper metadata.
+
+The structure of `event` depends on the source that triggered the Lambda:
+
+| Source | What `event` Contains | Typical Type |
+|--------|----------------------|--------------|
+| **CloudWatch Logs** | The `message` field from each log event | String or dict (depends on what your application logged) |
+| **Kinesis (CloudWatch subscription)** | Same as CloudWatch — the `message` field per log event | String or dict |
+| **Kinesis (raw)** | The decoded (and decompressed, if gzip) payload | String or dict |
+| **S3 (default)** | Each line of the file, split by the `NewlinePattern` | String or dict |
+| **S3 (CloudTrail)** | Each individual record from the CloudTrail `Records` array | Dict (CloudTrail event object) |
+| **S3 (VPC Flow Logs)** | Each flow log row, parsed into JSON using the flow log header as keys | Dict (e.g., `{"srcaddr": "10.0.0.1", "dstaddr": "10.0.0.2", "action": "ACCEPT", ...}`) |
+| **S3 (CSV / CloudFront)** | Each CSV row, parsed into JSON using the header row (or `CUSTOM_CSV_HEADER`) as keys | Dict |
+| **SQS** | The raw SQS message body | String or dict |
+| **SNS** | The raw SNS message body | String or dict |
+| **Kafka** | The message value (base64-decoded if needed) | String or dict |
+
+**If your logs are JSON**, `event` is a dict and you can access fields directly:
+
+```python
+def transform(event):
+    # event is {"level": "INFO", "msg": "hello"}
+    if event["level"] == "DEBUG":
+        return []
+    return [event]
+```
+
+**If your logs are plain text** (e.g., syslog, unstructured output), `event` is a string:
+
+```python
+def transform(event):
+    # event is "Feb 11 12:00:00 myhost sshd[1234]: Accepted publickey"
+    if "sshd" in event:
+        return [{"original": event, "service": "sshd"}]
+    return [event]
+```
+
+**If your logs contain embedded JSON** inside a string field, use `parse_json`:
+
+```python
+def transform(event):
+    # event is {"message": "{\"user\": \"alice\", \"action\": \"login\"}"}
+    inner = parse_json(event["message"])
+    return [inner]
+```
+
+> [!TIP]
+> To inspect the exact shape of your events, use `print(event)` in your script and set the `LogLevel` parameter to `DEBUG`. The event will appear in CloudWatch Logs for the Lambda function.
+
+**Example: Simple passthrough**
+```python
+def transform(event):
+    return [event]
+```
+
+**Example: Unnest a JSON array**
+
+If your logs arrive as batched JSON with a nested array:
+```json
+{"logs": [{"msg": "log1"}, {"msg": "log2"}, {"msg": "log3"}]}
+```
+
+Use this script to unnest them into individual log entries:
+```python
+def transform(event):
+    if "logs" in event and type(event["logs"]) == "list":
+        return event["logs"]
+    return [event]
+```
+
+**Example: Filter out debug logs**
+```python
+def transform(event):
+    if event.get("level") == "DEBUG":
+        return []  # Filter out debug logs
+    return [event]
+```
+
+**Example: Enrich logs with metadata**
+```python
+def transform(event):
+    event["processed"] = True
+    event["source"] = "aws-shipper"
+    return [event]
+```
+
+### Built-in Functions
+
+The following helper functions are available in your Starlark scripts:
+
+| Function            | Description                                      |
+|---------------------|--------------------------------------------------|
+| `parse_json(str)`   | Parse a JSON string into a Starlark value        |
+| `to_json(value)`    | Convert a Starlark value to a JSON string        |
+| `print(msg)`        | Print a debug message (visible when LogLevel=DEBUG)|
+
+### Using S3 for Script Storage
+
+When the `StarlarkScript` value starts with `s3://`, the Lambda function automatically fetches the script from S3. The CloudFormation template automatically adds the necessary permissions when `StarlarkScript` is set.
+
+```
+StarlarkScript: s3://my-config-bucket/starlark/transform.star
+```
+
+### Using HTTP/HTTPS URLs
+
+You can host your script on any HTTP/HTTPS endpoint:
+
+```
+StarlarkScript: https://raw.githubusercontent.com/myorg/scripts/main/transform.star
+```
+
+### Using Base64 Encoding
+
+For complex multi-line scripts that are difficult to embed as parameters, use Base64 encoding. The system automatically detects base64-encoded strings:
+
+```bash
+# Encode your script (works on macOS and Linux)
+cat transform.star | base64
+
+# The shipper handles both wrapped and unwrapped base64 output
+# Use the output as the StarlarkScript parameter
+StarlarkScript: ZGVmIHRyYW5zZm9ybShldmVudCk6CiAgICByZXR1cm4gW2V2ZW50XQ==
+```
+
+> [!NOTE]
+> If no Starlark script is configured, logs pass through unchanged.
 
 ## Cloudwatch metrics streaming via PrivateLink (beta)
 
