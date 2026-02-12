@@ -584,7 +584,7 @@ Conditions:
   StarlarkScriptIsSet: !Not [!Equals [!Ref StarlarkScript, '']]
   StarlarkScriptIsS3: !And
     - !Not [!Equals [!Ref StarlarkScript, '']]
-    - !Equals [!Select [0, !Split ["s3://", !Ref StarlarkScript]], '']
+    - !Not [!Equals [!Select [0, !Split ["s3://", !Ref StarlarkScript]], !Ref StarlarkScript]]
   
 Rules:
   ValidateDLQ:

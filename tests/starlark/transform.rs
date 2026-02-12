@@ -45,6 +45,27 @@ fn test_starlark_filter_logs() {
 }
 
 #[test]
+fn test_starlark_return_empty_string() {
+    // Scripts can return [""] for dropped/invalid records. The transform layer does NOT filter
+    // these - the caller (process_batches) must filter before batching.
+    let script = include_str!("../fixtures/starlark/return_empty_string.star");
+    let transformer = StarlarkTransformer::new(script).unwrap();
+
+    let result = transformer.transform(r#"{"drop": true, "msg": "invalid"}"#).unwrap();
+    assert_eq!(result.len(), 1);
+    assert!(result[0].is_empty(), "transform emits empty string for dropped records");
+
+    let logs = vec![
+        r#"{"drop": true}"#.to_string(),
+        r#"{"drop": false, "msg": "keep"}"#.to_string(),
+    ];
+    let batch_result = transformer.transform_batch(logs).unwrap();
+    assert_eq!(batch_result.len(), 2);
+    assert!(batch_result[0].is_empty());
+    assert!(batch_result[1].contains("keep"));
+}
+
+#[test]
 fn test_starlark_enrich() {
     let script = include_str!("../fixtures/starlark/enrich.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
