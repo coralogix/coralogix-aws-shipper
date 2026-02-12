@@ -1,5 +1,5 @@
-/target
-/local
+/target/
+/local/
 .aws-sam
 .vscode
 packaged.yaml
