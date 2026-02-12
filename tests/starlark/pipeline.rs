@@ -8,7 +8,8 @@ use aws_smithy_runtime::client::http::test_util::StaticReplayClient;
 use aws_smithy_types::body::SdkBody;
 use base64::Engine;
 use coralogix_aws_shipper::logs::config::{Config, IntegrationType, ScriptLoadError};
-use coralogix_aws_shipper::logs::transform::{reset_cache, transform_logs};
+use coralogix_aws_shipper::logs::transform::{reset_cache, set_retry_interval_secs, transform_logs};
+use serial_test::serial;
 use cx_sdk_rest_logs::auth::ApiKey;
 use http::Response;
 use wiremock::matchers::{method, path};
@@ -243,6 +244,7 @@ async fn test_base64_padding_variants() {
 // =============================================================================
 
 #[tokio::test]
+#[serial]
 async fn test_transform_logs_fail_open_on_script_resolution_failure() {
     let mock_server = MockServer::start().await;
 
@@ -272,9 +274,12 @@ async fn test_transform_logs_fail_open_on_script_resolution_failure() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_transform_logs_caches_failure_on_script_resolution() {
-    // When resolution fails, we cache Some(None) so subsequent calls skip re-resolution.
-    // Without this, record-by-record handlers (Kinesis, SQS) would retry network per record.
+    // When resolution fails, we cache Failed (TTL-based) so subsequent calls within the TTL
+    // skip re-resolution. Without this, record-by-record handlers (Kinesis, SQS) would retry
+    // network per record. After TTL expires, resolution is retried (see retry test).
+    set_retry_interval_secs(60); // Ensure TTL is long enough that second call uses cache
     let mock_server = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -305,6 +310,7 @@ async fn test_transform_logs_caches_failure_on_script_resolution() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_transform_logs_fail_open_on_script_compilation_failure() {
     let bad_script = r#"
 def process(event):
@@ -329,9 +335,10 @@ def process(event):
 }
 
 #[tokio::test]
+#[serial]
 async fn test_transform_logs_caches_failure_on_script_compilation() {
-    // When compilation fails (e.g. missing transform function), we cache Some(None)
-    // so subsequent calls skip re-compilation.
+    // When compilation fails (e.g. missing transform function), we cache Failed (TTL-based)
+    // so subsequent calls within the TTL skip re-compilation. After TTL expires, retry occurs.
     let bad_script = r#"
 def process(event):
     return [event]
@@ -357,6 +364,95 @@ def process(event):
 }
 
 #[tokio::test]
+#[serial]
+async fn test_transform_logs_retries_resolution_after_ttl_expiry() {
+    let mock_server = MockServer::start().await;
+
+    let script_content = r#"def transform(event):
+    return [event]
+"#;
+
+    // First request: 500 (transient failure). Second request: 200 with valid script.
+    Mock::given(method("GET"))
+        .and(path("/script.star"))
+        .respond_with(ResponseTemplate::new(500))
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/script.star"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(script_content))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let script_url = format!("{}/script.star", mock_server.uri());
+    let config = create_test_config(Some(script_url));
+    let aws = aws_config();
+
+    reset_cache().await;
+    set_retry_interval_secs(0); // Immediate retry
+
+    let logs = vec![r#"{"msg":"log1"}"#.to_string()];
+    let logs_clone = logs.clone();
+
+    let result1 = transform_logs(logs.clone(), &config, &aws).await;
+    assert!(result1.is_ok(), "first call should pass through on 500");
+    assert_eq!(result1.unwrap(), logs_clone, "passthrough on resolution failure");
+
+    let result2 = transform_logs(logs, &config, &aws).await;
+    assert!(result2.is_ok(), "second call should retry and apply transform");
+    let transformed = result2.unwrap();
+    assert_eq!(transformed.len(), 1, "one log in, one log out");
+    assert!(
+        transformed[0].contains("log1"),
+        "transform(event) returns [event], content preserved"
+    );
+
+    set_retry_interval_secs(60);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_transform_logs_retries_compilation_failure_after_ttl_expiry() {
+    let bad_script = r#"
+def process(event):
+    return [event]
+"#;
+    let good_script = r#"def transform(event):
+    return [event]
+"#;
+
+    let config_bad = create_test_config(Some(bad_script.to_string()));
+    let config_good = create_test_config(Some(good_script.to_string()));
+    let aws = aws_config();
+
+    reset_cache().await;
+    set_retry_interval_secs(0); // Immediate retry
+
+    let logs = vec![r#"{"msg":"log1"}"#.to_string()];
+    let logs_clone = logs.clone();
+
+    let result1 = transform_logs(logs.clone(), &config_bad, &aws).await;
+    assert!(result1.is_ok(), "first call should pass through on compilation failure");
+    assert_eq!(result1.unwrap(), logs_clone);
+
+    let result2 = transform_logs(logs, &config_good, &aws).await;
+    assert!(
+        result2.is_ok(),
+        "second call with valid script should retry and apply transform"
+    );
+    let transformed = result2.unwrap();
+    assert_eq!(transformed.len(), 1);
+    assert!(transformed[0].contains("log1"), "content preserved through transform");
+
+    set_retry_interval_secs(60);
+}
+
+#[tokio::test]
+#[serial]
 async fn test_transform_logs_fail_open_on_syntax_error() {
     let bad_script = r#"
 def transform(event)  # Missing colon

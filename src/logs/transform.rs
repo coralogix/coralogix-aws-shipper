@@ -22,6 +22,9 @@
 //!     return [event]
 //! ```
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
 use crate::logs::config::Config;
 use aws_config::SdkConfig;
 use starlark::collections::SmallMap;
@@ -40,11 +43,24 @@ use tracing::{debug, info, warn};
 // Caching
 // ============================================================================
 
+/// Cache state for script resolution/compilation.
+/// - Ready: permanent (no script configured or successfully compiled)
+/// - Failed: retryable after TTL; used for transient S3/HTTP/STS errors
+enum CacheState {
+    Ready(Option<StarlarkTransformer>),
+    Failed { failed_at: Instant },
+}
+
+/// Retry interval in seconds before re-attempting resolution after a failure.
+/// Default 60s: long enough to cover a single invocation's record processing,
+/// short enough to retry on the next warm invocation.
+static RETRY_INTERVAL_SECS: AtomicU64 = AtomicU64::new(60);
+
 /// Cached transformer - resolved and compiled once per Lambda container.
 /// This avoids repeated S3/HTTP fetches and recompilation for record-by-record
 /// event sources (Kinesis, SQS) where `process_batches()` is called multiple times.
 /// Uses Mutex to allow test-only reset via reset_cache().
-static CACHED_TRANSFORMER: Mutex<Option<Option<StarlarkTransformer>>> = Mutex::const_new(None);
+static CACHED_TRANSFORMER: Mutex<Option<CacheState>> = Mutex::const_new(None);
 
 // ============================================================================
 // Public API
@@ -65,49 +81,67 @@ pub async fn transform_logs(
     config: &Config,
     aws_config: &SdkConfig,
 ) -> Result<Vec<String>, TransformError> {
-    // Get or initialize the cached transformer
-    {
+    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
+    let has_script_config = config.starlark_script.is_some();
+
+    let should_resolve = {
         let guard = CACHED_TRANSFORMER.lock().await;
-        if guard.is_none() {
-            drop(guard);
-            // Resolve script from any configured source (must release lock before await)
-            let resolved_script = match config.resolve_starlark_script(aws_config).await {
-                Ok(s) => s,
+        match guard.as_ref() {
+            None => true,
+            Some(CacheState::Ready(None)) => has_script_config, // Config now has script, retry
+            Some(CacheState::Ready(Some(_))) => !has_script_config, // Config no longer has script
+            Some(CacheState::Failed { failed_at }) => {
+                failed_at.elapsed() >= retry_interval
+            }
+        }
+    };
+
+    if should_resolve {
+        // Lock released (should_resolve block ended) before await
+        let resolved_script = match config.resolve_starlark_script(aws_config).await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(
+                    "Starlark script resolution failed, passing through {} logs unchanged: {}",
+                    logs.len(),
+                    e
+                );
+                *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
+                    failed_at: Instant::now(),
+                });
+                return Ok(logs);
+            }
+        };
+
+        let transformer = match resolved_script {
+            Some(script) => match StarlarkTransformer::new(&script) {
+                Ok(t) => Some(t),
                 Err(e) => {
                     warn!(
-                        "Starlark script resolution failed, passing through {} logs unchanged: {}",
+                        "Starlark script compilation failed, passing through {} logs unchanged: {}",
                         logs.len(),
                         e
                     );
-                    *CACHED_TRANSFORMER.lock().await = Some(None);
+                    *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
+                        failed_at: Instant::now(),
+                    });
                     return Ok(logs);
                 }
-            };
-
-            let transformer = match resolved_script {
-                Some(script) => match StarlarkTransformer::new(&script) {
-                    Ok(t) => Some(t),
-                    Err(e) => {
-                        warn!(
-                            "Starlark script compilation failed, passing through {} logs unchanged: {}",
-                            logs.len(),
-                            e
-                        );
-                        *CACHED_TRANSFORMER.lock().await = Some(None);
-                        return Ok(logs);
-                    }
-                },
-                None => {
-                    debug!("No Starlark script configured, caching None");
-                    None
-                }
-            };
-            *CACHED_TRANSFORMER.lock().await = Some(transformer);
-        }
+            },
+            None => {
+                debug!("No Starlark script configured, caching None");
+                None
+            }
+        };
+        *CACHED_TRANSFORMER.lock().await = Some(CacheState::Ready(transformer));
     }
 
     let guard = CACHED_TRANSFORMER.lock().await;
-    let transformer = guard.as_ref().unwrap();
+    let state = guard.as_ref().unwrap();
+    let transformer = match state {
+        CacheState::Ready(t) => t,
+        CacheState::Failed { .. } => return Ok(logs),
+    };
 
     let Some(transformer) = transformer else {
         return Ok(logs);
@@ -128,6 +162,13 @@ pub async fn transform_logs(
 #[doc(hidden)]
 pub async fn reset_cache() {
     *CACHED_TRANSFORMER.lock().await = None;
+}
+
+/// Set the retry interval (seconds) before re-attempting resolution after a failure.
+/// For use in tests only, to force immediate retry (e.g. pass 0).
+#[doc(hidden)]
+pub fn set_retry_interval_secs(secs: u64) {
+    RETRY_INTERVAL_SECS.store(secs, Ordering::SeqCst);
 }
 
 // ============================================================================

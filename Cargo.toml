@@ -51,6 +51,7 @@ starlark = "0.13.0"
 pretty_assertions_sorted = "1.2.1"
 test-log = "0.2.16"
 wiremock = "0.6.3"
+serial_test = "3.2"
 criterion = "0.5"
 proptest = "1.4"
 
