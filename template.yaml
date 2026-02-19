@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.4.0
+    SemanticVersion: 1.4.1
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -1523,3 +1523,8 @@ Resources:
                 time.sleep(wait_secs)
                 print('waited for {} seconds'.format(wait_secs))
             cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+Outputs:
+  LambdaArn:
+    Description: ARN of the Coralogix shipper Lambda function
+    Value: !GetAtt LambdaFunction.Arn
