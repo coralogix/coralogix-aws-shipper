@@ -315,7 +315,7 @@ fn starlark_extras(builder: &mut GlobalsBuilder) {
         json_to_starlark(heap, &json).map_err(|e| anyhow::anyhow!(e))
     }
 
-    /// Convert a Starlark value to a JSON string
+    /// Convert a Starlark value to a JSON string.
     fn to_json(v: Value) -> anyhow::Result<String> {
         let json = starlark_to_json(v).map_err(|e| anyhow::anyhow!(e))?;
         Ok(serde_json::to_string(&json)?)
