@@ -154,21 +154,47 @@ fn test_starlark_to_json_builtin() {
 }
 
 #[test]
-fn test_starlark_print_builtin() {
-    let script = include_str!("../fixtures/starlark/print_builtin.star");
-    let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark/print_builtin.log").trim();
-    let result = transformer.transform(input).unwrap();
-    assert_eq!(result.len(), 1);
-}
-
-#[test]
 fn test_starlark_parse_json_invalid() {
     let script = include_str!("../fixtures/starlark/parse_json_invalid.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
     let result = transformer.transform(r#"{"msg": "test"}"#);
     assert!(result.is_err());
     assert!(matches!(result, Err(StarlarkError::EvalError(_))));
+}
+
+#[test]
+fn test_starlark_print_builtin() {
+    // Verify that print() works without causing runtime errors.
+    // Print output goes to stderr (captured by Lambda/CloudWatch).
+    let script = include_str!("../fixtures/starlark/print_debug.star");
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    
+    // Test basic print during transform
+    let result = transformer.transform(r#"{"msg": "hello"}"#).unwrap();
+    assert_eq!(result.len(), 1);
+    assert!(result[0].contains("hello"));
+    
+    // Test print with debug flag
+    let result = transformer.transform(r#"{"debug": true, "data": "test"}"#).unwrap();
+    assert_eq!(result.len(), 1);
+    assert!(result[0].contains("debug"));
+}
+
+#[test]
+fn test_starlark_print_at_module_level() {
+    // Verify that print() works during module compilation (top-level statements).
+    let script = r#"
+print("Module loading...")
+
+def transform(event):
+    print("Transforming:", event)
+    return [event]
+
+print("Module loaded!")
+"#;
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"test": 1}"#).unwrap();
+    assert_eq!(result.len(), 1);
 }
 
 // =============================================================================

@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.4.1 / 2026-02-23
+### 🧰 Bug fixes 🧰
+- Replaced custom `print()` Starlark helper with Starlark's native `LibraryExtension::Print`. The `print()` built-in now writes directly to stderr, which is captured by Lambda and visible in CloudWatch Logs without requiring `LogLevel=DEBUG`.
+
 ## v1.4.0 / 2026-02-11
 ### 💡 Enhancements 💡
 - Add Starlark scripting support for log transformation. Users can define a `transform(event)` function in a Starlark script to unnest, filter, enrich, or modify logs before shipping. Scripts can be loaded from S3, HTTP/HTTPS URLs, base64-encoded strings, or inline. Includes built-in `parse_json`, `to_json`, and `print` helpers. Fail-open behavior ensures original logs are preserved on transform errors and on script resolution/compilation failures (transient S3/HTTP issues, IAM, or invalid script).
