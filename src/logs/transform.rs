@@ -36,8 +36,26 @@ use starlark::values::dict::DictRef;
 use starlark::values::float::StarlarkFloat;
 use starlark::values::list::ListRef;
 use starlark::values::{Heap, Value, ValueLike};
+use starlark::PrintHandler;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
+
+// ============================================================================
+// Print Handler
+// ============================================================================
+
+/// Print handler that writes to stderr, which is captured by Lambda/CloudWatch.
+struct StderrPrintHandler;
+
+impl PrintHandler for StderrPrintHandler {
+    fn println(&self, text: &str) -> starlark::Result<()> {
+        eprintln!("{}", text);
+        Ok(())
+    }
+}
+
+/// Global print handler instance for use in evaluators.
+static PRINT_HANDLER: StderrPrintHandler = StderrPrintHandler;
 
 // ============================================================================
 // Caching
@@ -225,6 +243,7 @@ impl StarlarkTransformer {
         let module = Module::new();
         {
             let mut eval = Evaluator::new(&module);
+            eval.set_print_handler(&PRINT_HANDLER);
             eval.eval_module(ast, &globals)
                 .map_err(|e| TransformError::EvalError(e.to_string()))?;
         }
@@ -268,6 +287,7 @@ impl StarlarkTransformer {
             .map_err(|_| TransformError::TransformFunctionNotFound)?;
 
         let mut eval = Evaluator::new(&module);
+        eval.set_print_handler(&PRINT_HANDLER);
 
         // Convert JSON to Starlark value
         let heap = module.heap();
