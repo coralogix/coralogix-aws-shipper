@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use crate::logs::config::Config;
 use aws_config::SdkConfig;
 use starlark::collections::SmallMap;
-use starlark::environment::{FrozenModule, Globals, GlobalsBuilder, Module};
+use starlark::environment::{FrozenModule, Globals, GlobalsBuilder, LibraryExtension, Module};
 use starlark::eval::Evaluator;
 use starlark::starlark_module;
 use starlark::syntax::{AstModule, Dialect};
@@ -215,8 +215,11 @@ impl StarlarkTransformer {
         let ast = AstModule::parse("transform.star", script.to_owned(), &Dialect::Standard)
             .map_err(|e| TransformError::ParseError(e.to_string()))?;
 
-        // Create globals with built-in functions
-        let globals = GlobalsBuilder::standard().with(starlark_extras).build();
+        // Create globals: standard + print (writes to stderr, captured by Lambda/CloudWatch)
+        // + our custom extras (parse_json, to_json)
+        let globals = GlobalsBuilder::extended_by(&[LibraryExtension::Print])
+            .with(starlark_extras)
+            .build();
 
         // Evaluate to create the module with the transform function
         let module = Module::new();
@@ -318,21 +321,6 @@ fn starlark_extras(builder: &mut GlobalsBuilder) {
         Ok(serde_json::to_string(&json)?)
     }
 
-    /// Print a debug message (useful for script debugging)
-    /// Accepts any value - strings are printed directly, other values are converted to JSON
-    fn print(v: Value) -> anyhow::Result<starlark::values::none::NoneType> {
-        // If it's a string, print it directly
-        if let Some(s) = v.unpack_str() {
-            debug!("[Starlark] {}", s);
-        } else {
-            // For other types, convert to JSON for readable output
-            match starlark_to_json(v) {
-                Ok(json) => debug!("[Starlark] {}", json),
-                Err(_) => debug!("[Starlark] {}", v.to_repr()),
-            }
-        }
-        Ok(starlark::values::none::NoneType)
-    }
 }
 
 // ============================================================================

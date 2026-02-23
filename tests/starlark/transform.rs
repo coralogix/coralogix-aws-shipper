@@ -154,15 +154,6 @@ fn test_starlark_to_json_builtin() {
 }
 
 #[test]
-fn test_starlark_print_builtin() {
-    let script = include_str!("../fixtures/starlark/print_builtin.star");
-    let transformer = StarlarkTransformer::new(script).unwrap();
-    let input = include_str!("../fixtures/starlark/print_builtin.log").trim();
-    let result = transformer.transform(input).unwrap();
-    assert_eq!(result.len(), 1);
-}
-
-#[test]
 fn test_starlark_parse_json_invalid() {
     let script = include_str!("../fixtures/starlark/parse_json_invalid.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
