@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use crate::logs::config::Config;
 use aws_config::SdkConfig;
 use starlark::collections::SmallMap;
-use starlark::environment::{FrozenModule, Globals, GlobalsBuilder, Module};
+use starlark::environment::{FrozenModule, Globals, GlobalsBuilder, LibraryExtension, Module};
 use starlark::eval::Evaluator;
 use starlark::starlark_module;
 use starlark::syntax::{AstModule, Dialect};
@@ -36,8 +36,26 @@ use starlark::values::dict::DictRef;
 use starlark::values::float::StarlarkFloat;
 use starlark::values::list::ListRef;
 use starlark::values::{Heap, Value, ValueLike};
+use starlark::PrintHandler;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
+
+// ============================================================================
+// Print Handler
+// ============================================================================
+
+/// Print handler that writes to stderr, which is captured by Lambda/CloudWatch.
+struct StderrPrintHandler;
+
+impl PrintHandler for StderrPrintHandler {
+    fn println(&self, text: &str) -> starlark::Result<()> {
+        eprintln!("{}", text);
+        Ok(())
+    }
+}
+
+/// Global print handler instance for use in evaluators.
+static PRINT_HANDLER: StderrPrintHandler = StderrPrintHandler;
 
 // ============================================================================
 // Caching
@@ -215,13 +233,17 @@ impl StarlarkTransformer {
         let ast = AstModule::parse("transform.star", script.to_owned(), &Dialect::Standard)
             .map_err(|e| TransformError::ParseError(e.to_string()))?;
 
-        // Create globals with built-in functions
-        let globals = GlobalsBuilder::standard().with(starlark_extras).build();
+        // Create globals: standard + print (writes to stderr, captured by Lambda/CloudWatch)
+        // + our custom extras (parse_json, to_json)
+        let globals = GlobalsBuilder::extended_by(&[LibraryExtension::Print])
+            .with(starlark_extras)
+            .build();
 
         // Evaluate to create the module with the transform function
         let module = Module::new();
         {
             let mut eval = Evaluator::new(&module);
+            eval.set_print_handler(&PRINT_HANDLER);
             eval.eval_module(ast, &globals)
                 .map_err(|e| TransformError::EvalError(e.to_string()))?;
         }
@@ -265,6 +287,7 @@ impl StarlarkTransformer {
             .map_err(|_| TransformError::TransformFunctionNotFound)?;
 
         let mut eval = Evaluator::new(&module);
+        eval.set_print_handler(&PRINT_HANDLER);
 
         // Convert JSON to Starlark value
         let heap = module.heap();
@@ -312,27 +335,12 @@ fn starlark_extras(builder: &mut GlobalsBuilder) {
         json_to_starlark(heap, &json).map_err(|e| anyhow::anyhow!(e))
     }
 
-    /// Convert a Starlark value to a JSON string
+    /// Convert a Starlark value to a JSON string.
     fn to_json(v: Value) -> anyhow::Result<String> {
         let json = starlark_to_json(v).map_err(|e| anyhow::anyhow!(e))?;
         Ok(serde_json::to_string(&json)?)
     }
 
-    /// Print a debug message (useful for script debugging)
-    /// Accepts any value - strings are printed directly, other values are converted to JSON
-    fn print(v: Value) -> anyhow::Result<starlark::values::none::NoneType> {
-        // If it's a string, print it directly
-        if let Some(s) = v.unpack_str() {
-            debug!("[Starlark] {}", s);
-        } else {
-            // For other types, convert to JSON for readable output
-            match starlark_to_json(v) {
-                Ok(json) => debug!("[Starlark] {}", json),
-                Err(_) => debug!("[Starlark] {}", v.to_repr()),
-            }
-        }
-        Ok(starlark::values::none::NoneType)
-    }
 }
 
 // ============================================================================
