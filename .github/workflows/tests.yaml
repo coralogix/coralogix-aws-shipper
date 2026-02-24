@@ -35,16 +35,19 @@ jobs:
           cfn-lint --template template.yaml --region us-east-1 --config-file .cfn-lint.yaml
           
       - name: Install latest Rust
+        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           
       - name: start ssh agent for rust private dependencies
+        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: run tests
+        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
         run: |
           cargo test --all -- --nocapture
