@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.4.2 / 2026-02-24
+### 🧰 Bug fixes 🧰
+- Fixed issue when deploying CloudWatch integration where `PutSubscriptionFilter` would fail because the Lambda invoke permission was not created for log groups not covered by a prefix-based permission. Permissions are now added individually for uncovered log groups and propagation delay increased from 1s to 15s.
+
+### 💡 Enhancements 💡
+- Added `Outputs` section to SAR template exposing `LambdaArn` for programmatic consumption
+
 ## v1.4.1 / 2026-02-23
 ### 🧰 Bug fixes 🧰
 - Replaced custom `print()` Starlark helper with Starlark's native `LibraryExtension::Print`. The `print()` built-in now writes directly to stderr, which is captured by Lambda and visible in CloudWatch Logs without requiring `LogLevel=DEBUG`.

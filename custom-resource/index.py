@@ -434,37 +434,42 @@ class ConfigureCloudwatchIntegration:
         self.update_custom_lambda_environment_variables(custom_lambda_arn, environment_variables)
         if LambdaPremissionPrefix and LambdaPremissionPrefix != [""]:
             for prefix in LambdaPremissionPrefix:
-                replaced_prefix =  sanitize_statement_id_prefix(prefix)
+                replaced_prefix = sanitize_statement_id_prefix(prefix)
                 try:
                     self.aws_lambda.add_permission(
-                    FunctionName=lambda_arn,
-                    StatementId=f'allow-trigger-from-{replaced_prefix}-log-groups',
-                    Action='lambda:InvokeFunction',
-                    Principal='logs.amazonaws.com',
-                    SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{prefix}*:*',
-                )
+                        FunctionName=lambda_arn,
+                        StatementId=f'allow-trigger-from-{replaced_prefix}-log-groups',
+                        Action='lambda:InvokeFunction',
+                        Principal='logs.amazonaws.com',
+                        SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{prefix}*:*',
+                    )
                 except Exception as e:
                     print("assuming permission already exists: ", str(e))
 
         for log_group in logGroupNames:
+            if LambdaPremissionPrefix and LambdaPremissionPrefix != [""]:
+                if any(log_group.startswith(prefix) for prefix in LambdaPremissionPrefix):
+                    continue
             response = self.cloudwatch_logs.describe_subscription_filters(
                 logGroupName=log_group,
                 filterNamePrefix=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}'
             )
-            if not LambdaPremissionPrefix or LambdaPremissionPrefix == [""]:
-                if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
-                    replaced_prefix =  sanitize_statement_id_prefix(log_group)
-                    try:
-                        response = self.aws_lambda.add_permission(
-                            FunctionName=lambda_arn,
-                            StatementId=f'allow-trigger-from-{replaced_prefix}',
-                            Action='lambda:InvokeFunction',
-                            Principal='logs.amazonaws.com',
-                            SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
-                        )
-                    except Exception as e:
-                        print("assuming permission already exists: ", str(e))
-                time.sleep(1)
+            if not response.get("subscriptionFilters") or response.get("subscriptionFilters")[0].get("destinationArn") != lambda_arn:
+                replaced_prefix = sanitize_statement_id_prefix(log_group)
+                try:
+                    self.aws_lambda.add_permission(
+                        FunctionName=lambda_arn,
+                        StatementId=f'allow-trigger-from-{replaced_prefix}',
+                        Action='lambda:InvokeFunction',
+                        Principal='logs.amazonaws.com',
+                        SourceArn=f'arn:aws:logs:{region}:{account_id}:log-group:{log_group}:*',
+                    )
+                except Exception as e:
+                    print("assuming permission already exists: ", str(e))
+
+        time.sleep(15)
+
+        for log_group in logGroupNames:
             self.cloudwatch_logs.put_subscription_filter(
                 destinationArn=self.event['ResourceProperties']['LambdaArn'],
                 filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
