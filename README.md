@@ -409,6 +409,19 @@ The Coralogix AWS Shipper supports custom log transformation using [Starlark](ht
 - **Transform** log structure before sending to Coralogix
 - **Enrich** logs with additional fields
 
+### Starlark Language Reference
+
+Starlark is a Python-like configuration language. For the complete language specification including all data types, operators, built-in functions, and methods, see the official documentation:
+
+- [Starlark Language Specification](https://github.com/bazelbuild/starlark/blob/master/spec.md)
+
+**Quick reference for log transformation scripts:**
+- **Data types:** `None`, `bool`, `int`, `float`, `string`, `list`, `dict`, `tuple`
+- **String methods:** `split()`, `strip()`, `lower()`, `upper()`, `replace()`, `startswith()`, `endswith()`, `find()`, `format()`
+- **List methods:** `append()`, `extend()`, `insert()`, `pop()`, `remove()`, `clear()`
+- **Dict methods:** `get()`, `keys()`, `values()`, `items()`, `pop()`, `update()`, `clear()`
+- **Built-in functions:** `len()`, `str()`, `int()`, `float()`, `bool()`, `list()`, `dict()`, `type()`, `range()`, `enumerate()`, `zip()`, `sorted()`, `reversed()`, `min()`, `max()`, `any()`, `all()`, `hasattr()`, `getattr()`
+
 ### Configuration
 
 The `StarlarkScript` parameter automatically detects the source type based on the value provided:
@@ -527,7 +540,6 @@ The following helper functions are available in your Starlark scripts:
 |---------------------|--------------------------------------------------|
 | `parse_json(str)`   | Parse a JSON string into a Starlark value        |
 | `to_json(value)`    | Convert a Starlark value to a JSON string        |
-| `print(msg)`        | Print a debug message (visible when LogLevel=DEBUG)|
 
 ### Using S3 for Script Storage
 
