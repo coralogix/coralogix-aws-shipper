@@ -1,6 +1,7 @@
 name: coralogix-aws-shipper tests
 on:
   pull_request: 
+    types: [opened, synchronize, reopened, labeled]
     branches:
       - master
       - dev
