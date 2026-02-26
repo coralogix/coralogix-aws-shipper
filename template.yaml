@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.4.2
+    SemanticVersion: 1.4.3
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -1171,7 +1171,6 @@ Resources:
     Condition: DLQEnabled
     Type: AWS::SQS::Queue
     Properties: 
-      QueueName: !Sub coralogix-aws-shipper-dlq-${AWS::StackName}
       DelaySeconds: !Ref DLQRetryDelay
       MessageRetentionPeriod: 1209600
       VisibilityTimeout: !Ref FunctionTimeout
