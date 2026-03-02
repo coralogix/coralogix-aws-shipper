@@ -1454,10 +1454,14 @@ Resources:
           - lambda:*
           Resource: !GetAtt LambdaFunction.Arn
       - Statement:
-        - Sid: EventSourceMappings
+        - Sid: ListEventSourceMappings
           Effect: Allow
           Action:
             - lambda:ListEventSourceMappings
+          Resource: "*"
+        - Sid: EventSourceMappings
+          Effect: Allow
+          Action:
             - lambda:CreateEventSourceMapping
             - lambda:DeleteEventSourceMapping
             - lambda:UpdateEventSourceMapping
