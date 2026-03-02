@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.4.4 / 2026-03-02
+### 🧰 Bug fixes 🧰
+- Fixed `AccessDeniedException` when enabling DLQ on an existing stack. `lambda:ListEventSourceMappings` is a List-type IAM action that requires `Resource: "*"` — it cannot be scoped to specific function or event-source-mapping ARNs. Separated it into its own policy statement with wildcard resource while keeping the remaining CRUD actions scoped to specific ARNs.
+
 ## v1.4.3 / 2026-02-26
 ### 🧰 Bug fixes 🧰
 - Fixed DLQ deployment failure when the generated SQS queue name exceeded the 80-character AWS limit. Removed the hardcoded `QueueName` (which used `${AWS::StackName}` as a suffix) so CloudFormation auto-generates a unique name, consistent with the Terraform module behavior.
