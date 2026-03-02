@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.4.3
+    SemanticVersion: 1.4.4
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -1454,10 +1454,14 @@ Resources:
           - lambda:*
           Resource: !GetAtt LambdaFunction.Arn
       - Statement:
-        - Sid: EventSourceMappings
+        - Sid: ListEventSourceMappings
           Effect: Allow
           Action:
             - lambda:ListEventSourceMappings
+          Resource: "*"
+        - Sid: EventSourceMappings
+          Effect: Allow
+          Action:
             - lambda:CreateEventSourceMapping
             - lambda:DeleteEventSourceMapping
             - lambda:UpdateEventSourceMapping
