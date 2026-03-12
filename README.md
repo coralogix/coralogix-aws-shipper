@@ -248,9 +248,23 @@ These parameters are optional and allow you to receive notification emails, excl
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
 | NotificationEmail | A failure notification will be sent to this email. address.                                                                                                                                                 |               |                    |
 | BlockingPattern   | Enter a regular expression to identify lines excluded from being sent to Coralogix. For example, use `MainActivity.java:\d{3}` to match log lines with `MainActivity` followed by exactly three digits.    |               |                    |
+| LogStreamFilter   | Regular expression to filter CloudWatch log events by log stream name. Only events from matching streams are shipped to Coralogix. Example: `^develop/` to ship only develop branch logs from Amplify. |               |                    |
 | SamplingRate      | Send messages at a specific rate, such as 1 out of every N logs. For example, if your value is 10, a message will be sent for every 10th log.                                                              | 1             | :heavy_check_mark: |
 | AddMetadata       | Add AWS event metadata to the log message. Comma-separated values are expected. Options for S3 are `bucket_name`,`key_name`. For CloudWatch, use `stream_name`, `loggroup_name` . For Kafka/MSK, use `topic_name` |               |                    |
 | CustomMetadata    | Add custom metadata to the log message. Comma-separated values are expected. Options are key1=value1,key2=value2                                                                                                |               |                    |
+
+#### Log Stream Filtering Example
+
+AWS Amplify Hosting (SSR/WEB_COMPUTE) writes all branch logs to a **single CloudWatch log group** (`/aws/amplify/<app-id>`), with each branch writing to its own log stream using the naming pattern `<branch-name>/<instance-id>`.
+
+To ship `develop` branch logs to your **Stage** Coralogix environment and `main` branch logs to your **Prod** environment, deploy two shipper stacks pointing to the same log group but with different filters:
+
+| Stack | LogStreamFilter | Coralogix Environment |
+|-------|-----------------|------------------------|
+| Stage | `^develop/`     | Stage                  |
+| Prod  | `^main/`        | Prod                   |
+
+This avoids duplicated ingestion - each shipper only processes events from matching streams before sending to Coralogix.
 
 ### Lambda configuration (optional)
 

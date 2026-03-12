@@ -553,6 +553,7 @@ mod tests {
         Config {
             newline_pattern: String::new(),
             blocking_pattern: String::new(),
+            log_stream_filter: None,
             sampling: 1,
             logs_per_batch: 500,
             integration_type: IntegrationType::S3,

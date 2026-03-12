@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::string::String;
 use std::{env, fmt};
 
+use fancy_regex::Regex;
 use aws_config::SdkConfig;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::config::Credentials as S3Credentials;
@@ -18,6 +19,7 @@ const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
 pub struct Config {
     pub newline_pattern: String,  // this should be regex
     pub blocking_pattern: String, // this should be regex
+    pub log_stream_filter: Option<Regex>, // pre-compiled regex to filter log streams
     pub sampling: usize,
     pub logs_per_batch: usize,
     pub integration_type: IntegrationType,
@@ -90,6 +92,13 @@ impl Config {
             newline_pattern: env::var("NEWLINE_PATTERN").unwrap_or("".to_string()),
 
             blocking_pattern: env::var("BLOCKING_PATTERN").unwrap_or("".to_string()),
+
+            log_stream_filter: env::var("LOG_STREAM_FILTER")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|s| Regex::new(&s).map_err(|e| format!("Invalid LOG_STREAM_FILTER regex: {}", e)))
+                .transpose()
+                .map_err(|e| e)?,
 
             sampling: env::var("SAMPLING")
                 .map_err(|e| format!("sampling not set - {}", e))?

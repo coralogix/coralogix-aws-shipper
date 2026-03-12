@@ -1179,6 +1179,101 @@ async fn test_cloudwatchlogs_event() {
     .await;
 }
 
+async fn run_cloudwatchlogs_event_with_log_stream_filter_match() {
+    let config = Config::load_from_env().unwrap();
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "awslogs": {
+              "data": "H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA=="
+            }
+          }"#,
+    )
+    .expect("failed to parse cloudwatchlogs event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
+        .await
+        .unwrap();
+
+    let singles = exporter.take_singles();
+    assert_eq!(singles.len(), 1, "stream matches filter - logs should be exported");
+    assert_eq!(singles[0].entries.len(), 2);
+    assert_eq!(singles[0].entries[0].body, "[ERROR] First test message");
+    assert_eq!(singles[0].entries[1].body, "[ERROR] Second test message");
+}
+
+async fn run_cloudwatchlogs_event_with_log_stream_filter_no_match() {
+    let config = Config::load_from_env().unwrap();
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "awslogs": {
+              "data": "H4sIAAAAAAAAAHWPwQqCQBCGX0Xm7EFtK+smZBEUgXoLCdMhFtKV3akI8d0bLYmibvPPN3wz00CJxmQnTO41whwWQRIctmEcB6sQbFC3CjW3XW8kxpOpP+OC22d1Wml1qZkQGtoMsScxaczKN3plG8zlaHIta5KqWsozoTYw3/djzwhpLwivWFGHGpAFe7DL68JlBUk+l7KSN7tCOEJ4M3/qOI49vMHj+zCKdlFqLaU2ZHV2a4Ct/an0/ivdX8oYc1UVX860fQDQiMdxRQEAAA=="
+            }
+          }"#,
+    )
+    .expect("failed to parse cloudwatchlogs event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
+        .await
+        .unwrap();
+
+    let singles = exporter.take_singles();
+    assert!(
+        singles.is_empty(),
+        "stream doesn't match filter - no logs should be exported, got {}",
+        singles.len()
+    );
+}
+
+#[tokio::test]
+async fn test_cloudwatchlogs_event_with_log_stream_filter_match() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("CloudWatch")),
+            ("LOG_STREAM_FILTER", Some("testLogStream")), // fixture has logStream "testLogStream"
+        ],
+        run_cloudwatchlogs_event_with_log_stream_filter_match(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_cloudwatchlogs_event_with_log_stream_filter_no_match() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("CloudWatch")),
+            ("LOG_STREAM_FILTER", Some("^develop")), // fixture has logStream "testLogStream" - no match
+        ],
+        run_cloudwatchlogs_event_with_log_stream_filter_no_match(),
+    )
+    .await;
+}
+
 async fn run_cloudwatchlogs_event_starlark() {
     coralogix_aws_shipper::logs::transform::reset_cache().await;
 
