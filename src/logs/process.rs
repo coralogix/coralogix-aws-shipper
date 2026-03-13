@@ -776,15 +776,7 @@ async fn process_cloudwatch_logs(
     blocking_pattern: &str,
     log_stream_filter: Option<&Regex>,
 ) -> Result<Vec<String>, Error> {
-    // Add CW metadata
-    metadata.insert("cw.log.group".to_string(), Some(cw_event.log_group.clone()));
-    metadata.insert(
-        "cw.log.stream".to_string(),
-        Some(cw_event.log_stream.clone()),
-    );
-    metadata.insert("cw.owner".to_string(), Some(cw_event.owner.clone()));
-
-    // Check log stream filter - zero overhead when None
+    // Check log stream filter FIRST - avoid writing metadata for filtered streams
     if let Some(re) = log_stream_filter {
         if !re.is_match(&cw_event.log_stream)? {
             info!(
@@ -794,6 +786,14 @@ async fn process_cloudwatch_logs(
             return Ok(vec![]);
         }
     }
+
+    // Add CW metadata only after we know we'll export
+    metadata.insert("cw.log.group".to_string(), Some(cw_event.log_group.clone()));
+    metadata.insert(
+        "cw.log.stream".to_string(),
+        Some(cw_event.log_stream.clone()),
+    );
+    metadata.insert("cw.owner".to_string(), Some(cw_event.owner.clone()));
 
     let log_entries: Vec<String> = cw_event
         .log_events
