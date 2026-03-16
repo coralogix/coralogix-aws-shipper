@@ -95,7 +95,7 @@ impl Config {
 
             log_stream_filter: env::var("LOG_STREAM_FILTER")
                 .ok()
-                .filter(|s| !s.is_empty())
+                .filter(|s| !s.trim().is_empty())
                 .map(|s| Regex::new(&s).map_err(|e| format!("Invalid LOG_STREAM_FILTER regex: {}", e)))
                 .transpose()
                 .map_err(|e| e)?,
