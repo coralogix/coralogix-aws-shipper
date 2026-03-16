@@ -19,6 +19,7 @@ fn create_test_config(starlark_script: Option<String>) -> Config {
     Config {
         newline_pattern: "".to_string(),
         blocking_pattern: "".to_string(),
+        log_stream_filter: None,
         sampling: 1,
         logs_per_batch: 500,
         integration_type: IntegrationType::S3,
@@ -184,7 +185,7 @@ async fn test_load_script_from_base64() {
 }
 
 #[tokio::test]
-async fn test_load_script_from_base64_invalid() {
+async fn test_invalid_base64_falls_back_to_raw() {
     let config = create_test_config(Some("not valid base64!!!".to_string()));
     let aws = aws_config();
 
