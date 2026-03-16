@@ -488,7 +488,14 @@ pub async fn kinesis_logs(
     // String::from_utf8(decompressed_data.clone())?;
     let batches = match serde_json::from_str(&decoded_data) {
         Ok(logs) => {
-            process_cloudwatch_logs(&mctx, logs, config.sampling, &config.blocking_pattern).await?
+            process_cloudwatch_logs(
+                &mctx,
+                logs,
+                config.sampling,
+                &config.blocking_pattern,
+                config.log_stream_filter.as_ref(),
+            )
+            .await?
         }
         Err(_) => {
             tracing::debug!("Failed to decode data");
@@ -667,6 +674,7 @@ pub async fn cloudwatch_logs(
                 cloudwatch_event_log.data,
                 config.sampling,
                 &config.blocking_pattern,
+                config.log_stream_filter.as_ref(),
             )
             .await?
         }
@@ -766,8 +774,20 @@ async fn process_cloudwatch_logs(
     cw_event: LogData,
     sampling: usize,
     blocking_pattern: &str,
+    log_stream_filter: Option<&Regex>,
 ) -> Result<Vec<String>, Error> {
-    // Add CW metadata
+    // Check log stream filter FIRST - avoid writing metadata for filtered streams
+    if let Some(re) = log_stream_filter {
+        if !re.is_match(&cw_event.log_stream)? {
+            info!(
+                "Skipping log stream '{}' - doesn't match filter",
+                cw_event.log_stream
+            );
+            return Ok(vec![]);
+        }
+    }
+
+    // Add CW metadata only after we know we'll export
     metadata.insert("cw.log.group".to_string(), Some(cw_event.log_group.clone()));
     metadata.insert(
         "cw.log.stream".to_string(),
@@ -1101,10 +1121,124 @@ fn sample(sampling: usize, v: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod test {
+    use aws_lambda_events::cloudwatch_logs::LogData;
     use fancy_regex::Regex;
     use itertools::Itertools;
 
     use crate::logs::process::{block, sample, split};
+
+    fn make_log_data(log_stream: &str, messages: Vec<&str>) -> LogData {
+        let log_events: Vec<serde_json::Value> = messages
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                serde_json::json!({
+                    "id": i.to_string(),
+                    "timestamp": 0,
+                    "message": *m
+                })
+            })
+            .collect();
+        let json = serde_json::json!({
+            "owner": "123456789012",
+            "logGroup": "test-log-group",
+            "logStream": log_stream,
+            "subscriptionFilters": [],
+            "messageType": "DATA_MESSAGE",
+            "logEvents": log_events
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_log_stream_filter_match() {
+        let metadata = super::MetadataContext::new();
+        let cw_event = make_log_data("develop/branch-1", vec!["log line 1", "log line 2"]);
+        let filter = Some(Regex::new("^develop/").unwrap());
+        let result = super::process_cloudwatch_logs(
+            &metadata,
+            cw_event,
+            1,
+            "", // no blocking
+            filter.as_ref(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.len(), 2, "logs should pass through when stream matches");
+        assert_eq!(result[0], "log line 1");
+        assert_eq!(result[1], "log line 2");
+    }
+
+    #[tokio::test]
+    async fn test_log_stream_filter_no_match() {
+        let metadata = super::MetadataContext::new();
+        let cw_event = make_log_data("main/production", vec!["log line 1"]);
+        let filter = Some(Regex::new("^develop/").unwrap());
+        let result = super::process_cloudwatch_logs(
+            &metadata,
+            cw_event,
+            1,
+            "",
+            filter.as_ref(),
+        )
+        .await
+        .unwrap();
+        assert!(result.is_empty(), "should return empty when stream doesn't match");
+    }
+
+    #[tokio::test]
+    async fn test_log_stream_filter_empty() {
+        let metadata = super::MetadataContext::new();
+        let cw_event = make_log_data("any-stream", vec!["log line 1"]);
+        let result = super::process_cloudwatch_logs(&metadata, cw_event, 1, "", None)
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1, "all logs should pass when filter is None");
+    }
+
+    #[tokio::test]
+    async fn test_log_stream_filter_regex_patterns() {
+        let metadata = super::MetadataContext::new();
+
+        // Prefix match
+        let cw_event = make_log_data("develop/abc123", vec!["msg"]);
+        let result = super::process_cloudwatch_logs(
+            &metadata,
+            cw_event,
+            1,
+            "",
+            Some(Regex::new("^develop/").unwrap()).as_ref(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.len(), 1);
+
+        // Suffix match
+        let cw_event = make_log_data("branch-xyz", vec!["msg"]);
+        let result = super::process_cloudwatch_logs(
+            &metadata,
+            cw_event,
+            1,
+            "",
+            Some(Regex::new("xyz$").unwrap()).as_ref(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.len(), 1);
+
+        // Contains - no match
+        let cw_event = make_log_data("main-branch", vec!["msg"]);
+        let result = super::process_cloudwatch_logs(
+            &metadata,
+            cw_event,
+            1,
+            "",
+            Some(Regex::new("develop").unwrap()).as_ref(),
+        )
+        .await
+        .unwrap();
+        assert!(result.is_empty());
+    }
 
     #[test]
     fn test_sampling() {

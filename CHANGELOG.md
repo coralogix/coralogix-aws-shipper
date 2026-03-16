@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.4.5 / 2026-03-12
+### 💡 Enhancements 💡
+- Add `LogStreamFilter` parameter to filter CloudWatch log events by log stream name before shipping ([#170](https://github.com/coralogix/coralogix-aws-shipper/issues/170)). Accepts a regex pattern; only matching streams are sent to Coralogix. Useful for AWS Amplify Hosting where all branches write to a single log group but need to ship to different Coralogix environments (e.g., `develop` to Stage, `main` to Prod).
+
 ## v1.4.4 / 2026-03-02
 ### 🧰 Bug fixes 🧰
 - Fixed `AccessDeniedException` when enabling DLQ on an existing stack. `lambda:ListEventSourceMappings` is a List-type IAM action that requires `Resource: "*"` — it cannot be scoped to specific function or event-source-mapping ARNs. Separated it into its own policy statement with wildcard resource while keeping the remaining CRUD actions scoped to specific ARNs.
