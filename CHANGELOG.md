@@ -2,7 +2,7 @@
 
 ## v1.4.5 / 2026-03-12
 ### 💡 Enhancements 💡
-- Add `LogStreamFilter` parameter to filter CloudWatch log events by log stream name before shipping ([#170](https://github.com/coralogix/coralogix-aws-shipper/issues/170)). Accepts a regex pattern; only matching streams are sent to Coralogix. Useful for AWS Amplify Hosting where all branches write to a single log group but need to ship to different Coralogix environments (e.g., `develop` to Stage, `main` to Prod).
+- Add `LogStreamFilter` parameter to filter CloudWatch log events by log stream name before shipping ([#170](https://github.com/coralogix/coralogix-aws-shipper/issues/170)). Accepts a regex pattern; only matching streams are sent to Coralogix.
 
 ## v1.4.4 / 2026-03-02
 ### 🧰 Bug fixes 🧰
