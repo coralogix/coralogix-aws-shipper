@@ -115,19 +115,37 @@ pub async fn handler(
         }
         events::Combined::Sqs(sqs_event) => {
             debug!("SQS Event: {:?}", sqs_event.records[0]);
-            for record in &sqs_event.records {
-                mctx.insert("sqs.event.id".to_string(), record.message_id.clone());
-                mctx.insert("sqs.event.source".to_string(), record.event_source.clone());
+            if config.integration_type == IntegrationType::Sqs {
+                // SQS text integration: collect all messages and batch process
+                let mut text_messages: Vec<String> = Vec::new();
+                for record in &sqs_event.records {
+                    mctx.insert("sqs.event.id".to_string(), record.message_id.clone());
+                    mctx.insert("sqs.event.source".to_string(), record.event_source.clone());
+                    if let Some(message) = &record.body {
+                        text_messages.push(message.to_owned());
+                    }
+                }
+                if !text_messages.is_empty() {
+                    debug!("Processing {} SQS text messages as batch", text_messages.len());
+                    process::sqs_logs(
+                        &mctx,
+                        text_messages,
+                        coralogix_exporter.clone(),
+                        config,
+                        aws_config,
+                    )
+                    .await?;
+                }
+            } else {
+                // Nested events (S3, Kinesis, etc. via SQS): sequential per-message for DLQ retry logic
+                for record in &sqs_event.records {
+                    mctx.insert("sqs.event.id".to_string(), record.message_id.clone());
+                    mctx.insert("sqs.event.source".to_string(), record.event_source.clone());
 
-                if let Some(message) = &record.body {
-                    if config.integration_type != IntegrationType::Sqs {
+                    if let Some(message) = &record.body {
                         let evt: events::Combined = serde_json::from_str(message)?;
                         let internal_event = LambdaEvent::new(evt, Context::default());
 
-                        // recursively call function_handler
-                        // note that there is no risk of hitting the recursion stack limit
-                        // here as recursiion will only be called as many times as there are nested
-                        // events in an SQS message
                         let result =
                             handler(clients, coralogix_exporter.clone(), config, aws_config, internal_event)
                                 .await;
@@ -142,7 +160,6 @@ pub async fn handler(
                             config.dlq_url.clone(),
                         ) {
                             if dlq_arn != event_source_arn {
-                                // if the message is not from the dlq, return the orginal result
                                 return result;
                             }
 
@@ -150,9 +167,9 @@ pub async fn handler(
                             let mut current_retry_count = record
                                 .message_attributes
                                 .get("retry")
-                                .and_then(|attr| attr.string_value.as_deref()) // Convert Option<String> to Option<&str>
-                                .map_or(Ok(0), str::parse::<i32>) // Parse as i32 or default to 0; map_or returns Result<i32, ParseIntError>
-                                .unwrap_or(0); // In case of parse error, default to 0
+                                .and_then(|attr| attr.string_value.as_deref())
+                                .map_or(Ok(0), str::parse::<i32>)
+                                .unwrap_or(0);
 
                             let retry_limit = config
                                 .dlq_retry_limit
@@ -176,7 +193,6 @@ pub async fn handler(
                                 continue;
                             }
 
-                            // increment retry count
                             current_retry_count += 1;
 
                             let retry_attr = MessageAttributeValue::builder()
@@ -204,16 +220,6 @@ pub async fn handler(
                         }
 
                         result?;
-                    } else {
-                        debug!("SQS TEXT EVENT Detected");
-                        process::sqs_logs(
-                            &mctx,
-                            message.to_owned(),
-                            coralogix_exporter.clone(),
-                            config,
-                            aws_config,
-                        )
-                        .await?;
                     }
                 }
             }

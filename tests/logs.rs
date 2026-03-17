@@ -1779,6 +1779,125 @@ async fn test_sqs_event_starlark() {
     .await;
 }
 
+async fn run_sqs_multiple_records_batched() {
+    let config = Config::load_from_env().unwrap();
+    // Event with 3 separate SQS records - these should be batched together in a single API call
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "Records": [
+              {
+                "attributes": {
+                  "ApproximateFirstReceiveTimestamp": "0",
+                  "ApproximateReceiveCount": "1",
+                  "SenderId": "SENDERID:EXAMPLE",
+                  "SentTimestamp": "0"
+                },
+                "awsRegion": "us-east-1",
+                "body": "SQS Message 1",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                "md5OfBody": "MD5EXAMPLE1",
+                "messageAttributes": {},
+                "messageId": "00000000-0000-0000-0000-000000000001",
+                "receiptHandle": "RECEIPTHANDLEEXAMPLE1"
+              },
+              {
+                "attributes": {
+                  "ApproximateFirstReceiveTimestamp": "0",
+                  "ApproximateReceiveCount": "1",
+                  "SenderId": "SENDERID:EXAMPLE",
+                  "SentTimestamp": "0"
+                },
+                "awsRegion": "us-east-1",
+                "body": "SQS Message 2",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                "md5OfBody": "MD5EXAMPLE2",
+                "messageAttributes": {},
+                "messageId": "00000000-0000-0000-0000-000000000002",
+                "receiptHandle": "RECEIPTHANDLEEXAMPLE2"
+              },
+              {
+                "attributes": {
+                  "ApproximateFirstReceiveTimestamp": "0",
+                  "ApproximateReceiveCount": "1",
+                  "SenderId": "SENDERID:EXAMPLE",
+                  "SentTimestamp": "0"
+                },
+                "awsRegion": "us-east-1",
+                "body": "SQS Message 3",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                "md5OfBody": "MD5EXAMPLE3",
+                "messageAttributes": {},
+                "messageId": "00000000-0000-0000-0000-000000000003",
+                "receiptHandle": "RECEIPTHANDLEEXAMPLE3"
+              }
+            ]
+          }"#,
+    )
+    .expect("failed to parse sqs_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    
+    // Key assertion: All 3 records should be batched into a SINGLE API call
+    assert_eq!(
+        singles.len(),
+        1,
+        "Multiple SQS records should be batched into a single API call, got {} calls",
+        singles.len()
+    );
+    
+    // All 3 log entries should be in that single batch
+    assert_eq!(
+        singles[0].entries.len(),
+        3,
+        "All 3 records should be in the batch"
+    );
+
+    // Verify the content of each record
+    let expected_logs = vec!["SQS Message 1", "SQS Message 2", "SQS Message 3"];
+    for (i, expected) in expected_logs.iter().enumerate() {
+        assert_eq!(
+            singles[0].entries[i].body, *expected,
+            "Record {} content mismatch",
+            i + 1
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_sqs_multiple_records_batched() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Sqs")),
+        ],
+        run_sqs_multiple_records_batched(),
+    )
+    .await;
+}
+
 async fn run_kinesis_event() {
     let config = Config::load_from_env().unwrap();
     let evt: Combined = serde_json::from_str(

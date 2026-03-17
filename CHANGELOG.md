@@ -3,6 +3,7 @@
 ## v1.4.6 / 2026-03-17
 ### 💡 Enhancements 💡
 - **Kinesis batching performance fix**: Kinesis records are now collected and sent in a single batched API call instead of being processed sequentially. This significantly improves throughput for high-volume Kinesis streams (e.g., 700 records now result in ~1 API call instead of ~700).
+- **SQS batching performance fix**: SQS text messages are now collected and sent in a single batched API call instead of being processed sequentially (same pattern as Kinesis).
 
 ### 🧰 Bug fixes 🧰
 - Fixed `BATCHES_MAX_CONCURRENCY` environment variable being ignored. The config value is now properly used to control concurrent batch sending (was previously hardcoded to 5).

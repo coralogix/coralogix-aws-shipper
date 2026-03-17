@@ -539,7 +539,7 @@ pub async fn kinesis_logs(
 
 pub async fn sqs_logs(
     mctx: &MetadataContext,
-    sqs_message: String,
+    messages: Vec<String>,
     coralogix_exporter: DynLogExporter,
     config: &Config,
     aws_config: &aws_config::SdkConfig,
@@ -552,15 +552,13 @@ pub async fn sqs_logs(
         .sub_name
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
-    let mut batches = Vec::new();
-    tracing::debug!("SQS Message: {:?}", sqs_message);
-    batches.push(sqs_message.clone());
+    tracing::debug!("SQS messages: {} to process", messages.len());
     coralogix::process_batches(
-        batches,
+        messages,
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
+        mctx,
         coralogix_exporter,
         aws_config,
     )
