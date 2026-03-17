@@ -1,7 +1,7 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::cloudwatch_logs::LogData;
 use aws_lambda_events::ecr_scan::EcrScanEvent;
-use aws_lambda_events::encodings::Base64Data;
+use aws_lambda_events::event::kinesis::KinesisEventRecord;
 use aws_lambda_events::kafka::KafkaRecord;
 use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_cloudwatchlogs::Client as LogsClient;
@@ -454,7 +454,7 @@ pub async fn s3(
 
 pub async fn kinesis_logs(
     mctx: &MetadataContext,
-    kinesis_message: Base64Data,
+    records: Vec<KinesisEventRecord>,
     coralogix_exporter: DynLogExporter,
     config: &Config,
     aws_config: &aws_config::SdkConfig,
@@ -467,52 +467,69 @@ pub async fn kinesis_logs(
         .sub_name
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
-    let v = kinesis_message.0;
 
-    let decompressed_data = match gunzip(v.clone(), String::new()) {
-        Ok(data) => data,
-        Err(_) => {
-            tracing::debug!("Data does not appear to be valid gzip format. Treating as UTF-8");
-            v // set decompressed_data to the original data if decompression fails
-        }
-    };
+    let mut all_logs: Vec<String> = Vec::new();
 
-    let decoded_data = match String::from_utf8(decompressed_data) {
-        Ok(s) => s,
-        Err(error) => {
-            tracing::debug!(?error, "Failed to decode data");
-            String::new()
-        }
-    };
+    for record in records {
+        // Set metadata from the last record (for backward compatibility with existing behavior)
+        mctx.insert("kinesis.event.id".to_string(), record.event_id.clone());
+        mctx.insert("kinesis.event.name".to_string(), record.event_name.clone());
+        mctx.insert("kinesis.event.source".to_string(), record.event_source.clone());
+        mctx.insert("kinesis.event.source_arn".to_string(), record.event_source_arn.clone());
 
-    // String::from_utf8(decompressed_data.clone())?;
-    let batches = match serde_json::from_str(&decoded_data) {
-        Ok(logs) => {
-            process_cloudwatch_logs(
-                &mctx,
-                logs,
-                config.sampling,
-                &config.blocking_pattern,
-                config.log_stream_filter.as_ref(),
-            )
-            .await?
-        }
-        Err(_) => {
-            tracing::debug!("Failed to decode data");
-            if decoded_data.is_empty() {
-                Vec::new()
-            } else {
-                vec![decoded_data]
+        debug!("Kinesis record: {:?}", record);
+        let v = record.kinesis.data.0;
+        debug!("Kinesis data: {:?}", &v);
+
+        let decompressed_data = match gunzip(v.clone(), String::new()) {
+            Ok(data) => data,
+            Err(_) => {
+                tracing::debug!("Data does not appear to be valid gzip format. Treating as UTF-8");
+                v
             }
-        }
-    };
+        };
+
+        let decoded_data = match String::from_utf8(decompressed_data) {
+            Ok(s) => s,
+            Err(error) => {
+                tracing::debug!(?error, "Failed to decode data");
+                continue;
+            }
+        };
+
+        // Try to parse as CloudWatch logs format, otherwise treat as raw log
+        let logs = match serde_json::from_str(&decoded_data) {
+            Ok(cw_logs) => {
+                process_cloudwatch_logs(
+                    mctx,
+                    cw_logs,
+                    config.sampling,
+                    &config.blocking_pattern,
+                    config.log_stream_filter.as_ref(),
+                )
+                .await?
+            }
+            Err(_) => {
+                tracing::debug!("Data is not CloudWatch logs format, treating as raw log");
+                if decoded_data.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![decoded_data]
+                }
+            }
+        };
+
+        all_logs.extend(logs);
+    }
+
+    info!("Collected {} logs from Kinesis batch", all_logs.len());
 
     coralogix::process_batches(
-        batches,
+        all_logs,
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
+        mctx,
         coralogix_exporter,
         aws_config,
     )

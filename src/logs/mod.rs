@@ -219,23 +219,8 @@ pub async fn handler(
             }
         }
         events::Combined::Kinesis(kinesis_event) => {
-            for record in kinesis_event.records {
-                mctx.insert("kinesis.event.id".to_string(), record.event_id.clone());
-                mctx.insert("kinesis.event.name".to_string(), record.event_name.clone());
-                mctx.insert(
-                    "kinesis.event.source".to_string(),
-                    record.event_source.clone(),
-                );
-                mctx.insert(
-                    "kinesis.event.source_arn".to_string(),
-                    record.event_source_arn.clone(),
-                );
-
-                debug!("Kinesis record: {:?}", record);
-                let message = record.kinesis.data;
-                debug!("Kinesis data: {:?}", &message);
-                process::kinesis_logs(&mctx, message, coralogix_exporter.clone(), config, aws_config).await?;
-            }
+            debug!("Processing {} Kinesis records as batch", kinesis_event.records.len());
+            process::kinesis_logs(&mctx, kinesis_event.records, coralogix_exporter.clone(), config, aws_config).await?;
         }
         events::Combined::Kafka(kafka_event) => {
             let mut all_records = Vec::new();

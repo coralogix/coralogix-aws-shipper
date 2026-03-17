@@ -1971,6 +1971,125 @@ async fn test_kinesis_with_cloudwatch_event() {
     .await;
 }
 
+async fn run_kinesis_multiple_records_batched() {
+    let config = Config::load_from_env().unwrap();
+    // Event with 3 separate Kinesis records - these should be batched together in a single API call
+    // Each record contains base64-encoded data: "Record 1", "Record 2", "Record 3"
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "Records": [
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000001",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:0000000000:stream/mystream",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::0000000000:role/cargo-lambda-role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.323,
+                        "data": "UmVjb3JkIDE=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk1",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808531"
+                    }
+                },
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000002",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:0000000000:stream/mystream",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::0000000000:role/cargo-lambda-role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.324,
+                        "data": "UmVjb3JkIDI=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk2",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808532"
+                    }
+                },
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000003",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:0000000000:stream/mystream",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::0000000000:role/cargo-lambda-role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.325,
+                        "data": "UmVjb3JkIDM=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk3",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808533"
+                    }
+                }
+            ]
+        }"#,
+    )
+    .expect("failed to parse kinesis_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    
+    // Key assertion: All 3 records should be batched into a SINGLE API call
+    assert_eq!(
+        singles.len(),
+        1,
+        "Multiple Kinesis records should be batched into a single API call, got {} calls",
+        singles.len()
+    );
+    
+    // All 3 log entries should be in that single batch
+    assert_eq!(
+        singles[0].entries.len(),
+        3,
+        "All 3 records should be in the batch"
+    );
+
+    // Verify the content of each record
+    let expected_logs = vec!["Record 1", "Record 2", "Record 3"];
+    for (i, expected) in expected_logs.iter().enumerate() {
+        assert_eq!(
+            singles[0].entries[i].body, *expected,
+            "Record {} content mismatch",
+            i + 1
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_kinesis_multiple_records_batched() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Kinesis")),
+        ],
+        run_kinesis_multiple_records_batched(),
+    )
+    .await;
+}
+
 async fn run_cloudfront_s3_event() {
     let s3_client = get_mock_s3client(Some("./tests/fixtures/cloudfront.gz"))
         .expect("failed to create s3 client");

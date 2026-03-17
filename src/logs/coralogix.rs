@@ -71,7 +71,7 @@ pub async fn process_batches(
     );
 
     let auth_data = AuthData::from(&config.api_key);
-    // Process and send batches concurrently, but not more than 5 simultaneously.
+    // Process and send batches concurrently, limited by config
     let results = futures::stream::iter(batches)
         .map(|batch| {
             let batch = batch
@@ -88,7 +88,7 @@ pub async fn process_batches(
                 .collect_vec();
             send_logs(exporter.clone(), batch, &auth_data)
         })
-        .buffer_unordered(5)
+        .buffer_unordered(config.batches_max_concurrency)
         .inspect_err(|error| error!(?error, "Failed to send logs"))
         .collect::<Vec<_>>()
         .await;
@@ -1032,5 +1032,94 @@ mod tests {
         let flat: Vec<_> = batches.into_iter().flatten().collect();
         assert!(flat.contains(&"".to_string()));
         assert!(flat.contains(&"   ".to_string()));
+    }
+
+    #[test]
+    fn test_into_batches_splits_when_exceeding_size_limit() {
+        // Test that logs are split into multiple batches when total size exceeds target
+        let mut config = test_config();
+        config.batches_max_size = 1; // 1MB target size
+
+        // Create logs that will exceed 1MB when combined
+        // Each log is ~100KB, so 15 of them = ~1.5MB > 1MB target
+        let large_log = "x".repeat(100_000);
+        let logs: Vec<String> = (0..15).map(|_| large_log.clone()).collect();
+
+        let batches = into_batches_of_estimated_size(logs, &config);
+
+        // Should be split into multiple batches
+        assert!(
+            batches.len() > 1,
+            "Expected multiple batches when logs exceed size limit, got {} batch(es)",
+            batches.len()
+        );
+
+        // All logs should still be present
+        let total_logs: usize = batches.iter().map(|b| b.len()).sum();
+        assert_eq!(total_logs, 15, "All logs should be present across batches");
+    }
+
+    #[test]
+    fn test_into_batches_single_batch_when_under_limit() {
+        // Test that small logs stay in a single batch
+        let config = test_config(); // 4MB default
+
+        // Create 100 small logs (~10 bytes each = ~1KB total, well under 4MB)
+        let logs: Vec<String> = (0..100).map(|i| format!("log_{}", i)).collect();
+
+        let batches = into_batches_of_estimated_size(logs, &config);
+
+        assert_eq!(
+            batches.len(),
+            1,
+            "Small logs should fit in a single batch"
+        );
+        assert_eq!(batches[0].len(), 100, "All 100 logs should be in the batch");
+    }
+
+    #[test]
+    fn test_into_batches_respects_overhead_estimation() {
+        // Test that the 200-byte overhead per log is accounted for
+        let mut config = test_config();
+        config.batches_max_size = 1; // 1MB = 1,048,576 bytes
+
+        // With 200-byte overhead, each log "costs" log.len() + 200 bytes
+        // Create logs where the overhead pushes us over the limit
+        // 5000 empty logs = 5000 * 200 = 1,000,000 bytes of overhead alone
+        // This is close to 1MB, so adding more should split
+        let logs: Vec<String> = (0..6000).map(|_| "x".to_string()).collect();
+
+        let batches = into_batches_of_estimated_size(logs, &config);
+
+        // With overhead, 6000 logs * (1 + 200) = ~1.2MB, should need 2 batches
+        assert!(
+            batches.len() >= 2,
+            "Overhead should cause batch splitting, got {} batch(es)",
+            batches.len()
+        );
+    }
+
+    #[test]
+    fn test_into_batches_large_single_log_gets_own_batch() {
+        // Test that a single log larger than target size gets its own batch
+        let mut config = test_config();
+        config.batches_max_size = 1; // 1MB target
+
+        let small_log = "small".to_string();
+        let large_log = "x".repeat(2_000_000); // 2MB log, exceeds target
+        let logs = vec![small_log.clone(), large_log.clone(), small_log.clone()];
+
+        let batches = into_batches_of_estimated_size(logs, &config);
+
+        // The large log should cause a batch split
+        assert!(
+            batches.len() >= 2,
+            "Large log should cause batch splitting"
+        );
+
+        // Verify all logs are present
+        let all_logs: Vec<String> = batches.into_iter().flatten().collect();
+        assert_eq!(all_logs.len(), 3, "All 3 logs should be present");
+        assert!(all_logs.contains(&large_log), "Large log should be present");
     }
 }
