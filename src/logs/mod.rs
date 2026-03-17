@@ -116,20 +116,24 @@ pub async fn handler(
         events::Combined::Sqs(sqs_event) => {
             debug!("SQS Event: {:?}", sqs_event.records[0]);
             if config.integration_type == IntegrationType::Sqs {
-                // SQS text integration: collect all messages and batch process
-                let mut text_messages: Vec<String> = Vec::new();
+                // SQS text integration: pair each message with a per-record metadata snapshot so
+                // dynamic APP_NAME/SUB_NAME templates resolve correctly for every message.
+                let mut text_messages_with_meta: Vec<(String, process::MetadataContext)> =
+                    Vec::new();
                 for record in &sqs_event.records {
                     mctx.insert("sqs.event.id".to_string(), record.message_id.clone());
                     mctx.insert("sqs.event.source".to_string(), record.event_source.clone());
                     if let Some(message) = &record.body {
-                        text_messages.push(message.to_owned());
+                        text_messages_with_meta.push((message.to_owned(), mctx.snapshot()));
                     }
                 }
-                if !text_messages.is_empty() {
-                    debug!("Processing {} SQS text messages as batch", text_messages.len());
+                if !text_messages_with_meta.is_empty() {
+                    debug!(
+                        "Processing {} SQS text messages as batch",
+                        text_messages_with_meta.len()
+                    );
                     process::sqs_logs(
-                        &mctx,
-                        text_messages,
+                        text_messages_with_meta,
                         coralogix_exporter.clone(),
                         config,
                         aws_config,

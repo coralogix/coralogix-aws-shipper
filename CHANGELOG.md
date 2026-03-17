@@ -7,6 +7,7 @@
 
 ### 🧰 Bug fixes 🧰
 - Fixed `BATCHES_MAX_CONCURRENCY` environment variable being ignored. The config value is now properly used to control concurrent batch sending (was previously hardcoded to 5).
+- **Kinesis/SQS per-record metadata preservation**: Dynamic `APP_NAME`/`SUB_NAME` templates (e.g. `{{kinesis.event.source_arn}}`, `{{sqs.event.id}}`) and `add_metadata` enrichment now resolve correctly for each log entry using its own record's metadata context. Previously, batching caused all entries in a Lambda invocation to inherit only the last record's metadata values.
 
 ## v1.4.5 / 2026-03-12
 ### 💡 Enhancements 💡
