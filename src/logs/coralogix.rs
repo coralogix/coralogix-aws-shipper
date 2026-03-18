@@ -83,7 +83,7 @@ pub async fn process_batches_with_meta(
                 .collect_vec();
             send_logs(exporter.clone(), batch, &auth_data)
         })
-        .buffer_unordered(config.batches_max_concurrency)
+        .buffer_unordered(config.batches_max_concurrency.max(1))
         .inspect_err(|error| error!(?error, "Failed to send logs"))
         .collect::<Vec<_>>()
         .await;
@@ -188,7 +188,7 @@ pub async fn process_batches(
                 .collect_vec();
             send_logs(exporter.clone(), batch, &auth_data)
         })
-        .buffer_unordered(config.batches_max_concurrency)
+        .buffer_unordered(config.batches_max_concurrency.max(1))
         .inspect_err(|error| error!(?error, "Failed to send logs"))
         .collect::<Vec<_>>()
         .await;
