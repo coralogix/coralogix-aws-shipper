@@ -112,7 +112,9 @@ fn into_batches_with_meta_of_estimated_size(
                 batch.push(lm);
                 (batches, batch, new_size)
             } else {
-                batches.push(std::mem::take(&mut batch));
+                if !batch.is_empty() {
+                    batches.push(std::mem::take(&mut batch));
+                }
                 let new_size = lm.log.len() + overhead_per_log_estimation;
                 batch.push(lm);
                 (batches, batch, new_size)
