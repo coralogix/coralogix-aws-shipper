@@ -1,0 +1,1612 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: |
+  Send logs and metrics to Coralogix from AWS GovCloud (S3, CloudTrail, CloudWatch, MSK, SNS, SQS, Kinesis and more).
+  GovCloud-specific template – uses native CloudFormation resources (no SAM transform).
+  Please report any issues to: github.com/coralogix/coralogix-aws-shipper/issues
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Coralogix configuration
+        Parameters:
+          - IntegrationType
+          - CustomDomain
+          - ApplicationName
+          - SubsystemName
+          - ApiKey
+          - StoreAPIKeyInSecretsManager
+      - Label:
+          default: GovCloud artifact locations
+        Parameters:
+          - LambdaCodeBucket
+          - LambdaCodeKey
+          - CustomResourceCodeBucket
+          - CustomResourceCodeKey
+      - Label:
+          default: S3/CloudTrail/VpcFlow/S3Csv/CloudFront configuration
+        Parameters:
+          - S3BucketName
+          - S3KeyPrefix
+          - S3KeySuffix
+          - S3BucketKMSKeyARN
+          - NewlinePattern
+          - SNSTopicArn
+          - SQSTopicArn
+          - CSVDelimiter
+      - Label:
+          default: Kafka & MSK configuration
+        Parameters:
+          - KafkaTopic
+          - KafkaBrokers
+          - KafkaSubnets
+          - KafkaSecurityGroups
+          - MSKClusterArn
+          - KafkaBatchSize
+      - Label:
+          default: CloudWatch configuration
+        Parameters:
+          - CloudWatchLogGroupName
+          - CloudWatchLogGroupPrefix
+          - EnableLogGroupTags
+          - LogGroupTagsCacheTTLSeconds
+      - Label:
+          default: SNS configuration
+        Parameters:
+          - SNSIntegrationTopicArn
+      - Label:
+          default: SQS configuration
+        Parameters:
+          - SQSIntegrationTopicArn
+      - Label:
+          default: Kinesis configuration
+        Parameters:
+          - KinesisStreamArn
+      - Label:
+          default: Generic Config
+        Parameters:
+          - NotificationEmail
+          - BlockingPattern
+          - LogStreamFilter
+          - SamplingRate
+          - AddMetadata
+          - CustomMetadata
+      - Label:
+          default: Lambda configuration
+        Parameters:
+          - FunctionMemorySize
+          - FunctionTimeout
+          - LogLevel
+          - LambdaLogRetention
+          - FunctionRunTime
+          - FunctionArchitectures
+          - LambdaAssumeRoleARN
+          - ExecutionRoleARN
+          - ReservedConcurrentExecutions
+      - Label:
+          default: VPC configuration (optional)
+        Parameters:
+          - LambdaSubnetID
+          - LambdaSecurityGroupID
+          - UsePrivateLink
+      - Label:
+          default: CloudWatch Metrics Stream via PrivateLink
+        Parameters:
+          - TelemetryMode
+          - MetricsFilter
+          - ExcludeMetricsFilters
+
+Parameters:
+
+  # ---------------------------------------------------------------
+  # GovCloud artifact parameters (required – no SAR in GovCloud)
+  # ---------------------------------------------------------------
+  LambdaCodeBucket:
+    Type: String
+    Description: |
+      S3 bucket (in the same GovCloud region) that holds the shipper Lambda deployment package.
+    MinLength: 1
+
+  LambdaCodeKey:
+    Type: String
+    Description: |
+      S3 key of the shipper Lambda deployment package (e.g. coralogix-aws-shipper/bootstrap.zip).
+    MinLength: 1
+
+  CustomResourceCodeBucket:
+    Type: String
+    Description: |
+      S3 bucket (in the same GovCloud region) that holds the custom-resource Lambda deployment package.
+    MinLength: 1
+
+  CustomResourceCodeKey:
+    Type: String
+    Description: |
+      S3 key of the custom-resource Lambda deployment package (e.g. coralogix-aws-shipper/custom-resource.zip).
+    MinLength: 1
+
+  # ---------------------------------------------------------------
+  # Coralogix configuration
+  # ---------------------------------------------------------------
+  CustomDomain:
+    Type: String
+    Description: |
+      The Coralogix ingress domain to use (e.g. cx123.coralogix.com).
+      Required in GovCloud – there is no pre-defined region mapping.
+    MinLength: 1
+
+  ApiKey:
+    Type: String
+    Description: |
+      Your Coralogix Send Your Data – API Key which is used to validate your authenticity.
+      This value can be a Coralogix API Key or an AWS Secrets Manager ARN that holds the API Key.
+    MinLength: 1
+    NoEcho: true
+
+  ApplicationName:
+    Type: String
+    Description: The name of your application.
+    MinLength: 1
+
+  SubsystemName:
+    Type: String
+    Description: The subsystem name of your application.
+    Default: ''
+
+  NewlinePattern:
+    Type: String
+    Description: |
+      Regular expression to detect a new log line for multiline logs from S3 source.
+    Default: ''
+
+  AddMetadata:
+    Type: String
+    Description: |
+      Add metadata to the log message. Expects comma-separated values.
+      Options are bucket_name,key_name,stream_name.
+    Default: ''
+
+  CustomMetadata:
+    Type: String
+    Description: |
+      Add custom metadata to the log message. Expects comma-separated values.
+      Options are key1=value1,key2=value2.
+    Default: ''
+
+  BlockingPattern:
+    Type: String
+    Description: Regular expression to detect lines that should be excluded from being sent to Coralogix.
+    Default: ''
+
+  LogStreamFilter:
+    Type: String
+    Description: |
+      Regular expression to filter CloudWatch log events by log stream name.
+      Only events from matching log streams will be shipped to Coralogix.
+    Default: ''
+
+  SamplingRate:
+    Type: Number
+    Description: Send messages with specific rate (1 out of N).
+    MinValue: 1
+    Default: 1
+
+  LogLevel:
+    Type: String
+    Description: 'Log level for the Lambda function. Can be one of: INFO, WARN, ERROR, DEBUG'
+    AllowedValues:
+      - "INFO"
+      - "WARN"
+      - "ERROR"
+      - "DEBUG"
+    Default: "WARN"
+
+  # ---------------------------------------------------------------
+  # S3 / CloudTrail / VpcFlow / S3Csv / CloudFront
+  # ---------------------------------------------------------------
+  S3BucketName:
+    Type: String
+    Description: |
+      The name of the AWS S3 bucket to watch.
+      If TelemetryMode is set to metrics, this bucket is used as the
+      destination for failed metric data via Firehose.
+    AllowedPattern: '^([0-9A-Za-z\.\-_]+)(,[0-9A-Za-z\.\-_]+)*$'
+    Default: "none"
+
+  CSVDelimiter:
+    Type: String
+    Description: The delimiter used in the CSV file to process (S3Csv integration only).
+    MaxLength: 1
+    Default: ','
+
+  S3KeyPrefix:
+    Type: String
+    Description: |
+      The AWS S3 path prefix to watch. Ignored when SNSTopicArn / SQSTopicArn is provided.
+    MaxLength: 1024
+    Default: ''
+
+  S3KeySuffix:
+    Type: String
+    Description: |
+      The AWS S3 path suffix to watch. Ignored when SNSTopicArn is provided.
+    MaxLength: 1024
+    Default: ''
+
+  S3BucketKMSKeyARN:
+    Type: String
+    Description: |
+      The ARN of the KMS key used to encrypt/decrypt objects in the specified S3 bucket.
+    Default: ''
+
+  # ---------------------------------------------------------------
+  # SNS / SQS (S3 notification via topic)
+  # ---------------------------------------------------------------
+  SNSTopicArn:
+    Type: String
+    Description: |
+      The ARN for the SNS topic that contains the SNS subscription responsible for
+      retrieving logs from Amazon S3.
+    Default: 'arn:aws-us-gov:sns:us-gov-west-1:123456789012:placeholder'
+
+  SQSTopicArn:
+    Type: String
+    Description: |
+      The ARN for the SQS topic that contains the SQS subscription responsible for
+      retrieving logs from Amazon S3.
+    Default: 'arn:aws-us-gov:sqs:us-gov-west-1:123456789012:placeholder'
+
+  # ---------------------------------------------------------------
+  # SNS integration (direct)
+  # ---------------------------------------------------------------
+  SNSIntegrationTopicArn:
+    Type: String
+    Description: The ARN of SNS topic to subscribe to for retrieving messages.
+    Default: 'arn:aws-us-gov:sns:us-gov-west-1:123456789012:placeholder'
+
+  # ---------------------------------------------------------------
+  # SQS integration (direct)
+  # ---------------------------------------------------------------
+  SQSIntegrationTopicArn:
+    Type: String
+    Description: The ARN of SQS topic to subscribe to for retrieving messages.
+    Default: 'arn:aws-us-gov:sqs:us-gov-west-1:123456789012:placeholder'
+
+  # ---------------------------------------------------------------
+  # Kinesis
+  # ---------------------------------------------------------------
+  KinesisStreamArn:
+    Type: String
+    Description: The ARN of Kinesis stream to subscribe to for retrieving messages.
+    Default: ''
+
+  # ---------------------------------------------------------------
+  # Integration type
+  # ---------------------------------------------------------------
+  IntegrationType:
+    Type: String
+    Description: 'The integration type. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, Sns, Sqs, Kinesis, CloudFront, Kafka, MSK, EcrScan'
+    AllowedValues:
+      - S3
+      - CloudTrail
+      - CloudWatch
+      - VpcFlow
+      - S3Csv
+      - Sns
+      - Sqs
+      - Kinesis
+      - CloudFront
+      - Kafka
+      - MSK
+      - EcrScan
+    Default: S3
+
+  # ---------------------------------------------------------------
+  # CloudWatch Logs
+  # ---------------------------------------------------------------
+  CloudWatchLogGroupName:
+    Type: String
+    Description: 'A comma-separated list of CloudWatch log group names to watch.'
+    Default: ''
+
+  CloudWatchLogGroupPrefix:
+    Type: String
+    Description: |
+      Prefix of the CloudWatch log groups that will trigger the lambda.
+      Does not replace CloudWatchLogGroupName.
+    Default: ''
+
+  EnableLogGroupTags:
+    Type: String
+    Description: Enable CloudWatch Log Group tags support.
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+
+  LogGroupTagsCacheTTLSeconds:
+    Type: Number
+    Description: TTL in seconds for the CloudWatch Log Group tags cache. Set to 0 to disable.
+    MinValue: 0
+    Default: 300
+
+  LambdaLogRetention:
+    Type: Number
+    Description: CloudWatch log retention days for logs generated by the Lambda function.
+    MinValue: 1
+    Default: 5
+
+  # ---------------------------------------------------------------
+  # Notifications
+  # ---------------------------------------------------------------
+  NotificationEmail:
+    Type: String
+    Description: Failure notification email address.
+    MaxLength: 320
+    Default: ''
+
+  StoreAPIKeyInSecretsManager:
+    Type: String
+    Description: |
+      Store the API key in AWS Secrets Manager. If false, the ApiKey will appear in plain
+      text as an environment variable in the Lambda function console.
+    AllowedValues:
+      - true
+      - false
+    Default: true
+
+  # ---------------------------------------------------------------
+  # VPC / PrivateLink
+  # ---------------------------------------------------------------
+  LambdaSubnetID:
+    Type: String
+    Description: ID of Subnet into which to deploy the integration.
+    Default: ''
+
+  LambdaSecurityGroupID:
+    Type: String
+    Description: ID of the SecurityGroup into which to deploy the integration.
+    Default: ''
+
+  UsePrivateLink:
+    Type: String
+    Description: Will you be using Coralogix PrivateLink?
+    AllowedValues:
+      - true
+      - false
+    Default: false
+
+  # ---------------------------------------------------------------
+  # MSK / Kafka
+  # ---------------------------------------------------------------
+  MSKClusterArn:
+    Type: String
+    Description: The ARN of the MSK cluster to subscribe to for retrieving messages.
+    Default: ''
+
+  KafkaTopic:
+    Type: String
+    Description: The name of the Kafka topic to subscribe to for retrieving messages.
+    Default: ''
+
+  KafkaBatchSize:
+    Type: Number
+    Description: The maximum number of records to retrieve per batch from Kafka.
+    MinValue: 1
+    MaxValue: 10000
+    Default: 100
+
+  KafkaBrokers:
+    Type: CommaDelimitedList
+    Description: |
+      Comma-delimited list of host and port pair addresses of your Kafka brokers.
+      [Not required when using MSK]
+    Default: ''
+
+  KafkaSubnets:
+    Type: CommaDelimitedList
+    Description: |
+      The subnets associated with your VPC for each Kafka broker.
+      [Not required when using MSK]
+    Default: ""
+
+  KafkaSecurityGroups:
+    Type: CommaDelimitedList
+    Description: |
+      The security groups associated with your VPC for each Kafka broker.
+      [Not required when using MSK]
+    Default: ""
+
+  # ---------------------------------------------------------------
+  # DLQ
+  # ---------------------------------------------------------------
+  EnableDLQ:
+    Type: String
+    Description: Enable Dead Letter Queue for the Lambda function.
+    AllowedValues:
+      - true
+      - false
+    Default: false
+
+  DLQRetryLimit:
+    Type: Number
+    Description: The maximum number of times to retry the function execution in case of failure.
+    MinValue: 0
+    MaxValue: 5
+    Default: 3
+
+  DLQRetryDelay:
+    Type: Number
+    Description: The delay in seconds between retries.
+    MinValue: 0
+    MaxValue: 900
+    Default: 900
+
+  DLQS3Bucket:
+    Type: String
+    Description: The S3 bucket to store the DLQ failed messages after retry limit is reached.
+    Default: 'none'
+
+  # ---------------------------------------------------------------
+  # Lambda configuration
+  # ---------------------------------------------------------------
+  FunctionMemorySize:
+    Type: Number
+    Description: Memory size for lambda function.
+    MinValue: 128
+    MaxValue: 10240
+    Default: 1024
+
+  FunctionTimeout:
+    Type: Number
+    Description: Timeout for the lambda function.
+    MinValue: 30
+    MaxValue: 900
+    Default: 300
+
+  FunctionRunTime:
+    Type: String
+    Description: Type of runtime for the lambda.
+    Default: provided.al2023
+    AllowedValues:
+      - provided.al2023
+      - provided.al2
+
+  FunctionArchitectures:
+    Type: String
+    Description: Architectures for the lambda function.
+    Default: 'arm64'
+    AllowedValues:
+      - arm64
+      - x86_64
+
+  LambdaAssumeRoleARN:
+    Type: String
+    Description: The ARN of the role that the lambda function will assume.
+    Default: ''
+
+  ExecutionRoleARN:
+    Type: String
+    Description: The ARN of a user-defined role that will be used as the execution role for the lambda function.
+    Default: ''
+
+  ReservedConcurrentExecutions:
+    Type: Number
+    Description: The number of concurrent executions that are reserved for this function.
+    Default: 0
+
+  # ---------------------------------------------------------------
+  # Metrics (TelemetryMode)
+  # ---------------------------------------------------------------
+  TelemetryMode:
+    Type: String
+    Description: The telemetry mode for the shipper – logs or metrics.
+    Default: logs
+    AllowedValues:
+      - logs
+      - metrics
+
+  MetricsFilter:
+    Type: String
+    Description: |
+      The filter for the metrics to include in the stream.
+      Should be valid JSON containing the keys Namespace and MetricNames.
+    Default: ''
+
+  ExcludeMetricsFilters:
+    Type: String
+    Description: |
+      The filter for the metrics to exclude from the stream.
+      Should be valid JSON containing the keys Namespace and MetricNames.
+    Default: ''
+
+  BatchMetrics:
+    Type: String
+    Description: Enable batching of OpenTelemetry metric messages into a single POST to /v1/metrics.
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  MetricsBatchMaxSize:
+    Type: Number
+    Description: Maximum aggregated metrics payload size in MB before flushing when batching is enabled.
+    Default: 4
+
+# ---------------------------------------------------------------
+# Conditions
+# ---------------------------------------------------------------
+Conditions:
+  # DLQ
+  DLQEnabled: !Equals [ !Ref EnableDLQ, 'true' ]
+
+  # Integration type helpers
+  IsKafkaIntegration: !Equals [ !Ref IntegrationType, 'Kafka' ]
+  IsSNSIntegration: !Equals [ !Ref IntegrationType, 'Sns' ]
+  UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
+  IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
+
+  # Optional env-var conditions
+  BlockPatternNotSet: !Equals [ !Ref BlockingPattern, '' ]
+  LogStreamFilterNotSet: !Equals [ !Ref LogStreamFilter, '' ]
+  CSVDelimiterUse: !Equals [ !Ref IntegrationType, 'S3Csv' ]
+  NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
+  AddMetadataNotSet: !Equals [ !Ref AddMetadata, '' ]
+  CustomMetadataNotSet: !Equals [ !Ref CustomMetadata, '' ]
+
+  # Notification
+  IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
+
+  # S3 key prefix / suffix defaults
+  S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
+  S3SuffixIsSet: !Not [ !Equals [ !Ref S3KeySuffix, '' ] ]
+  UseAWSDefaultPrefix: !Or
+    - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
+    - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
+  UseAWSDefaultVpcFlowSuffix: !Equals [ !Ref IntegrationType, 'VpcFlow' ]
+  UseAWSDefaultCloudTrailSuffix: !Equals [ !Ref IntegrationType, 'CloudTrail' ]
+
+  # API key handling
+  IsApiKeyNotArn: !Equals [ !Ref ApiKey, !Select [ 0, !Split [ ":", !Ref ApiKey ] ] ]
+  ApiKeyIsArn: !Not [ !Condition IsApiKeyNotArn ]
+  StoreAPIKeyInSecretsManager: !And
+    - !Equals [ !Ref StoreAPIKeyInSecretsManager, 'true' ]
+    - !Condition IsApiKeyNotArn
+
+  # PrivateLink
+  IsPrivateLink:
+    !Or
+    - !Equals [ !Ref UsePrivateLink, 'true' ]
+    - !Equals [ !Ref TelemetryMode, 'metrics' ]
+
+  SNSIsSet:
+    !Or
+    - !Not [ !Equals [ !Ref SNSTopicArn, 'arn:aws-us-gov:sns:us-gov-west-1:123456789012:placeholder' ] ]
+    - !Not [ !Equals [ !Ref SNSIntegrationTopicArn, 'arn:aws-us-gov:sns:us-gov-west-1:123456789012:placeholder' ] ]
+
+  SQSIsSet:
+    !Or
+    - !Not [ !Equals [ !Ref SQSTopicArn, 'arn:aws-us-gov:sqs:us-gov-west-1:123456789012:placeholder' ] ]
+    - !Not [ !Equals [ !Ref SQSIntegrationTopicArn, 'arn:aws-us-gov:sqs:us-gov-west-1:123456789012:placeholder' ] ]
+
+  # Stream integrations
+  UseKinesisStreamARN: !And
+    - !Not [ !Equals [ !Ref KinesisStreamArn, '' ] ]
+    - !Equals [ !Ref CloudWatchLogGroupName, '' ]
+    - !Equals [ !Ref IntegrationType, 'Kinesis' ]
+    - !Equals [ !Ref TelemetryMode, logs ]
+
+  UseVpcConfig: !And
+    - !Not [ !Equals [ !Ref LambdaSubnetID, '' ] ]
+    - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
+
+  UseMSK: !And
+    - !Not [ !Equals [ !Ref MSKClusterArn, '' ] ]
+    - !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
+    - !Equals [ !Ref IntegrationType, 'MSK' ]
+    - !Equals [ !Ref TelemetryMode, logs ]
+
+  # S3 / KMS
+  S3BucketNameIsSet: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
+  IsLambdaAssumeRoleEnable: !Not [ !Equals [ !Ref LambdaAssumeRoleARN, '' ] ]
+  ExecutionRoleARNIsSet: !Not [ !Equals [ !Ref ExecutionRoleARN, '' ] ]
+  ReservedConcurrentExecutionsIsSet: !Not [ !Equals [ !Ref ReservedConcurrentExecutions, 0 ] ]
+  S3BucketKMSKeyARNIsSet: !Not [ !Equals [ !Ref S3BucketKMSKeyARN, '' ] ]
+
+  # Telemetry
+  TelemetryModeIsMetrics: !Equals [ !Ref TelemetryMode, metrics ]
+  EnableLogGroupTagsIsTrue: !Equals [ !Ref EnableLogGroupTags, 'true' ]
+
+# ---------------------------------------------------------------
+# Rules
+# ---------------------------------------------------------------
+Rules:
+  ValidateDLQ:
+    RuleCondition: !Equals [ !Ref EnableDLQ, 'true' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref DLQS3Bucket, 'none' ] ]
+        AssertDescription: DLQS3Bucket must be set when EnableDLQ is set to true
+
+  ValidateCloudWatchLogs:
+    RuleCondition: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
+        AssertDescription: CloudWatchLogGroupName must be set when IntegrationType is set to CloudWatch
+      - Assert: !Equals [ !Ref S3BucketName, 'none' ]
+        AssertDescription: S3Bucket parameter must be empty when IntegrationType is set to CloudWatch
+
+  ValidatePrivateLinkConfig:
+    RuleCondition: !Equals [ !Ref UsePrivateLink, 'true' ]
+    Assertions:
+      - Assert: !And
+        - !Not [ !Equals [ !Ref LambdaSubnetID, '' ] ]
+        - !Not [ !Equals [ !Ref LambdaSecurityGroupID, '' ] ]
+        AssertDescription: Subnet ID and Security Group ID must be set when UsePrivateLink is set to true
+
+  ValidationS3Integrations:
+    RuleCondition: !Or
+      - !Equals [ !Ref IntegrationType, 'S3' ]
+      - !Equals [ !Ref IntegrationType, 'CloudTrail' ]
+      - !Equals [ !Ref IntegrationType, 'VpcFlow' ]
+      - !Equals [ !Ref IntegrationType, 'S3Csv' ]
+      - !Equals [ !Ref IntegrationType, 'CloudFront' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref S3BucketName, 'none' ] ]
+        AssertDescription: S3BucketName must be set when IntegrationType is set to S3, CloudTrail, VpcFlow, S3Csv or CloudFront
+
+  ValidateKafkaIntegrationParams:
+    RuleCondition: !Equals [ !Ref IntegrationType, 'Kafka' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
+        AssertDescription: KafkaTopic must be set when IntegrationType is set to Kafka
+
+  ValidateMSKIntegrationParams:
+    RuleCondition: !Equals [ !Ref IntegrationType, 'MSK' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref MSKClusterArn, '' ] ]
+        AssertDescription: MSKClusterArn must be set when IntegrationType is set to MSK
+      - Assert: !Not [ !Equals [ !Ref KafkaTopic, '' ] ]
+        AssertDescription: KafkaTopic must be set when IntegrationType is set to MSK
+
+  ValidateSNSIntegrationParams:
+    RuleCondition: !Equals [ !Ref IntegrationType, 'Sns' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref SNSIntegrationTopicArn, 'arn:aws-us-gov:sns:us-gov-west-1:123456789012:placeholder' ] ]
+        AssertDescription: SNSIntegrationTopicArn must be set when IntegrationType is set to Sns
+
+  ValidateSQSIntegrationParams:
+    RuleCondition: !Equals [ !Ref IntegrationType, 'Sqs' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref SQSIntegrationTopicArn, 'arn:aws-us-gov:sqs:us-gov-west-1:123456789012:placeholder' ] ]
+        AssertDescription: SQSIntegrationTopicArn must be set when IntegrationType is set to Sqs
+
+# ---------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------
+Resources:
+
+  ##################################
+  # -- Secrets Manager            -#
+  ##################################
+
+  Secret:
+    Type: 'AWS::SecretsManager::Secret'
+    Condition: StoreAPIKeyInSecretsManager
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Description: Coralogix API Key Secret
+      SecretString: !Ref ApiKey
+      Name: !Sub
+        - 'lambda/coralogix/${AWS::Region}/coralogix-aws-shipper/${stack}'
+        - stack: !Select
+            - 1
+            - !Split
+                - "/"
+                - !Select
+                    - 5
+                    - !Split
+                        - ":"
+                        - !Ref "AWS::StackId"
+
+  ##################################
+  # -- IAM Role & Policy          -#
+  ##################################
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+
+  LambdaExecutionPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "LambdaExecutionPolicy"
+      Roles: !If
+        - ExecutionRoleARNIsSet
+        - - !Select [ 1, !Split [ "/", !Select [ 5, !Split [ ":", !Ref ExecutionRoleARN ] ] ] ]
+        - - !Ref LambdaExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+
+          # Lambda log group access – partition-safe
+          - Effect: Allow
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*'
+
+          # CloudWatch Log Group Tags (only when enabled)
+          - !If
+            - EnableLogGroupTagsIsTrue
+            - Effect: Allow
+              Action:
+                - 'logs:ListTagsLogGroup'
+              Resource: '*'
+            - !Ref AWS::NoValue
+
+          # PrivateLink / VPC
+          - !If
+            - IsPrivateLink
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+              Resource: "*"
+            - !Ref AWS::NoValue
+
+          # Assume Role
+          - !If
+            - IsLambdaAssumeRoleEnable
+            - Effect: Allow
+              Action:
+                - 'sts:AssumeRole'
+              Resource: !Ref LambdaAssumeRoleARN
+            - !Ref AWS::NoValue
+
+          # SNS publish – partition-safe
+          - Effect: Allow
+            Action:
+              - 'sns:Publish'
+            Resource: !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:*'
+
+          # S3 read – partition-safe
+          - !If
+            - S3BucketNameIsSet
+            - Effect: Allow
+              Action:
+                - 's3:GetObject'
+              Resource: !Sub 'arn:${AWS::Partition}:s3:::*'
+            - !Ref AWS::NoValue
+
+          # KMS decrypt for S3 bucket encryption
+          - !If
+            - S3BucketKMSKeyARNIsSet
+            - Effect: Allow
+              Action:
+                - 'kms:Decrypt'
+              Resource: !Ref S3BucketKMSKeyARN
+            - !Ref AWS::NoValue
+
+          # SQS receive
+          - !If
+            - SQSIsSet
+            - Effect: Allow
+              Action:
+                - 'sqs:ReceiveMessage'
+                - 'sqs:DeleteMessage'
+                - 'sqs:GetQueueAttributes'
+              Resource: !If
+                - IsSQSIntegration
+                - !Ref SQSIntegrationTopicArn
+                - !Ref SQSTopicArn
+            - !Ref AWS::NoValue
+
+          # Kafka VPC networking
+          - !If
+            - IsKafkaIntegration
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+              Resource: '*'
+            - !Ref AWS::NoValue
+
+          # Kinesis read
+          - !If
+            - UseKinesisStreamARN
+            - Effect: Allow
+              Action:
+                - 'kinesis:DescribeStream'
+                - 'kinesis:GetRecords'
+                - 'kinesis:GetShardIterator'
+                - 'kinesis:ListStreams'
+                - 'kinesis:DescribeStreamSummary'
+                - 'kinesis:ListShards'
+              Resource: !Ref KinesisStreamArn
+            - !Ref AWS::NoValue
+
+          # MSK describe
+          - !If
+            - UseMSK
+            - Effect: Allow
+              Action:
+                - 'kafka:DescribeCluster'
+                - 'kafka:GetBootstrapBrokers'
+                - 'kafka:DescribeClusterV2'
+              Resource: !Ref MSKClusterArn
+            - !Ref AWS::NoValue
+
+          - !If
+            - UseMSK
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+              Resource: "*"
+            - !Ref AWS::NoValue
+
+          # Secrets Manager – partition-safe
+          - !If
+            - ApiKeyIsArn
+            - Effect: Allow
+              Action:
+                - 'secretsmanager:GetSecretValue'
+              Resource: !Ref ApiKey
+
+            - !If
+              - StoreAPIKeyInSecretsManager
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource: !Ref Secret
+              - !Ref AWS::NoValue
+
+          # ECR Scan – partition-safe
+          - !If
+            - UseECRScan
+            - Effect: Allow
+              Action:
+                - 'ecr:DescribeImageScanFindings'
+              Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/*'
+            - !Ref AWS::NoValue
+
+          # DLQ SQS access
+          - !If
+            - DLQEnabled
+            - Effect: Allow
+              Action:
+                - 'sqs:SendMessage'
+                - 'sqs:GetQueueAttributes'
+                - 'sqs:GetQueueUrl'
+                - 'sqs:ReceiveMessage'
+                - 'sqs:DeleteMessage'
+              Resource: !GetAtt DeadLetterQueue.Arn
+            - !Ref AWS::NoValue
+
+          # DLQ S3 storage – partition-safe
+          - !If
+            - DLQEnabled
+            - Effect: Allow
+              Action:
+                - 's3:PutObject'
+                - 's3:PutObjectAcl'
+                - 's3:AbortMultipartUpload'
+                - 's3:DeleteObject'
+                - 's3:PutObjectTagging'
+                - 's3:PutObjectVersionTagging'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:s3:::${DLQS3Bucket}'
+                - !Sub 'arn:${AWS::Partition}:s3:::${DLQS3Bucket}/*'
+            - !Ref AWS::NoValue
+
+  ##################################
+  # -- IAM propagation waiter     -#
+  ##################################
+
+  # Minimal role for the waiter Lambda – must not depend on LambdaFunction or
+  # CustomResourceFunctionRole to avoid circular dependencies.
+  WaiterFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+
+  WaitAfterRoleUpdateFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-iam-waiter'
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Timeout: 60
+      Role: !GetAtt WaiterFunctionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import time
+          from urllib import request, parse, error
+
+          class CFNResponse:
+              SUCCESS = "SUCCESS"
+              FAILED = "FAILED"
+              def __init__(self, event, context):
+                  self.event = event
+                  self.context = context
+                  self.response_url = event['ResponseURL']
+              def send(self, status, response_data={}, physical_resource_id=None, no_echo=False, reason=None):
+                  response_body = {
+                      'Status': status,
+                      'Reason': reason or "See CloudWatch Log Stream: {}".format(self.context.log_stream_name),
+                      'PhysicalResourceId': physical_resource_id or self.context.log_stream_name,
+                      'StackId': self.event['StackId'],
+                      'RequestId': self.event['RequestId'],
+                      'LogicalResourceId': self.event['LogicalResourceId'],
+                      'NoEcho': no_echo,
+                      'Data': response_data
+                  }
+                  json_body = json.dumps(response_body).encode('utf-8')
+                  headers = {'content-type': '', 'content-length': str(len(json_body))}
+                  req = request.Request(self.response_url, data=json_body, headers=headers, method='PUT')
+                  with request.urlopen(req) as resp:
+                      print("CFN response status:", resp.getcode())
+
+          def lambda_handler(event, context):
+              print(event)
+              cfn = CFNResponse(event, context)
+              try:
+                  wait_secs = int(event["ResourceProperties"]["Wait"])
+                  if event['RequestType'] == 'Create':
+                      time.sleep(wait_secs)
+                      print('waited for {} seconds'.format(wait_secs))
+                  cfn.send(cfn.SUCCESS, {})
+              except Exception as e:
+                  print(f"Error: {e}")
+                  cfn.send(cfn.FAILED, {}, reason=str(e))
+
+  WaitAfterRoleUpdate:
+    Type: Custom::Waiter
+    DependsOn: LambdaExecutionPolicy
+    Properties:
+      ServiceToken: !GetAtt WaitAfterRoleUpdateFunction.Arn
+      Wait: 10
+
+  ##################################
+  # -- Shipper Lambda             -#
+  ##################################
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: WaitAfterRoleUpdate
+    Properties:
+      Description: Send logs to Coralogix (GovCloud).
+      Handler: bootstrap
+      Runtime: !Ref FunctionRunTime
+      ReservedConcurrentExecutions: !If
+        - ReservedConcurrentExecutionsIsSet
+        - !Ref ReservedConcurrentExecutions
+        - !Ref AWS::NoValue
+      Architectures:
+        - !Ref FunctionArchitectures
+      MemorySize: !Ref FunctionMemorySize
+      Timeout: !Ref FunctionTimeout
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Ref LambdaCodeKey
+      Role: !If
+        - ExecutionRoleARNIsSet
+        - !Ref ExecutionRoleARN
+        - !GetAtt LambdaExecutionRole.Arn
+
+      VpcConfig: !If
+        - UseVpcConfig
+        - SecurityGroupIds:
+            - !Ref LambdaSecurityGroupID
+          SubnetIds:
+            - !Ref LambdaSubnetID
+        - !Ref AWS::NoValue
+
+      Environment:
+        Variables:
+          CORALOGIX_ENDPOINT: !If
+            - IsPrivateLink
+            - !Sub 'https://ingress.private.${CustomDomain}'
+            - !Sub 'https://ingress.${CustomDomain}'
+          CORALOGIX_API_KEY: !If
+            - StoreAPIKeyInSecretsManager
+            - !Ref Secret
+            - !Ref ApiKey
+          APP_NAME: !Ref ApplicationName
+          SUB_NAME: !Ref SubsystemName
+          SAMPLING: !Ref SamplingRate
+          INTEGRATION_TYPE: !Ref IntegrationType
+          RUST_LOG: !Ref LogLevel
+          ADD_METADATA: !If
+            - AddMetadataNotSet
+            - !Ref AWS::NoValue
+            - !Ref AddMetadata
+          CUSTOM_METADATA: !If
+            - CustomMetadataNotSet
+            - !Ref AWS::NoValue
+            - !Ref CustomMetadata
+          NEWLINE_PATTERN: !If
+            - NewlinePatternNotSet
+            - !Ref AWS::NoValue
+            - !Ref NewlinePattern
+          BLOCKING_PATTERN: !If
+            - BlockPatternNotSet
+            - !Ref AWS::NoValue
+            - !Ref BlockingPattern
+          LOG_STREAM_FILTER: !If
+            - LogStreamFilterNotSet
+            - !Ref AWS::NoValue
+            - !Ref LogStreamFilter
+          CSV_DELIMITER: !If
+            - CSVDelimiterUse
+            - !Ref CSVDelimiter
+            - !Ref AWS::NoValue
+          ASSUME_ROLE_ARN: !Ref LambdaAssumeRoleARN
+          DLQ_RETRY_LIMIT: !Ref DLQRetryLimit
+          DLQ_ARN: !If
+            - DLQEnabled
+            - !GetAtt DeadLetterQueue.Arn
+            - !Ref AWS::NoValue
+          DLQ_URL: !If
+            - DLQEnabled
+            - !Ref DeadLetterQueue
+            - !Ref AWS::NoValue
+          DLQ_S3_BUCKET: !If
+            - DLQEnabled
+            - !Ref DLQS3Bucket
+            - !Ref AWS::NoValue
+          LAMBDA_ASSUME_ROLE: !If
+            - IsLambdaAssumeRoleEnable
+            - !Ref LambdaAssumeRoleARN
+            - !Ref AWS::NoValue
+          TELEMETRY_MODE: !Ref TelemetryMode
+          BATCH_METRICS: !Ref BatchMetrics
+          METRICS_BATCH_MAX_SIZE: !Ref MetricsBatchMaxSize
+          ENABLE_LOG_GROUP_TAGS: !Ref EnableLogGroupTags
+          LOG_GROUP_TAGS_CACHE_TTL_SECONDS: !Ref LogGroupTagsCacheTTLSeconds
+
+  LambdaLogGroup:
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${LambdaFunction}'
+      RetentionInDays: !Ref LambdaLogRetention
+
+  ##################################
+  # -- Failure notification       -#
+  ##################################
+
+  FailureNotificationTopic:
+    Type: AWS::SNS::Topic
+    Condition: IsNotificationEnabled
+    Properties:
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref NotificationEmail
+
+  LambdaDestinationConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Condition: IsNotificationEnabled
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Qualifier: $LATEST
+      DestinationConfig:
+        OnFailure:
+          Destination: !Ref FailureNotificationTopic
+
+  ##################################
+  # -- DLQ                        -#
+  ##################################
+
+  DeadLetterQueue:
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Condition: DLQEnabled
+    Type: AWS::SQS::Queue
+    Properties:
+      DelaySeconds: !Ref DLQRetryDelay
+      MessageRetentionPeriod: 1209600
+      VisibilityTimeout: !Ref FunctionTimeout
+
+  ##################################
+  # -- Kinesis                    -#
+  ##################################
+
+  KinesisEventSourceMapping:
+    Condition: UseKinesisStreamARN
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 100
+      EventSourceArn: !Ref KinesisStreamArn
+      FunctionName: !GetAtt LambdaFunction.Arn
+      StartingPosition: LATEST
+
+  ##################################
+  # -- MSK                        -#
+  ##################################
+
+  MSKEventSourceMapping:
+    Condition: UseMSK
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: !Ref KafkaBatchSize
+      EventSourceArn: !Ref MSKClusterArn
+      FunctionName: !GetAtt LambdaFunction.Arn
+      StartingPosition: LATEST
+      Topics: !Split [ ",", !Ref KafkaTopic ]
+
+  ##################################
+  # -- SQS                        -#
+  ##################################
+
+  SQSEventSourceMapping:
+    Condition: SQSIsSet
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      FunctionName: !GetAtt LambdaFunction.Arn
+      EventSourceArn: !If
+        - IsSQSIntegration
+        - !Ref SQSIntegrationTopicArn
+        - !Ref SQSTopicArn
+
+  SQSEventPermission:
+    Condition: SQSIsSet
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Principal: sns.amazonaws.com
+      SourceArn: !If
+        - IsSQSIntegration
+        - !Ref SQSIntegrationTopicArn
+        - !Ref SQSTopicArn
+
+  ##################################
+  # -- SNS                        -#
+  ##################################
+
+  SNSSubscription:
+    Condition: SNSIsSet
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      Endpoint: !GetAtt LambdaFunction.Arn
+      TopicArn: !If
+        - IsSNSIntegration
+        - !Ref SNSIntegrationTopicArn
+        - !Ref SNSTopicArn
+
+  SNSEventPermission:
+    Condition: SNSIsSet
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Principal: sns.amazonaws.com
+      SourceArn: !If
+        - IsSNSIntegration
+        - !Ref SNSIntegrationTopicArn
+        - !Ref SNSTopicArn
+
+  ##################################
+  # -- ECR Scan                   -#
+  ##################################
+
+  LambdaFunctionEcrInvokePermission:
+    Condition: UseECRScan
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt ECRScanTrigger.Arn
+
+  ECRScanTrigger:
+    Condition: UseECRScan
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Trigger for ECR image scan completion"
+      State: ENABLED
+      EventPattern:
+        source:
+          - "aws.ecr"
+        detail-type:
+          - "ECR Image Scan"
+        detail:
+          scan-status:
+            - "COMPLETE"
+      Targets:
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: "TargetFunctionV1"
+
+  ##################################
+  # -- Metrics Integration        -#
+  ##################################
+
+  FirehoseLogGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      LogGroupName: !Sub '${AWS::StackName}-firehose-log-group'
+      RetentionInDays: 14
+
+  FirehoseLogStream:
+    Type: AWS::Logs::LogStream
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      LogGroupName: !Ref FirehoseLogGroup
+      LogStreamName: delivery
+
+  FireHoseDeliveryStreamS3Role:
+    Type: AWS::IAM::Role
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "firehose.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "FirehoseDeliveryStreamS3Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # S3 access – partition-safe
+              - Effect: "Allow"
+                Action:
+                  - "s3:AbortMultipartUpload"
+                  - "s3:GetBucketLocation"
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                  - "s3:ListBucketMultipartUploads"
+                  - "s3:PutObject"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${S3BucketName}"
+                  - !Sub "arn:${AWS::Partition}:s3:::${S3BucketName}/*"
+              # CloudWatch Logs – partition-safe
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                  - logs:CreateLogStream
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${FirehoseLogGroup}:log-stream:delivery'
+              # Lambda invoke for transform
+              - Effect: "Allow"
+                Action:
+                  - "lambda:InvokeFunction"
+                  - "lambda:GetFunctionConfiguration"
+                Resource: !GetAtt LambdaFunction.Arn
+
+  FireHoseDestination:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Sub "arn:${AWS::Partition}:s3:::${S3BucketName}"
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 5
+        CompressionFormat: GZIP
+        Prefix: "coralogix-aws-shipper-metrics"
+        RoleARN: !GetAtt FireHoseDeliveryStreamS3Role.Arn
+        S3BackupMode: Disabled
+        S3BackupConfiguration:
+          BucketARN: !Sub "arn:${AWS::Partition}:s3:::${S3BucketName}"
+          RoleARN: !GetAtt FireHoseDeliveryStreamS3Role.Arn
+          BufferingHints:
+            IntervalInSeconds: 60
+            SizeInMBs: 5
+          CompressionFormat: GZIP
+          Prefix: "coralogix-aws-shipper-metrics-backup"
+        ProcessingConfiguration:
+          Enabled: 'true'
+          Processors:
+            - Parameters:
+              - ParameterName: RoleArn
+                ParameterValue: !GetAtt FireHoseDeliveryStreamS3Role.Arn
+              - ParameterName: LambdaArn
+                ParameterValue: !GetAtt LambdaFunction.Arn
+              Type: Lambda
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref FirehoseLogGroup
+          LogStreamName: delivery
+
+  FirehoseAccessRole:
+    Type: AWS::IAM::Role
+    Condition: TelemetryModeIsMetrics
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "streams.metrics.cloudwatch.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "FirehoseAccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "firehose:PutRecord"
+                  - "firehose:PutRecordBatch"
+                Resource: !GetAtt FireHoseDestination.Arn
+
+  ##################################
+  # -- Custom Resource IAM        -#
+  ##################################
+
+  CustomResourceFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: CustomResourcePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # EC2 networking (VPC-attached custom resource)
+              - Sid: EC2Access
+                Effect: Allow
+                Action:
+                  - 'ec2:CreateNetworkInterface'
+                  - 'ec2:DescribeNetworkInterfaces'
+                  - 'ec2:DescribeVpcs'
+                  - 'ec2:DeleteNetworkInterface'
+                  - 'ec2:DescribeSubnets'
+                  - 'ec2:DescribeSecurityGroups'
+                Resource: '*'
+              # Lambda management for the shipper function.
+              # Uses a stack-scoped wildcard to avoid circular dependency with LambdaFunction.
+              - Sid: LambdaAccess
+                Effect: Allow
+                Action:
+                  - lambda:*
+                Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:*'
+              # Event source mappings (list is account-wide)
+              - Sid: ListEventSourceMappings
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                Resource: "*"
+              - Sid: EventSourceMappings
+                Effect: Allow
+                Action:
+                  - lambda:CreateEventSourceMapping
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:GetFunctionConfiguration
+                  - lambda:UpdateFunctionConfiguration
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:*'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*'
+              # CloudWatch Metrics Streams
+              - Sid: CloudWatchMetrics
+                Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricStream
+                  - cloudwatch:DeleteMetricStream
+                  - cloudwatch:GetMetricStream
+                  - cloudwatch:ListMetricStreams
+                  - cloudwatch:StartMetricStreams
+                  - cloudwatch:StopMetricStreams
+                  - cloudwatch:DescribeAlarmsForMetric
+                  - cloudwatch:PutMetricData
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                  - cloudwatch:GetMetricWidgetImage
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:*'
+              # S3 bucket notifications
+              - Sid: S3NotificationPolicy
+                Effect: Allow
+                Action:
+                  - s3:GetBucketNotification
+                  - s3:PutBucketNotification
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::*'
+              # CloudWatch Logs subscription filters
+              - Sid: PutSubscriptionFilter
+                Effect: Allow
+                Action:
+                  - logs:PutSubscriptionFilter
+                  - logs:DeleteSubscriptionFilter
+                  - logs:DescribeSubscriptionFilters
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:*'
+              # IAM PassRole for Firehose (metrics mode only)
+              - !If
+                - TelemetryModeIsMetrics
+                - Sid: IamPassRole
+                  Effect: Allow
+                  Action:
+                    - iam:PassRole
+                  Resource: !GetAtt FirehoseAccessRole.Arn
+                - !Ref AWS::NoValue
+
+  ##################################
+  # -- Custom Resource Function   -#
+  ##################################
+
+  CustomResourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-custom-resource'
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Timeout: 900
+      Role: !GetAtt CustomResourceFunctionRole.Arn
+      Code:
+        S3Bucket: !Ref CustomResourceCodeBucket
+        S3Key: !Ref CustomResourceCodeKey
+
+  ##################################
+  # -- Custom::ConfigureLambda    -#
+  ##################################
+
+  ConfigureLambda:
+    Type: Custom::ConfigureLambda
+    Properties:
+      ServiceToken: !GetAtt CustomResourceFunction.Arn
+      LambdaArn: !GetAtt LambdaFunction.Arn
+      DLQ:
+        EnableDLQ: !Ref EnableDLQ
+        RetryLimit: !Ref DLQRetryLimit
+        RetryDelay: !Ref DLQRetryDelay
+        DLQArn: !If
+          - DLQEnabled
+          - !GetAtt DeadLetterQueue.Arn
+          - !Ref AWS::NoValue
+        DLQS3Bucket: !If
+          - DLQEnabled
+          - !Ref DLQS3Bucket
+          - !Ref AWS::NoValue
+        DLQ_URL: !If
+          - DLQEnabled
+          - !Ref DeadLetterQueue
+          - !Ref AWS::NoValue
+      Parameters:
+        ReservedConcurrentExecutions: !Ref ReservedConcurrentExecutions
+        LambdaAssumeRoleARN: !Ref LambdaAssumeRoleARN
+        CustomDomain: !Ref CustomDomain
+        ApiKey: !If
+          - StoreAPIKeyInSecretsManager
+          - !Ref Secret
+          - !Ref ApiKey
+        AssumeRoleArn: !Ref LambdaAssumeRoleARN
+        ApplicationName: !Ref ApplicationName
+        SubsystemName: !Ref SubsystemName
+        AddMetadata: !Ref AddMetadata
+        CustomMetadata: !Ref CustomMetadata
+        NewlinePattern: !Ref NewlinePattern
+        BlockingPattern: !Ref BlockingPattern
+        LogStreamFilter: !Ref LogStreamFilter
+        SamplingRate: !Ref SamplingRate
+        LogLevel: !Ref LogLevel
+        S3BucketName: !Ref S3BucketName
+        CSVDelimiter: !Ref CSVDelimiter
+        FunctionMemorySize: !Ref FunctionMemorySize
+        FunctionTimeout: !Ref FunctionTimeout
+        SNSTopicArn: !Ref SNSTopicArn
+        SQSTopicArn: !Ref SQSTopicArn
+        SQSIntegrationTopicArn: !Ref SQSIntegrationTopicArn
+        SNSIntegrationTopicArn: !Ref SNSIntegrationTopicArn
+        KinesisStreamArn: !Ref KinesisStreamArn
+        IntegrationType: !Ref IntegrationType
+        CloudWatchLogGroupName: !Ref CloudWatchLogGroupName
+        CloudWatchLogGroupPrefix: !Ref CloudWatchLogGroupPrefix
+        EnableLogGroupTags: !Ref EnableLogGroupTags
+        LogGroupTagsCacheTTLSeconds: !Ref LogGroupTagsCacheTTLSeconds
+        LambdaLogRetention: !Ref LambdaLogRetention
+        NotificationEmail: !Ref NotificationEmail
+        StoreAPIKeyInSecretsManager: !Ref StoreAPIKeyInSecretsManager
+        LambdaSubnetID: !Ref LambdaSubnetID
+        LambdaSecurityGroupID: !Ref LambdaSecurityGroupID
+        UsePrivateLink: !Ref UsePrivateLink
+        MSKClusterArn: !Ref MSKClusterArn
+        KafkaTopic: !Ref KafkaTopic
+        KafkaBatchSize: !Ref KafkaBatchSize
+        KafkaBrokers: !Ref KafkaBrokers
+        KafkaSubnets: !Ref KafkaSubnets
+        KafkaSecurityGroups: !Ref KafkaSecurityGroups
+        S3KeyPrefix: !If
+          - S3KeyPrefixIsSet
+          - !Ref S3KeyPrefix
+          - !If
+            - UseAWSDefaultPrefix
+            - 'AWSLogs/'
+            - ''
+        S3KeySuffix: !If
+          - S3SuffixIsSet
+          - !Ref S3KeySuffix
+          - !If
+            - UseAWSDefaultCloudTrailSuffix
+            - '.json.gz'
+            - !If
+              - UseAWSDefaultVpcFlowSuffix
+              - '.log.gz'
+              - ""
+        CoralogixEndpoint: !If
+          - IsPrivateLink
+          - !Sub 'https://ingress.private.${CustomDomain}'
+          - !Sub 'https://ingress.${CustomDomain}'
+        CoralogixAPIKey: !If
+          - StoreAPIKeyInSecretsManager
+          - !Ref Secret
+          - !Ref ApiKey
+        TelemetryMode: !Ref TelemetryMode
+        CWStreamFirehoseDestinationARN: !If
+          - TelemetryModeIsMetrics
+          - !GetAtt FireHoseDestination.Arn
+          - !Ref AWS::NoValue
+        CWStreamFirehoseAccessRoleARN: !If
+          - TelemetryModeIsMetrics
+          - !GetAtt FirehoseAccessRole.Arn
+          - !Ref AWS::NoValue
+        CWMetricStreamName: !If
+          - TelemetryModeIsMetrics
+          - !Sub '${AWS::StackName}-coralogix-metric-stream'
+          - !Ref AWS::NoValue
+        MetricsFilter: !Ref MetricsFilter
+        ExcludeMetricsFilters: !Ref ExcludeMetricsFilters
+        AWSPartition: !Ref AWS::Partition
+
+# ---------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------
+Outputs:
+  LambdaArn:
+    Description: ARN of the Coralogix shipper Lambda function
+    Value: !GetAtt LambdaFunction.Arn
+
+  CustomResourceFunctionArn:
+    Description: ARN of the GovCloud custom-resource orchestrator Lambda function
+    Value: !GetAtt CustomResourceFunction.Arn
