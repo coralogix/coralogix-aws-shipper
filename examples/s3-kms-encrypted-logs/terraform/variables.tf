@@ -17,6 +17,6 @@ variable "common_tags" {
 
 variable "shipper_lambda_execution_role_arn" {
   type        = string
-  description = "IAM execution role ARN of the shipper Lambda — when set, the KMS key policy grants kms:Decrypt for SSE-KMS reads."
+  description = "Optional. When set, adds an explicit kms:Decrypt statement for this role on the CMK. Same-account deploys work with this empty: the key policy includes the account root, so the shipper stack's IAM policy can authorize decrypt after you deploy."
   default     = ""
 }

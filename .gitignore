@@ -4,3 +4,6 @@
 .vscode
 packaged.yaml
 samconfig.toml
+
+# Example-specific CloudFormation parameter files (may contain secrets); keep parameters.example.json in repo
+examples/**/parameters.json

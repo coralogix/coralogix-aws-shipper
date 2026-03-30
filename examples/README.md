@@ -13,6 +13,6 @@ Optional **dependent AWS resources** for each scenario live in that folder’s *
 
 | Folder | Topic |
 |--------|--------|
-| [sqs-multi-account-central-lambda](sqs-multi-account-central-lambda/) | One central shipper Lambda consuming from more than one SQS queue (same or other accounts). |
+| [sqs-multi-account-central-lambda](sqs-multi-account-central-lambda/) | Central + spoke SQS queues (two AWS accounts) and optional second event source on the shipper Lambda. |
 | [s3-kms-encrypted-logs](s3-kms-encrypted-logs/) | S3 logs encrypted with a customer-managed KMS key and `S3BucketKMSKeyARN`. |
 | [s3-multiple-buckets-one-lambda](s3-multiple-buckets-one-lambda/) | Comma-separated `S3BucketName` so one integration watches several buckets. |

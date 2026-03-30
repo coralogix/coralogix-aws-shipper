@@ -17,7 +17,7 @@ If each bucket uses a **different** customer-managed key, resolve that by using 
 
 ## Terraform
 
-[`terraform/`](terraform/) in this folder provisions a CMK plus an encrypted bucket and a key policy that allows your shipper **execution role** to decrypt when you set that variable.
+[`terraform/`](terraform/) in this folder provisions a CMK plus an encrypted bucket. The key policy includes the **account root**, so you do **not** need the shipper Lambda (or its execution role ARN) before the first `apply`: use Terraform outputs, deploy the shipper, then optionally run `apply` again with `shipper_lambda_execution_role_arn` for an explicit decrypt statement on the key. See [`terraform/README.md`](terraform/README.md) for the full order.
 
 1. Run `terraform init` / `apply` in [`terraform/`](terraform/) and note outputs (`kms_key_arn`, `logs_bucket_name`).
 2. Deploy the shipper with `IntegrationType` matching your log format (`S3`, `CloudTrail`, `VpcFlow`, etc.), `S3BucketName`, and `S3BucketKMSKeyARN` from Terraform output.

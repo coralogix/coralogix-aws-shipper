@@ -13,23 +13,21 @@ To read from **additional** queues with the **same** Lambda (for example queues 
 
 For **cross-account** queues, the mapping is still created in the **central** account (where the Lambda runs); only the `event_source_arn` points at the foreign queue ARN. The queue policy on the spoke queue must allow the central account’s Lambda execution role.
 
-## Same-account example (Terraform)
+## Terraform (self-contained central + spoke)
 
-Use [`terraform/`](terraform/) in this folder. It creates an **additional** queue plus an optional `aws_lambda_event_source_mapping` so you do not duplicate the whole shipper stack.
+[`terraform/`](terraform/) always creates:
 
-**Apply order**
+- A **primary** queue in the **central** account (for **`SQSIntegrationTopicArn`**).
+- A **spoke** queue in a **second** account via **`aws.spoke`** in [`terraform/providers.tf`](terraform/providers.tf).
 
-1. Deploy the shipper stack with parameters from [`parameters.example.json`](parameters.example.json) (point `SQSIntegrationTopicArn` at your primary queue).
-2. Copy [`terraform/terraform.tfvars.example`](terraform/terraform.tfvars.example) to `terraform.tfvars`, edit, then run `terraform init` and `terraform apply` inside [`terraform/`](terraform/).
-
-If Terraform also creates your primary queue, use a two-step apply: create queues first, deploy CloudFormation with the primary queue ARN, then apply again so the extra event source mapping can reference an existing Lambda.
+So you can test cross-account ingestion with only this Terraform + a shipper stack—no other queues required. Bootstrap and testing steps are in [`terraform/README.md`](terraform/README.md).
 
 ## Parameters
 
 | Template parameter | Value |
 |--------------------|--------|
 | `IntegrationType` | `Sqs` |
-| `SQSIntegrationTopicArn` | ARN of the **first** queue the stack should subscribe to |
+| `SQSIntegrationTopicArn` | ARN of the **first** queue (`primary_sqs_queue_arn` from Terraform) |
 | `S3BucketName` | `none` when using pure SQS ingestion (see template rules for other integration types) |
 
 For pure SQS, set other product-specific parameters to their defaults or placeholders as required by your deployment path; follow the main [README](../../README.md) for required Coralogix fields (`ApiKey`, `ApplicationName`, etc.).
