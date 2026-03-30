@@ -530,7 +530,6 @@ Conditions:
   DLQEnabled: !Equals [ !Ref EnableDLQ, 'true' ]
   IsKafkaIntegration: !Equals [ !Ref IntegrationType, 'Kafka' ]
   BlockPatternNotSet: !Equals [ !Ref BlockingPattern, '' ]
-  LogStreamFilterNotSet: !Equals [ !Ref LogStreamFilter, '' ]
   CSVDelimiterUse: !Equals [!Ref IntegrationType, 'S3Csv']
   NewlinePatternNotSet: !Equals [ !Ref NewlinePattern, '' ]
   AddMetadataNotSet: !Equals [ !Ref AddMetadata, '']
@@ -995,10 +994,7 @@ Resources:
             - BlockPatternNotSet
             - !Ref AWS::NoValue
             - !Ref BlockingPattern
-          LOG_STREAM_FILTER: !If
-            - LogStreamFilterNotSet
-            - !Ref AWS::NoValue
-            - !Ref LogStreamFilter
+          LOG_STREAM_FILTER: !Ref LogStreamFilter
           CSV_DELIMITER: !If
             - CSVDelimiterUse
             - !Ref CSVDelimiter
