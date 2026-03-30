@@ -4,7 +4,8 @@ on:
   push:
     paths:
       - 'template.yaml'
-       
+      - '.github/workflows/publish.yaml'
+
   workflow_dispatch:
 
 env:
@@ -202,8 +203,33 @@ jobs:
         with:
           name: packaged.yaml
 
+      - name: install yq
+        run: sudo snap install yq
+
       - name: publish
-        run: sam publish --template packaged.yaml
+        run: |
+          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+          DESCRIPTION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".Description' packaged.yaml)
+          SOURCE_CODE_URL=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SourceCodeUrl' packaged.yaml)
+
+          # Upload template to S3 to bypass SAR's 51,200-byte TemplateBody limit
+          # (sam publish always uses TemplateBody; our template exceeds this limit)
+          TEMPLATE_KEY="${{ env.AWS_S3_PREFIX }}/templates/packaged-${VERSION}.yaml"
+          aws s3 cp packaged.yaml "s3://${{ env.AWS_SERVERLESS_BUCKET }}/${TEMPLATE_KEY}"
+          TEMPLATE_URL="https://s3.${{ env.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.AWS_SERVERLESS_BUCKET }}/${TEMPLATE_KEY}"
+
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          APP_ID="arn:aws:serverlessrepo:${{ env.AWS_DEFAULT_REGION }}:${ACCOUNT_ID}:applications/coralogix-aws-shipper"
+
+          aws serverlessrepo update-application \
+            --application-id "${APP_ID}" \
+            --description "${DESCRIPTION}"
+
+          aws serverlessrepo create-application-version \
+            --application-id "${APP_ID}" \
+            --semantic-version "${VERSION}" \
+            --template-url "${TEMPLATE_URL}" \
+            --source-code-url "${SOURCE_CODE_URL}"
 
       - name: store
         run: |
