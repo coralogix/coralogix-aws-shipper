@@ -4,3 +4,25 @@
 .vscode
 packaged.yaml
 samconfig.toml
+
+# Local / editor
+.DS_Store
+.cursor/
+
+# Secrets and local env (never commit)
+lambda.env
+*.env.local
+
+# Python
+**/__pycache__/
+*.py[cod]
+
+# GovCloud / custom-resource Lambda zips (build with scripts/package_govcloud_artifacts.sh)
+custom-resource/*.zip
+
+# Terraform local state (keep out of PR unless publishing IaC intentionally)
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+terraform/*.tfvars.json
