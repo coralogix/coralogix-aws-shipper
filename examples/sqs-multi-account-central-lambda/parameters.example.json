@@ -1,0 +1,50 @@
+[
+  {
+    "ParameterKey": "IntegrationType",
+    "ParameterValue": "Sqs"
+  },
+  {
+    "ParameterKey": "CoralogixRegion",
+    "ParameterValue": "EU1"
+  },
+  {
+    "ParameterKey": "CustomDomain",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ApplicationName",
+    "ParameterValue": "my-app"
+  },
+  {
+    "ParameterKey": "SubsystemName",
+    "ParameterValue": "sqs-logs"
+  },
+  {
+    "ParameterKey": "ApiKey",
+    "ParameterValue": "REPLACE_WITH_CORALOGIX_SEND_YOUR_DATA_KEY_OR_SECRET_ARN"
+  },
+  {
+    "ParameterKey": "StoreAPIKeyInSecretsManager",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "S3BucketName",
+    "ParameterValue": "none"
+  },
+  {
+    "ParameterKey": "SQSIntegrationTopicArn",
+    "ParameterValue": "arn:aws:sqs:eu-west-1:111111111111:primary-coralogix-ingest-queue"
+  },
+  {
+    "ParameterKey": "SQSTopicArn",
+    "ParameterValue": "arn:aws:sqs:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "SNSTopicArn",
+    "ParameterValue": "arn:aws:sns:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "SNSIntegrationTopicArn",
+    "ParameterValue": "arn:aws:sns:us-east-1:123456789012:placeholder"
+  }
+]

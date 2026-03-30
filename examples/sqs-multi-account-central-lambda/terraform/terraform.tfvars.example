@@ -1,0 +1,13 @@
+aws_region = "eu-north-1"
+spoke_region = "eu-north-1"
+
+name_prefix = "coralogix-shipper-ex"
+
+shipper_lambda_execution_role_arn = "arn:aws:iam::111111111111:role/my-stack-LambdaExecutionRole-XXXX"
+
+shipper_lambda_function_name = ""
+create_event_source_mapping  = true
+
+common_tags = {
+  Purpose = "coralogix-aws-shipper-example-sqs"
+}
