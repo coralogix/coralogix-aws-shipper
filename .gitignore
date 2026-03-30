@@ -7,3 +7,6 @@ samconfig.toml
 
 # Example-specific CloudFormation parameter files (may contain secrets); keep parameters.example.json in repo
 examples/**/parameters.json
+
+# Terraform provider lock files (run terraform init locally to regenerate)
+**/.terraform.lock.hcl
