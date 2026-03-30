@@ -1,4 +1,5 @@
 aws_region = "eu-north-1"
+spoke_region = "eu-north-1"
 
 name_prefix = "coralogix-shipper-ex"
 

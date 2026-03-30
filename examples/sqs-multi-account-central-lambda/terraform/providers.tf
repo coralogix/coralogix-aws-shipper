@@ -5,7 +5,7 @@ provider "aws" {
 # Spoke account — must point at a different account than provider "aws" (profile, assume_role, etc.).
 provider "aws" {
   alias  = "spoke"
-  region = var.aws_region
+  region = var.spoke_region
 
   # Example (uncomment / adjust):
   # profile = "spoke-account"
