@@ -1779,6 +1779,125 @@ async fn test_sqs_event_starlark() {
     .await;
 }
 
+async fn run_sqs_multiple_records_batched() {
+    let config = Config::load_from_env().unwrap();
+    // Event with 3 separate SQS records - these should be batched together in a single API call
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "Records": [
+              {
+                "attributes": {
+                  "ApproximateFirstReceiveTimestamp": "0",
+                  "ApproximateReceiveCount": "1",
+                  "SenderId": "SENDERID:EXAMPLE",
+                  "SentTimestamp": "0"
+                },
+                "awsRegion": "us-east-1",
+                "body": "SQS Message 1",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                "md5OfBody": "MD5EXAMPLE1",
+                "messageAttributes": {},
+                "messageId": "00000000-0000-0000-0000-000000000001",
+                "receiptHandle": "RECEIPTHANDLEEXAMPLE1"
+              },
+              {
+                "attributes": {
+                  "ApproximateFirstReceiveTimestamp": "0",
+                  "ApproximateReceiveCount": "1",
+                  "SenderId": "SENDERID:EXAMPLE",
+                  "SentTimestamp": "0"
+                },
+                "awsRegion": "us-east-1",
+                "body": "SQS Message 2",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                "md5OfBody": "MD5EXAMPLE2",
+                "messageAttributes": {},
+                "messageId": "00000000-0000-0000-0000-000000000002",
+                "receiptHandle": "RECEIPTHANDLEEXAMPLE2"
+              },
+              {
+                "attributes": {
+                  "ApproximateFirstReceiveTimestamp": "0",
+                  "ApproximateReceiveCount": "1",
+                  "SenderId": "SENDERID:EXAMPLE",
+                  "SentTimestamp": "0"
+                },
+                "awsRegion": "us-east-1",
+                "body": "SQS Message 3",
+                "eventSource": "aws:sqs",
+                "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                "md5OfBody": "MD5EXAMPLE3",
+                "messageAttributes": {},
+                "messageId": "00000000-0000-0000-0000-000000000003",
+                "receiptHandle": "RECEIPTHANDLEEXAMPLE3"
+              }
+            ]
+          }"#,
+    )
+    .expect("failed to parse sqs_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    
+    // Key assertion: All 3 records should be batched into a SINGLE API call
+    assert_eq!(
+        singles.len(),
+        1,
+        "Multiple SQS records should be batched into a single API call, got {} calls",
+        singles.len()
+    );
+    
+    // All 3 log entries should be in that single batch
+    assert_eq!(
+        singles[0].entries.len(),
+        3,
+        "All 3 records should be in the batch"
+    );
+
+    // Verify the content of each record
+    let expected_logs = vec!["SQS Message 1", "SQS Message 2", "SQS Message 3"];
+    for (i, expected) in expected_logs.iter().enumerate() {
+        assert_eq!(
+            singles[0].entries[i].body, *expected,
+            "Record {} content mismatch",
+            i + 1
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_sqs_multiple_records_batched() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Sqs")),
+        ],
+        run_sqs_multiple_records_batched(),
+    )
+    .await;
+}
+
 async fn run_kinesis_event() {
     let config = Config::load_from_env().unwrap();
     let evt: Combined = serde_json::from_str(
@@ -1967,6 +2086,379 @@ async fn test_kinesis_with_cloudwatch_event() {
             ("INTEGRATION_TYPE", Some("Kinesis")),
         ],
         run_kinesis_with_cloudwatch_event(),
+    )
+    .await;
+}
+
+async fn run_kinesis_multiple_records_batched() {
+    let config = Config::load_from_env().unwrap();
+    // Event with 3 separate Kinesis records - these should be batched together in a single API call
+    // Each record contains base64-encoded data: "Record 1", "Record 2", "Record 3"
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "Records": [
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000001",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:0000000000:stream/mystream",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::0000000000:role/cargo-lambda-role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.323,
+                        "data": "UmVjb3JkIDE=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk1",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808531"
+                    }
+                },
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000002",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:0000000000:stream/mystream",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::0000000000:role/cargo-lambda-role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.324,
+                        "data": "UmVjb3JkIDI=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk2",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808532"
+                    }
+                },
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000003",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:0000000000:stream/mystream",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::0000000000:role/cargo-lambda-role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.325,
+                        "data": "UmVjb3JkIDM=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk3",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808533"
+                    }
+                }
+            ]
+        }"#,
+    )
+    .expect("failed to parse kinesis_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
+        .await
+        .unwrap();
+
+    let bulks = exporter.take_bulks();
+    assert!(bulks.is_empty());
+
+    let singles = exporter.take_singles();
+    
+    // Key assertion: All 3 records should be batched into a SINGLE API call
+    assert_eq!(
+        singles.len(),
+        1,
+        "Multiple Kinesis records should be batched into a single API call, got {} calls",
+        singles.len()
+    );
+    
+    // All 3 log entries should be in that single batch
+    assert_eq!(
+        singles[0].entries.len(),
+        3,
+        "All 3 records should be in the batch"
+    );
+
+    // Verify the content of each record
+    let expected_logs = vec!["Record 1", "Record 2", "Record 3"];
+    for (i, expected) in expected_logs.iter().enumerate() {
+        assert_eq!(
+            singles[0].entries[i].body, *expected,
+            "Record {} content mismatch",
+            i + 1
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_kinesis_multiple_records_batched() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Kinesis")),
+        ],
+        run_kinesis_multiple_records_batched(),
+    )
+    .await;
+}
+
+async fn run_kinesis_dynamic_app_name_per_record() {
+    let config = Config::load_from_env().unwrap();
+    // Three Kinesis records with distinct eventSourceARNs.
+    // APP_NAME is set to {{kinesis.event.source_arn}}, so each log entry must carry
+    // the application_name of its own record, not the last record's value.
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "Records": [
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000001",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/stream-A",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::000000000000:role/role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.323,
+                        "data": "UmVjb3JkIEE=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk1",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808531"
+                    }
+                },
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000002",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/stream-B",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::000000000000:role/role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.324,
+                        "data": "UmVjb3JkIEI=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk2",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808532"
+                    }
+                },
+                {
+                    "awsRegion": "us-east-1",
+                    "eventID": "shardId-000000000000:00000000000000000000000000000000000000000000000003",
+                    "eventName": "aws:kinesis:record",
+                    "eventSource": "aws:kinesis",
+                    "eventSourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/stream-C",
+                    "eventVersion": "1.0",
+                    "invokeIdentityArn": "arn:aws:iam::000000000000:role/role",
+                    "kinesis": {
+                        "approximateArrivalTimestamp": 1704715421.325,
+                        "data": "UmVjb3JkIEM=",
+                        "kinesisSchemaVersion": "1.0",
+                        "partitionKey": "pk3",
+                        "sequenceNumber": "49647983248916725783135500075978324609922193443375808533"
+                    }
+                }
+            ]
+        }"#,
+    )
+    .expect("failed to parse kinesis_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
+
+    let singles = exporter.take_singles();
+
+    assert_eq!(
+        singles.len(),
+        1,
+        "Multiple Kinesis records should still be sent in a single batched API call"
+    );
+    assert_eq!(
+        singles[0].entries.len(),
+        3,
+        "All 3 records should produce one log entry each"
+    );
+
+    // Each entry must carry the application_name from its OWN record's source ARN.
+    assert_eq!(
+        singles[0].entries[0].application_name,
+        "arn:aws:kinesis:us-east-1:000000000000:stream/stream-A",
+        "Entry 0 should have stream-A as application_name"
+    );
+    assert_eq!(
+        singles[0].entries[1].application_name,
+        "arn:aws:kinesis:us-east-1:000000000000:stream/stream-B",
+        "Entry 1 should have stream-B as application_name"
+    );
+    assert_eq!(
+        singles[0].entries[2].application_name,
+        "arn:aws:kinesis:us-east-1:000000000000:stream/stream-C",
+        "Entry 2 should have stream-C as application_name"
+    );
+}
+
+#[tokio::test]
+async fn test_kinesis_dynamic_app_name_per_record() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            // Dynamic APP_NAME template that resolves from per-record Kinesis metadata
+            ("APP_NAME", Some("{{kinesis.event.source_arn}}")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Kinesis")),
+        ],
+        run_kinesis_dynamic_app_name_per_record(),
+    )
+    .await;
+}
+
+async fn run_sqs_dynamic_app_name_per_record() {
+    let config = Config::load_from_env().unwrap();
+    // Three SQS records with distinct message IDs.
+    // APP_NAME is set to {{sqs.event.id}}, so each log entry must carry
+    // the application_name of its own SQS message, not the last record's value.
+    let evt: Combined = serde_json::from_str(
+        r#"{
+            "Records": [
+                {
+                    "attributes": {
+                        "ApproximateFirstReceiveTimestamp": "0",
+                        "ApproximateReceiveCount": "1",
+                        "SenderId": "SENDERID",
+                        "SentTimestamp": "0"
+                    },
+                    "awsRegion": "us-east-1",
+                    "body": "SQS Message A",
+                    "eventSource": "aws:sqs",
+                    "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                    "md5OfBody": "md5a",
+                    "messageAttributes": {},
+                    "messageId": "msg-id-A",
+                    "receiptHandle": "rh1"
+                },
+                {
+                    "attributes": {
+                        "ApproximateFirstReceiveTimestamp": "0",
+                        "ApproximateReceiveCount": "1",
+                        "SenderId": "SENDERID",
+                        "SentTimestamp": "0"
+                    },
+                    "awsRegion": "us-east-1",
+                    "body": "SQS Message B",
+                    "eventSource": "aws:sqs",
+                    "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                    "md5OfBody": "md5b",
+                    "messageAttributes": {},
+                    "messageId": "msg-id-B",
+                    "receiptHandle": "rh2"
+                },
+                {
+                    "attributes": {
+                        "ApproximateFirstReceiveTimestamp": "0",
+                        "ApproximateReceiveCount": "1",
+                        "SenderId": "SENDERID",
+                        "SentTimestamp": "0"
+                    },
+                    "awsRegion": "us-east-1",
+                    "body": "SQS Message C",
+                    "eventSource": "aws:sqs",
+                    "eventSourceARN": "arn:aws:sqs:us-east-1:123000000000:SQSQUEUE",
+                    "md5OfBody": "md5c",
+                    "messageAttributes": {},
+                    "messageId": "msg-id-C",
+                    "receiptHandle": "rh3"
+                }
+            ]
+        }"#,
+    )
+    .expect("failed to parse sqs_event");
+
+    let exporter = Arc::new(FakeLogExporter::new());
+    let event = LambdaEvent::new(evt, Context::default());
+    let sqs_client = get_mock_sqsclient(None).unwrap();
+    let s3_client = get_mock_s3client(None).unwrap();
+    let ecr_client = get_mock_ecrclient(None).unwrap();
+    let clients = build_test_clients(s3_client, sqs_client, ecr_client);
+
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
+
+    let singles = exporter.take_singles();
+
+    assert_eq!(
+        singles.len(),
+        1,
+        "Multiple SQS records should still be sent in a single batched API call"
+    );
+    assert_eq!(
+        singles[0].entries.len(),
+        3,
+        "All 3 SQS messages should produce one log entry each"
+    );
+
+    // Each entry must carry the application_name from its OWN SQS message ID.
+    assert_eq!(
+        singles[0].entries[0].application_name,
+        "msg-id-A",
+        "Entry 0 should have msg-id-A as application_name"
+    );
+    assert_eq!(
+        singles[0].entries[1].application_name,
+        "msg-id-B",
+        "Entry 1 should have msg-id-B as application_name"
+    );
+    assert_eq!(
+        singles[0].entries[2].application_name,
+        "msg-id-C",
+        "Entry 2 should have msg-id-C as application_name"
+    );
+}
+
+#[tokio::test]
+async fn test_sqs_dynamic_app_name_per_record() {
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("1234456789X")),
+            // Dynamic APP_NAME template that resolves from per-record SQS metadata
+            ("APP_NAME", Some("{{sqs.event.id}}")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("AWS_REGION", Some("eu-central-1")),
+            ("INTEGRATION_TYPE", Some("Sqs")),
+        ],
+        run_sqs_dynamic_app_name_per_record(),
     )
     .await;
 }
