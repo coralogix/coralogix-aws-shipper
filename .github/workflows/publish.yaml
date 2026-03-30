@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - 'template.yaml'
-      - '.github/workflows/publish.yaml'
 
   workflow_dispatch:
 
