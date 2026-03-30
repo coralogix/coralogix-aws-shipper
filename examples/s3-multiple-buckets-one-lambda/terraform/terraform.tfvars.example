@@ -1,0 +1,6 @@
+aws_region = "eu-north-1"
+name_prefix = "coralogix-shipper-ex"
+
+common_tags = {
+  Purpose = "coralogix-aws-shipper-example-multi-s3"
+}

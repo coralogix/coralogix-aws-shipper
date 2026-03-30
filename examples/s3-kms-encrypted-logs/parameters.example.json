@@ -1,0 +1,62 @@
+[
+  {
+    "ParameterKey": "IntegrationType",
+    "ParameterValue": "S3"
+  },
+  {
+    "ParameterKey": "CoralogixRegion",
+    "ParameterValue": "EU1"
+  },
+  {
+    "ParameterKey": "CustomDomain",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ApplicationName",
+    "ParameterValue": "my-app"
+  },
+  {
+    "ParameterKey": "SubsystemName",
+    "ParameterValue": "s3-kms-logs"
+  },
+  {
+    "ParameterKey": "ApiKey",
+    "ParameterValue": "REPLACE_WITH_CORALOGIX_SEND_YOUR_DATA_KEY_OR_SECRET_ARN"
+  },
+  {
+    "ParameterKey": "StoreAPIKeyInSecretsManager",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "S3BucketName",
+    "ParameterValue": "my-cmk-logs-bucket"
+  },
+  {
+    "ParameterKey": "S3BucketKMSKeyARN",
+    "ParameterValue": "arn:aws:kms:eu-west-1:111111111111:key/aaa-bbb-ccc"
+  },
+  {
+    "ParameterKey": "S3KeyPrefix",
+    "ParameterValue": "logs/"
+  },
+  {
+    "ParameterKey": "S3KeySuffix",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SQSTopicArn",
+    "ParameterValue": "arn:aws:sqs:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "SQSIntegrationTopicArn",
+    "ParameterValue": "arn:aws:sqs:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "SNSTopicArn",
+    "ParameterValue": "arn:aws:sns:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "SNSIntegrationTopicArn",
+    "ParameterValue": "arn:aws:sns:us-east-1:123456789012:placeholder"
+  }
+]
