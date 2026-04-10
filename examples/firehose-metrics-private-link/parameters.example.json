@@ -1,0 +1,246 @@
+[
+  {
+    "ParameterKey": "IntegrationType",
+    "ParameterValue": "S3"
+  },
+  {
+    "ParameterKey": "TelemetryMode",
+    "ParameterValue": "metrics"
+  },
+  {
+    "ParameterKey": "UsePrivateLink",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "CoralogixRegion",
+    "ParameterValue": "EU1"
+  },
+  {
+    "ParameterKey": "CustomDomain",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ApplicationName",
+    "ParameterValue": "aws-metrics-pl-example"
+  },
+  {
+    "ParameterKey": "SubsystemName",
+    "ParameterValue": "cloudwatch"
+  },
+  {
+    "ParameterKey": "ApiKey",
+    "ParameterValue": "REPLACE_WITH_CORALOGIX_SEND_YOUR_DATA_KEY_OR_SECRET_ARN"
+  },
+  {
+    "ParameterKey": "StoreAPIKeyInSecretsManager",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "S3BucketName",
+    "ParameterValue": "REPLACE_WITH_TERRAFORM_OUTPUT_s3_bucket_name"
+  },
+  {
+    "ParameterKey": "S3KeyPrefix",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "S3KeySuffix",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "S3BucketKMSKeyARN",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "LambdaSubnetID",
+    "ParameterValue": "REPLACE_WITH_TERRAFORM_OUTPUT_lambda_subnet_id"
+  },
+  {
+    "ParameterKey": "LambdaSecurityGroupID",
+    "ParameterValue": "REPLACE_WITH_TERRAFORM_OUTPUT_lambda_security_group_id"
+  },
+  {
+    "ParameterKey": "MetricsFilter",
+    "ParameterValue": "[{\"Namespace\":\"AWS/EC2\",\"MetricNames\":[\"CPUUtilization\",\"NetworkIn\",\"NetworkOut\"]}]"
+  },
+  {
+    "ParameterKey": "ExcludeMetricsFilters",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "BatchMetrics",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "MetricsBatchMaxSize",
+    "ParameterValue": "4"
+  },
+  {
+    "ParameterKey": "MetricsTagEnrichmentEnabled",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "MetricsContinueOnResourceFailure",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "MetricsFileCacheEnabled",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "MetricsFileCachePath",
+    "ParameterValue": "/tmp"
+  },
+  {
+    "ParameterKey": "MetricsFileCacheExpiration",
+    "ParameterValue": "1h"
+  },
+  {
+    "ParameterKey": "NewlinePattern",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AddMetadata",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "CustomMetadata",
+    "ParameterValue": "example=firehose-metrics-private-link"
+  },
+  {
+    "ParameterKey": "StarlarkScript",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "BlockingPattern",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "LogStreamFilter",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SamplingRate",
+    "ParameterValue": "1"
+  },
+  {
+    "ParameterKey": "LogLevel",
+    "ParameterValue": "INFO"
+  },
+  {
+    "ParameterKey": "CSVDelimiter",
+    "ParameterValue": ","
+  },
+  {
+    "ParameterKey": "FunctionMemorySize",
+    "ParameterValue": "1024"
+  },
+  {
+    "ParameterKey": "FunctionTimeout",
+    "ParameterValue": "300"
+  },
+  {
+    "ParameterKey": "FunctionRunTime",
+    "ParameterValue": "provided.al2023"
+  },
+  {
+    "ParameterKey": "FunctionArchitectures",
+    "ParameterValue": "arm64"
+  },
+  {
+    "ParameterKey": "LambdaAssumeRoleARN",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SNSTopicArn",
+    "ParameterValue": "arn:aws:sns:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "SQSTopicArn",
+    "ParameterValue": "arn:aws:sqs:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "SQSIntegrationTopicArn",
+    "ParameterValue": "arn:aws:sqs:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "SNSIntegrationTopicArn",
+    "ParameterValue": "arn:aws:sns:us-east-1:123456789012:placeholder"
+  },
+  {
+    "ParameterKey": "KinesisStreamArn",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "CloudWatchLogGroupName",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "CloudWatchLogGroupPrefix",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "EnableLogGroupTags",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "LogGroupTagsCacheTTLSeconds",
+    "ParameterValue": "300"
+  },
+  {
+    "ParameterKey": "LambdaLogRetention",
+    "ParameterValue": "5"
+  },
+  {
+    "ParameterKey": "NotificationEmail",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "MSKClusterArn",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "KafkaTopic",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "KafkaBatchSize",
+    "ParameterValue": "100"
+  },
+  {
+    "ParameterKey": "KafkaBrokers",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "KafkaSubnets",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "KafkaSecurityGroups",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "EnableDLQ",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "DLQRetryLimit",
+    "ParameterValue": "3"
+  },
+  {
+    "ParameterKey": "DLQRetryDelay",
+    "ParameterValue": "900"
+  },
+  {
+    "ParameterKey": "DLQS3Bucket",
+    "ParameterValue": "none"
+  },
+  {
+    "ParameterKey": "ReservedConcurrentExecutions",
+    "ParameterValue": "0"
+  },
+  {
+    "ParameterKey": "ExecutionRoleARN",
+    "ParameterValue": ""
+  }
+]
