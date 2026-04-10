@@ -427,15 +427,29 @@ async fn get_or_fetch_resources(
         }
     }
 
-    let resources = fetch_tagged_resources(client, &svc.resource_filters).await?;
-
-    if file_cache_enabled && !resources.is_empty() {
-        if let Err(e) = write_file_cache(&file_path, &resources) {
-            warn!(namespace = %svc.namespace, error = %e, "failed to write resource file cache");
+    match fetch_tagged_resources(client, &svc.resource_filters).await {
+        Ok(resources) => {
+            if file_cache_enabled && !resources.is_empty() {
+                if let Err(e) = write_file_cache(&file_path, &resources) {
+                    warn!(namespace = %svc.namespace, error = %e, "failed to write resource file cache");
+                }
+            }
+            Ok(resources)
+        }
+        Err(e) => {
+            if file_cache_enabled {
+                if let Some(stale) = read_file_cache(&file_path) {
+                    warn!(
+                        namespace = %svc.namespace,
+                        error = %e,
+                        "GetResources failed; using stale file cache for tagged resources"
+                    );
+                    return Ok(stale);
+                }
+            }
+            Err(e)
         }
     }
-
-    Ok(resources)
 }
 
 pub async fn enrich_summary_datapoint(
