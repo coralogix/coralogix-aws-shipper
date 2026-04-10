@@ -1,0 +1,740 @@
+{
+  "_comment": "Generated from prometheus-community/yet-another-cloudwatch-exporter v0.55.0 pkg/config/services.go \u2014 run scripts/gen_yace_services_json.py after updating the source file.",
+  "services": [
+    {
+      "namespace": "CWAgent",
+      "resource_filters": [],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/Usage",
+      "resource_filters": [],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/CertificateManager",
+      "resource_filters": [
+        "acm:certificate"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/ACMPrivateCA",
+      "resource_filters": [
+        "acm-pca:certificate-authority"
+      ],
+      "dimension_regexes": [
+        "(?P<PrivateCAArn>.*)"
+      ]
+    },
+    {
+      "namespace": "AmazonMWAA",
+      "resource_filters": [
+        "airflow"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/MWAA",
+      "resource_filters": [
+        "mwaa"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/ApplicationELB",
+      "resource_filters": [
+        "elasticloadbalancing:loadbalancer/app",
+        "elasticloadbalancing:targetgroup"
+      ],
+      "dimension_regexes": [
+        ":(?P<TargetGroup>targetgroup/.+)",
+        ":loadbalancer/(?P<LoadBalancer>.+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/AppStream",
+      "resource_filters": [
+        "appstream"
+      ],
+      "dimension_regexes": [
+        ":fleet/(?P<FleetName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Backup",
+      "resource_filters": [
+        "backup"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/ApiGateway",
+      "resource_filters": [
+        "apigateway"
+      ],
+      "dimension_regexes": [
+        "/restapis/(?P<ApiName>[^/]+)$",
+        "/restapis/(?P<ApiName>[^/]+)/stages/(?P<Stage>[^/]+)$",
+        "/apis/(?P<ApiId>[^/]+)$",
+        "/apis/(?P<ApiId>[^/]+)/stages/(?P<Stage>[^/]+)$",
+        "/apis/(?P<ApiId>[^/]+)/routes/(?P<Route>[^/]+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/AmazonMQ",
+      "resource_filters": [
+        "mq"
+      ],
+      "dimension_regexes": [
+        "broker:(?P<Broker>[^:]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/AppSync",
+      "resource_filters": [
+        "appsync"
+      ],
+      "dimension_regexes": [
+        "apis/(?P<GraphQLAPIId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Athena",
+      "resource_filters": [
+        "athena"
+      ],
+      "dimension_regexes": [
+        "workgroup/(?P<WorkGroup>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/AutoScaling",
+      "resource_filters": [],
+      "dimension_regexes": [
+        "autoScalingGroupName/(?P<AutoScalingGroupName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/ElasticBeanstalk",
+      "resource_filters": [
+        "elasticbeanstalk:environment"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/Billing",
+      "resource_filters": [],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/Cassandra",
+      "resource_filters": [
+        "cassandra"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/CloudFront",
+      "resource_filters": [
+        "cloudfront:distribution"
+      ],
+      "dimension_regexes": [
+        "distribution/(?P<DistributionId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Cognito",
+      "resource_filters": [
+        "cognito-idp:userpool"
+      ],
+      "dimension_regexes": [
+        "userpool/(?P<UserPool>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/DMS",
+      "resource_filters": [
+        "dms"
+      ],
+      "dimension_regexes": [
+        "rep:[^/]+/(?P<ReplicationInstanceIdentifier>[^/]+)",
+        "task:(?P<ReplicationTaskIdentifier>[^/]+)/(?P<ReplicationInstanceIdentifier>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/DDoSProtection",
+      "resource_filters": [
+        "shield:protection"
+      ],
+      "dimension_regexes": [
+        "(?P<ResourceArn>.+)"
+      ]
+    },
+    {
+      "namespace": "AWS/DocDB",
+      "resource_filters": [
+        "rds:db",
+        "rds:cluster"
+      ],
+      "dimension_regexes": [
+        "cluster:(?P<DBClusterIdentifier>[^/]+)",
+        "db:(?P<DBInstanceIdentifier>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/DX",
+      "resource_filters": [
+        "directconnect"
+      ],
+      "dimension_regexes": [
+        ":dxcon/(?P<ConnectionId>[^/]+)",
+        ":dxlag/(?P<LagId>[^/]+)",
+        ":dxvif/(?P<VirtualInterfaceId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/DynamoDB",
+      "resource_filters": [
+        "dynamodb:table"
+      ],
+      "dimension_regexes": [
+        ":table/(?P<TableName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/EBS",
+      "resource_filters": [
+        "ec2:volume"
+      ],
+      "dimension_regexes": [
+        "volume/(?P<VolumeId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/ElastiCache",
+      "resource_filters": [
+        "elasticache:cluster"
+      ],
+      "dimension_regexes": [
+        "cluster:(?P<CacheClusterId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/MemoryDB",
+      "resource_filters": [
+        "memorydb:cluster"
+      ],
+      "dimension_regexes": [
+        "cluster/(?P<ClusterName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/EC2",
+      "resource_filters": [
+        "ec2:instance"
+      ],
+      "dimension_regexes": [
+        "instance/(?P<InstanceId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/EC2Spot",
+      "resource_filters": [],
+      "dimension_regexes": [
+        "(?P<FleetRequestId>.*)"
+      ]
+    },
+    {
+      "namespace": "AWS/ECS",
+      "resource_filters": [
+        "ecs:cluster",
+        "ecs:service"
+      ],
+      "dimension_regexes": [
+        ":cluster/(?P<ClusterName>[^/]+)$",
+        ":service/(?P<ClusterName>[^/]+)/(?P<ServiceName>[^/]+)$"
+      ]
+    },
+    {
+      "namespace": "ECS/ContainerInsights",
+      "resource_filters": [
+        "ecs:cluster",
+        "ecs:service"
+      ],
+      "dimension_regexes": [
+        ":cluster/(?P<ClusterName>[^/]+)$",
+        ":service/(?P<ClusterName>[^/]+)/(?P<ServiceName>[^/]+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/EFS",
+      "resource_filters": [
+        "elasticfilesystem:file-system"
+      ],
+      "dimension_regexes": [
+        "file-system/(?P<FileSystemId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/ELB",
+      "resource_filters": [
+        "elasticloadbalancing:loadbalancer"
+      ],
+      "dimension_regexes": [
+        ":loadbalancer/(?P<LoadBalancerName>.+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/ElasticMapReduce",
+      "resource_filters": [
+        "elasticmapreduce:cluster"
+      ],
+      "dimension_regexes": [
+        "cluster/(?P<JobFlowId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/EMRServerless",
+      "resource_filters": [
+        "emr-serverless:applications"
+      ],
+      "dimension_regexes": [
+        "applications/(?P<ApplicationId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/ES",
+      "resource_filters": [
+        "es:domain"
+      ],
+      "dimension_regexes": [
+        ":domain/(?P<DomainName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Firehose",
+      "resource_filters": [
+        "firehose"
+      ],
+      "dimension_regexes": [
+        ":deliverystream/(?P<DeliveryStreamName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/FSx",
+      "resource_filters": [
+        "fsx:file-system"
+      ],
+      "dimension_regexes": [
+        "file-system/(?P<FileSystemId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/GameLift",
+      "resource_filters": [
+        "gamelift"
+      ],
+      "dimension_regexes": [
+        ":fleet/(?P<FleetId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/GlobalAccelerator",
+      "resource_filters": [
+        "globalaccelerator"
+      ],
+      "dimension_regexes": [
+        "accelerator/(?P<Accelerator>[^/]+)$",
+        "accelerator/(?P<Accelerator>[^/]+)/listener/(?P<Listener>[^/]+)$",
+        "accelerator/(?P<Accelerator>[^/]+)/listener/(?P<Listener>[^/]+)/endpoint-group/(?P<EndpointGroup>[^/]+)$"
+      ]
+    },
+    {
+      "namespace": "Glue",
+      "resource_filters": [
+        "glue:job"
+      ],
+      "dimension_regexes": [
+        ":job/(?P<JobName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/IoT",
+      "resource_filters": [
+        "iot:rule",
+        "iot:provisioningtemplate"
+      ],
+      "dimension_regexes": [
+        ":rule/(?P<RuleName>[^/]+)",
+        ":provisioningtemplate/(?P<TemplateName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Kafka",
+      "resource_filters": [
+        "kafka:cluster"
+      ],
+      "dimension_regexes": [
+        ":cluster/(?P<Cluster_Name>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/KafkaConnect",
+      "resource_filters": [
+        "kafka:cluster"
+      ],
+      "dimension_regexes": [
+        ":connector/(?P<Connector_Name>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Kinesis",
+      "resource_filters": [
+        "kinesis:stream"
+      ],
+      "dimension_regexes": [
+        ":stream/(?P<StreamName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/KinesisAnalytics",
+      "resource_filters": [
+        "kinesisanalytics:application"
+      ],
+      "dimension_regexes": [
+        ":application/(?P<Application>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Lambda",
+      "resource_filters": [
+        "lambda:function"
+      ],
+      "dimension_regexes": [
+        ":function:(?P<FunctionName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/MediaConnect",
+      "resource_filters": [
+        "mediaconnect:flow",
+        "mediaconnect:source",
+        "mediaconnect:output"
+      ],
+      "dimension_regexes": [
+        "^(?P<FlowARN>.*:flow:.*)$",
+        "^(?P<SourceARN>.*:source:.*)$",
+        "^(?P<OutputARN>.*:output:.*)$"
+      ]
+    },
+    {
+      "namespace": "AWS/MediaConvert",
+      "resource_filters": [
+        "mediaconvert"
+      ],
+      "dimension_regexes": [
+        "(?P<Queue>.*:.*:mediaconvert:.*:queues/.*)$"
+      ]
+    },
+    {
+      "namespace": "AWS/MediaLive",
+      "resource_filters": [
+        "medialive:channel"
+      ],
+      "dimension_regexes": [
+        ":channel:(?P<ChannelId>.+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/MediaTailor",
+      "resource_filters": [
+        "mediatailor:playbackConfiguration"
+      ],
+      "dimension_regexes": [
+        "playbackConfiguration/(?P<ConfigurationName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Neptune",
+      "resource_filters": [
+        "rds:db",
+        "rds:cluster"
+      ],
+      "dimension_regexes": [
+        ":cluster:(?P<DBClusterIdentifier>[^/]+)",
+        ":db:(?P<DBInstanceIdentifier>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/NetworkFirewall",
+      "resource_filters": [
+        "network-firewall:firewall"
+      ],
+      "dimension_regexes": [
+        "firewall/(?P<FirewallName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/NATGateway",
+      "resource_filters": [
+        "ec2:natgateway"
+      ],
+      "dimension_regexes": [
+        "natgateway/(?P<NatGatewayId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/NetworkELB",
+      "resource_filters": [
+        "elasticloadbalancing:loadbalancer/net",
+        "elasticloadbalancing:targetgroup"
+      ],
+      "dimension_regexes": [
+        ":(?P<TargetGroup>targetgroup/.+)",
+        ":loadbalancer/(?P<LoadBalancer>.+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/PrivateLinkEndpoints",
+      "resource_filters": [
+        "ec2:vpc-endpoint"
+      ],
+      "dimension_regexes": [
+        ":vpc-endpoint/(?P<VPC_Endpoint_Id>.+)"
+      ]
+    },
+    {
+      "namespace": "AWS/PrivateLinkServices",
+      "resource_filters": [
+        "ec2:vpc-endpoint-service"
+      ],
+      "dimension_regexes": [
+        ":vpc-endpoint-service/(?P<Service_Id>.+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Prometheus",
+      "resource_filters": [],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/QLDB",
+      "resource_filters": [
+        "qldb"
+      ],
+      "dimension_regexes": [
+        ":ledger/(?P<LedgerName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/RDS",
+      "resource_filters": [
+        "rds:db",
+        "rds:cluster"
+      ],
+      "dimension_regexes": [
+        ":cluster:(?P<DBClusterIdentifier>[^/]+)",
+        ":db:(?P<DBInstanceIdentifier>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Redshift",
+      "resource_filters": [
+        "redshift:cluster"
+      ],
+      "dimension_regexes": [
+        ":cluster:(?P<ClusterIdentifier>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Route53Resolver",
+      "resource_filters": [
+        "route53resolver"
+      ],
+      "dimension_regexes": [
+        ":resolver-endpoint/(?P<EndpointId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Route53",
+      "resource_filters": [
+        "route53"
+      ],
+      "dimension_regexes": [
+        ":healthcheck/(?P<HealthCheckId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/S3",
+      "resource_filters": [
+        "s3"
+      ],
+      "dimension_regexes": [
+        "(?P<BucketName>[^:]+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/SES",
+      "resource_filters": [],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/States",
+      "resource_filters": [
+        "states"
+      ],
+      "dimension_regexes": [
+        "(?P<StateMachineArn>.*)"
+      ]
+    },
+    {
+      "namespace": "AWS/SNS",
+      "resource_filters": [
+        "sns"
+      ],
+      "dimension_regexes": [
+        "(?P<TopicName>[^:]+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/SQS",
+      "resource_filters": [
+        "sqs"
+      ],
+      "dimension_regexes": [
+        "(?P<QueueName>[^:]+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/StorageGateway",
+      "resource_filters": [
+        "storagegateway"
+      ],
+      "dimension_regexes": [
+        ":gateway/(?P<GatewayId>[^:]+)$",
+        ":share/(?P<ShareId>[^:]+)$",
+        "^(?P<GatewayId>[^:/]+)/(?P<GatewayName>[^:]+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/TransitGateway",
+      "resource_filters": [
+        "ec2:transit-gateway"
+      ],
+      "dimension_regexes": [
+        ":transit-gateway/(?P<TransitGateway>[^/]+)",
+        "(?P<TransitGateway>[^/]+)/(?P<TransitGatewayAttachment>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/TrustedAdvisor",
+      "resource_filters": [],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "AWS/VPN",
+      "resource_filters": [
+        "ec2:vpn-connection"
+      ],
+      "dimension_regexes": [
+        ":vpn-connection/(?P<VpnId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/ClientVPN",
+      "resource_filters": [
+        "ec2:client-vpn-endpoint"
+      ],
+      "dimension_regexes": [
+        ":client-vpn-endpoint/(?P<Endpoint>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/WAFV2",
+      "resource_filters": [
+        "wafv2"
+      ],
+      "dimension_regexes": [
+        "/webacl/(?P<WebACL>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/WorkSpaces",
+      "resource_filters": [
+        "workspaces:workspace",
+        "workspaces:directory"
+      ],
+      "dimension_regexes": [
+        ":workspace/(?P<WorkspaceId>[^/]+)$",
+        ":directory/(?P<DirectoryId>[^/]+)$"
+      ]
+    },
+    {
+      "namespace": "AWS/AOSS",
+      "resource_filters": [
+        "aoss:collection"
+      ],
+      "dimension_regexes": [
+        ":collection/(?P<CollectionId>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/SageMaker",
+      "resource_filters": [
+        "sagemaker:endpoint"
+      ],
+      "dimension_regexes": [
+        ":endpoint/(?P<EndpointName>[^/]+)$"
+      ]
+    },
+    {
+      "namespace": "/aws/sagemaker/Endpoints",
+      "resource_filters": [
+        "sagemaker:endpoint"
+      ],
+      "dimension_regexes": [
+        ":endpoint/(?P<EndpointName>[^/]+)$"
+      ]
+    },
+    {
+      "namespace": "/aws/sagemaker/TrainingJobs",
+      "resource_filters": [
+        "sagemaker:training-job"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "/aws/sagemaker/ProcessingJobs",
+      "resource_filters": [
+        "sagemaker:processing-job"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "/aws/sagemaker/TransformJobs",
+      "resource_filters": [
+        "sagemaker:transform-job"
+      ],
+      "dimension_regexes": []
+    },
+    {
+      "namespace": "/aws/sagemaker/InferenceRecommendationsJobs",
+      "resource_filters": [
+        "sagemaker:inference-recommendations-job"
+      ],
+      "dimension_regexes": [
+        ":inference-recommendations-job/(?P<JobName>[^/]+)"
+      ]
+    },
+    {
+      "namespace": "AWS/Sagemaker/ModelBuildingPipeline",
+      "resource_filters": [
+        "sagemaker:pipeline"
+      ],
+      "dimension_regexes": [
+        ":pipeline/(?P<PipelineName>[^/]+)"
+      ]
+    }
+  ]
+}

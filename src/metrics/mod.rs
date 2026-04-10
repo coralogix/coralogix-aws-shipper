@@ -6,15 +6,17 @@ use tracing::error;
 
 pub mod config;
 pub mod process;
+pub mod tag_enrichment;
 
 // metric telemetry handler
 pub async fn handler(
     config: &Config,
+    rgt_client: &aws_sdk_resourcegroupstagging::Client,
     event: LambdaEvent<events::Combined>,
 ) -> Result<KinesisFirehoseResponse, Error> {
     match event.payload {
         events::Combined::Firehose(firehose_event) => {
-            process::transform_firehose_event(config, firehose_event).await
+            process::transform_firehose_event(config, rgt_client, firehose_event).await
         }
         _ => {
             error!("incompatible event type for metrics telemetry mode");

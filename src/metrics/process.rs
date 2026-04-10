@@ -1,4 +1,6 @@
 use crate::metrics::config::Config;
+use crate::metrics::tag_enrichment::NamespaceResourceCache;
+use aws_sdk_resourcegroupstagging::Client as RgtClient;
 // use aws_lambda_events::encodings::Base64Data;
 use aws_lambda_events::event::firehose::{
     KinesisFirehoseEvent, KinesisFirehoseResponse, KinesisFirehoseResponseRecord,
@@ -78,76 +80,105 @@ fn re_batch(chunks: Vec<Vec<u8>>) -> Vec<u8> {
     batched_data
 }
 
-/// handle_mesage - decodes messages, updates datapoints/attributes with cx_application_name and cx_subsystem_name
-fn transform_message(
+/// Decode OTLP metrics, flatten CloudWatch `Dimensions`, optionally enrich with AWS tags / `CUSTOM_METADATA`, then set Coralogix app/subsystem.
+async fn transform_message(
     message: &[u8],
-    app_name: &str,
-    subsystem_name: &str,
+    config: &Config,
+    rgt_client: &RgtClient,
+    ns_cache: &mut NamespaceResourceCache,
 ) -> Result<ExportMetricsServiceRequest, Error> {
     let mut decoded_message = ExportMetricsServiceRequest::decode(&*message)?;
     debug!("decoded metrics: {:?}", decoded_message);
 
     for resource in decoded_message.resource_metrics.iter_mut() {
         for scope_metrics in resource.scope_metrics.iter_mut() {
-            //debug!("Scope Metrics Iter: {:?}", scope_metrics.metrics.iter());
             for metric in scope_metrics.metrics.iter_mut() {
-                //metric.unit = curly_braces_re.replace_all(&metric.unit, "").to_string().to_lowercase();
                 metric.unit = "".to_string();
                 debug!("Metric Metadata: {:?}", metric.data);
                 if let Some(data) = &mut metric.data {
                     match data {
-                        opentelemetry_proto::tonic::metrics::v1::metric::Data::Gauge(gauge) => debug!("Gauge: {:?}", gauge),
-                        opentelemetry_proto::tonic::metrics::v1::metric::Data::Sum(sum) => debug!("Sum: {:?}", sum),
-                        opentelemetry_proto::tonic::metrics::v1::metric::Data::Histogram(histogram) => debug!("Histogram: {:?}", histogram),
-                        opentelemetry_proto::tonic::metrics::v1::metric::Data::ExponentialHistogram(exponential_histogram) => debug!("ExponentialHistogram: {:?}", exponential_histogram),
+                        opentelemetry_proto::tonic::metrics::v1::metric::Data::Gauge(gauge) => {
+                            debug!("Gauge: {:?}", gauge)
+                        }
+                        opentelemetry_proto::tonic::metrics::v1::metric::Data::Sum(sum) => {
+                            debug!("Sum: {:?}", sum)
+                        }
+                        opentelemetry_proto::tonic::metrics::v1::metric::Data::Histogram(histogram) => {
+                            debug!("Histogram: {:?}", histogram)
+                        }
+                        opentelemetry_proto::tonic::metrics::v1::metric::Data::ExponentialHistogram(
+                            exponential_histogram,
+                        ) => debug!("ExponentialHistogram: {:?}", exponential_histogram),
 
                         opentelemetry_proto::tonic::metrics::v1::metric::Data::Summary(summary) => {
                             debug!("Summary: {:?}", summary);
 
-                            // Iterate over mutable references to data_points to modify them directly
-                            summary.data_points.iter_mut().for_each(|data_point| {
-                                let mut new_attributes = Vec::new();
-
-                                // Collect attributes if the key is "Dimensions"
-                                data_point.attributes.iter().for_each(|label| {
+                            for data_point in summary.data_points.iter_mut() {
+                                let mut from_dimensions = Vec::new();
+                                for label in &data_point.attributes {
                                     if label.key == "Dimensions" {
                                         debug!("DimensionsLabels: {:?}", label);
-                                        if let Some(AnyValue { value: Some(any_value::Value::KvlistValue(kv_list)) }) = &label.value {
+                                        if let Some(AnyValue {
+                                            value: Some(any_value::Value::KvlistValue(kv_list)),
+                                        }) = &label.value
+                                        {
                                             for kv in &kv_list.values {
-                                                new_attributes.push(kv.clone());
+                                                from_dimensions.push(kv.clone());
                                             }
                                         }
                                     }
-                                });
-                                // Add cx.application.name and cx.subsystem.name attributes
-                                new_attributes.push(KeyValue {
-                                    key: "cx.application.name".to_string(),
-                                    value: Some(AnyValue {
-                                        value: Some(any_value::Value::StringValue(app_name.to_string())),
-                                    }),
-                                });
-                                new_attributes.push(KeyValue {
-                                    key: "cx.subsystem.name".to_string(),
-                                    value: Some(AnyValue {
-                                        value: Some(any_value::Value::StringValue(subsystem_name.to_string())),
-                                    }),
+                                }
 
-                                });
-
-                                debug!("Data Point Attributes: {:?}", new_attributes);
                                 data_point.attributes = data_point
                                     .attributes
                                     .iter()
                                     .filter(|label| label.key != "Dimensions")
                                     .cloned()
                                     .collect();
-                                data_point.attributes.extend(new_attributes.iter().cloned());
-                                // Extend data_point attributes with the new attributes
-                                //data_point.attributes.extend(new_attributes.iter().cloned());
-                                debug!("Final DataPoint: {:?}", data_point);
-                            });
+                                data_point
+                                    .attributes
+                                    .extend(from_dimensions.iter().cloned());
 
-                            // Print the metric after all modifications
+                                if config.tag_enrichment_enabled {
+                                    crate::metrics::tag_enrichment::enrich_summary_datapoint(
+                                        rgt_client,
+                                        data_point,
+                                        ns_cache,
+                                        config.file_cache_enabled,
+                                        &config.file_cache_path,
+                                        config.file_cache_expiration,
+                                        config.continue_on_resource_failure,
+                                        &config.custom_metadata,
+                                    )
+                                    .await
+                                    .map_err(|e| -> Error { e.into() })?;
+                                } else {
+                                    crate::metrics::tag_enrichment::apply_custom_metadata_labels(
+                                        data_point,
+                                        &config.custom_metadata,
+                                    );
+                                }
+
+                                data_point.attributes.push(KeyValue {
+                                    key: "cx.application.name".to_string(),
+                                    value: Some(AnyValue {
+                                        value: Some(any_value::Value::StringValue(
+                                            config.app_name.clone(),
+                                        )),
+                                    }),
+                                });
+                                data_point.attributes.push(KeyValue {
+                                    key: "cx.subsystem.name".to_string(),
+                                    value: Some(AnyValue {
+                                        value: Some(any_value::Value::StringValue(
+                                            config.sub_name.clone(),
+                                        )),
+                                    }),
+                                });
+
+                                debug!("Final DataPoint: {:?}", data_point);
+                            }
+
                             debug!("Final Metric Details: {:?}", metric);
                         }
                     }
@@ -277,11 +308,14 @@ async fn try_add_to_batch(
 /// process_messages_with_batching - processes messages in batching mode
 async fn process_messages_with_batching(
     config: &Config,
+    rgt_client: &RgtClient,
+    ns_cache: &mut NamespaceResourceCache,
     messages: Vec<&[u8]>,
     aggregated_opt: &mut Option<MetricsBatch>,
 ) -> Result<(), Error> {
     for message in messages {
-        let transformed_message = transform_message(message, &config.app_name, &config.sub_name)
+        let transformed_message = transform_message(message, config, rgt_client, ns_cache)
+            .await
             .map_err(|e| {
                 let err = format!("failed to transform message: {}", e);
                 error!("{}", err);
@@ -290,13 +324,15 @@ async fn process_messages_with_batching(
 
         let message_body = encode_request(&transformed_message)?;
         try_add_to_batch(config, aggregated_opt, transformed_message, message_body).await?;
-   }
+    }
     Ok(())
 }
 
 /// process_messages_without_batching - processes messages without batching (send individually)
 async fn process_messages_without_batching(
     config: &Config,
+    rgt_client: &RgtClient,
+    ns_cache: &mut NamespaceResourceCache,
     messages: Vec<&[u8]>,
     record_index: usize,
 ) -> Result<(), Error> {
@@ -306,7 +342,8 @@ async fn process_messages_without_batching(
     );
 
     for (midx, message) in messages.into_iter().enumerate() {
-        let transformed_message = transform_message(message, &config.app_name, &config.sub_name)
+        let transformed_message = transform_message(message, config, rgt_client, ns_cache)
+            .await
             .map_err(|e| {
                 let err = format!("failed to transform message: {}", e);
                 error!("{}", err);
@@ -385,6 +422,7 @@ async fn send_final_batch(
 // transform_firehose_event - processes the KinesisFirehoseEvent and sends the transformed data to Coralogix
 pub async fn transform_firehose_event(
     config: &Config,
+    rgt_client: &RgtClient,
     event: KinesisFirehoseEvent,
 ) -> Result<KinesisFirehoseResponse, Error> {
     // Log start
@@ -406,6 +444,7 @@ pub async fn transform_firehose_event(
 
     let mut total_messages_seen: usize = 0;
     let mut results = Vec::new();
+    let mut ns_cache = NamespaceResourceCache::default();
 
     // Process each record
     for (idx, record) in event.records.clone().into_iter().enumerate() {
@@ -427,9 +466,17 @@ pub async fn transform_firehose_event(
 
         // Route to appropriate processor based on batching mode
         if config.batching_enabled {
-            process_messages_with_batching(config, messages, &mut aggregated_opt).await?;
+            process_messages_with_batching(
+                config,
+                rgt_client,
+                &mut ns_cache,
+                messages,
+                &mut aggregated_opt,
+            )
+            .await?;
         } else {
-            process_messages_without_batching(config, messages, idx).await?;
+            process_messages_without_batching(config, rgt_client, &mut ns_cache, messages, idx)
+                .await?;
         }
 
         let mut response_record: KinesisFirehoseResponseRecord = KinesisFirehoseResponseRecord::default();

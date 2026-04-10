@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.4.6
+    SemanticVersion: 1.4.7
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -114,6 +114,11 @@ Metadata:
           - TelemetryMode
           - MetricsFilter
           - ExcludeMetricsFilters
+          - MetricsTagEnrichmentEnabled
+          - MetricsContinueOnResourceFailure
+          - MetricsFileCacheEnabled
+          - MetricsFileCachePath
+          - MetricsFileCacheExpiration
 
 Parameters:
   CoralogixRegion:
@@ -506,6 +511,40 @@ Parameters:
     Description: Maximum aggregated metrics payload size in MB before flushing when batching is enabled.
     Default: 4
 
+  MetricsTagEnrichmentEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: When TelemetryMode is metrics, call AWS Resource Groups Tagging API to attach resource tags to streamed CloudWatch metrics (same idea as the standalone Firehose transform lambda).
+
+  MetricsContinueOnResourceFailure:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: When TelemetryMode is metrics, if false, Lambda fails on tagging/discovery errors instead of shipping metrics without AWS tags.
+
+  MetricsFileCacheEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: When TelemetryMode is metrics, cache discovered resources under MetricsFileCachePath between invocations (reduces GetResources calls).
+
+  MetricsFileCachePath:
+    Type: String
+    Default: '/tmp'
+    Description: Directory for metrics tag-enrichment resource cache files (Lambda ephemeral storage).
+
+  MetricsFileCacheExpiration:
+    Type: String
+    Default: '1h'
+    Description: Max age of resource cache files before refresh (Go duration style, e.g. 1h, 30m).
+
 Mappings:
   CoralogixRegionMap:
     EU1:
@@ -590,6 +629,9 @@ Conditions:
 
   # TelemetryModeIsLogs: !Equals [!Ref TelemetryMode, logs]
   TelemetryModeIsMetrics: !Equals [!Ref TelemetryMode, metrics]
+  MetricsTagEnrichmentOn: !And
+    - !Condition TelemetryModeIsMetrics
+    - !Equals [!Ref MetricsTagEnrichmentEnabled, 'true']
   EnableLogGroupTagsIsTrue: !Equals [!Ref EnableLogGroupTags, 'true']
   StarlarkScriptIsSet: !Not [!Equals [!Ref StarlarkScript, '']]
   StarlarkScriptIsS3: !And
@@ -727,6 +769,27 @@ Resources:
                 - 'logs:ListTagsLogGroup'
               Resource: '*'
             - !Ref AWS::NoValue 
+
+          # Metrics stream tag enrichment (Resource Groups Tagging API + service reads used by YACE-style associator)
+          - !If
+            - MetricsTagEnrichmentOn
+            - Effect: Allow
+              Action:
+                - 'tag:GetResources'
+                - 'cloudwatch:GetMetricData'
+                - 'cloudwatch:GetMetricStatistics'
+                - 'cloudwatch:ListMetrics'
+                - 'apigateway:GET'
+                - 'aps:ListWorkspaces'
+                - 'autoscaling:DescribeAutoScalingGroups'
+                - 'dms:DescribeReplicationInstances'
+                - 'dms:DescribeReplicationTasks'
+                - 'ec2:DescribeTransitGatewayAttachments'
+                - 'ec2:DescribeSpotFleetRequests'
+                - 'storagegateway:ListGateways'
+                - 'storagegateway:ListTagsForResource'
+              Resource: '*'
+            - !Ref AWS::NoValue
 
           # use privateLink
           - !If
@@ -1026,6 +1089,26 @@ Resources:
           TELEMETRY_MODE: !Ref TelemetryMode
           BATCH_METRICS: !Ref BatchMetrics
           METRICS_BATCH_MAX_SIZE: !Ref MetricsBatchMaxSize
+          METRICS_TAG_ENRICHMENT_ENABLED: !If
+            - TelemetryModeIsMetrics
+            - !Ref MetricsTagEnrichmentEnabled
+            - !Ref AWS::NoValue
+          CONTINUE_ON_RESOURCE_FAILURE: !If
+            - TelemetryModeIsMetrics
+            - !Ref MetricsContinueOnResourceFailure
+            - !Ref AWS::NoValue
+          FILE_CACHE_ENABLED: !If
+            - TelemetryModeIsMetrics
+            - !Ref MetricsFileCacheEnabled
+            - !Ref AWS::NoValue
+          FILE_CACHE_PATH: !If
+            - TelemetryModeIsMetrics
+            - !Ref MetricsFileCachePath
+            - !Ref AWS::NoValue
+          FILE_CACHE_EXPIRATION: !If
+            - TelemetryModeIsMetrics
+            - !Ref MetricsFileCacheExpiration
+            - !Ref AWS::NoValue
           ENABLE_LOG_GROUP_TAGS: !Ref EnableLogGroupTags
           LOG_GROUP_TAGS_CACHE_TTL_SECONDS: !Ref LogGroupTagsCacheTTLSeconds
           STARLARK_SCRIPT: !If [StarlarkScriptIsSet, !Ref StarlarkScript, !Ref AWS::NoValue]

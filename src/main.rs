@@ -1,4 +1,5 @@
 pub mod clients;
+pub mod custom_metadata;
 pub mod events;
 pub mod logs;
 pub mod metrics;
@@ -71,8 +72,9 @@ async fn main() -> Result<(), Error> {
                 .map_err(|e| e.to_string())?;
             };
 
+            let rgt_client = aws_sdk_resourcegroupstagging::Client::new(&aws_config);
             run(service_fn(|request: LambdaEvent<Combined>| {
-                metrics::handler(&conf, request)
+                metrics::handler(&conf, &rgt_client, request)
             }))
             .await
         }
