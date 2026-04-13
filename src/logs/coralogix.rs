@@ -12,7 +12,6 @@ use process;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::env;
 use std::iter::IntoIterator;
 use std::time::Instant;
 use std::vec::Vec;
@@ -506,28 +505,10 @@ fn convert_to_log_entry(
     tracing::debug!("add_metadata: {:?}", add_metadata);
     let mut message = JsonMessage::new(msg).with_selected_metadata(mctx, add_metadata);
 
-    if let Ok(custom_metadata_str) = env::var("CUSTOM_METADATA") {
-        debug!("Custom metadata STR: {}", custom_metadata_str);
-        let mut metadata = HashMap::new();
-        let pairs = custom_metadata_str.split(',');
-
-        for pair in pairs {
-            let split_pair: Vec<&str> = pair.split('=').collect();
-            match split_pair.as_slice() {
-                [key, value] => {
-                    metadata.insert(key.to_string(), value.to_string());
-                }
-                _ => {
-                    error!("Failed to split key-value pair: {}", pair);
-                    continue;
-                }
-            }
-        }
-
-        if !metadata.is_empty() {
-            debug!("Custom metadata: {:?}", metadata);
-            message.custom_metadata = metadata;
-        }
+    let metadata = crate::custom_metadata::custom_metadata_from_env();
+    if !metadata.is_empty() {
+        debug!("Custom metadata: {:?}", metadata);
+        message.custom_metadata = metadata;
     }
     debug!("Message metadata: {:?}", message.custom_metadata);
     

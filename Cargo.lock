@@ -376,6 +376,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-resourcegroupstagging"
+version = "1.93.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84b02aa2f15c4b8cc27402a3e533d2edef7d1c41c6b565066300d1121f3e29e0"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.12",
+ "http 1.4.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-s3"
 version = "1.122.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1192,7 +1216,7 @@ dependencies = [
 
 [[package]]
 name = "coralogix-aws-shipper"
-version = "1.4.6"
+version = "1.4.7"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -1200,6 +1224,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-cloudwatchlogs",
  "aws-sdk-ecr",
+ "aws-sdk-resourcegroupstagging",
  "aws-sdk-s3",
  "aws-sdk-secretsmanager",
  "aws-sdk-sqs",
@@ -1218,6 +1243,7 @@ dependencies = [
  "flate2",
  "futures",
  "http 1.4.0",
+ "humantime",
  "itertools 0.14.0",
  "lambda_runtime",
  "md5",
@@ -1229,6 +1255,7 @@ dependencies = [
  "proptest",
  "prost",
  "prost-types",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

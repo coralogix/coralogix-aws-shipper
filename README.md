@@ -620,14 +620,24 @@ To enable CloudWatch metrics streaming via Firehose (PrivateLink), you must prov
 | StoreAPIKeyInSecretsManager | Enable this to store your API Key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          |                    |
 | MetricsFilter               | The filter for the metrics to include in the stream that will get created, should be valid json that contains the keys `Namespace` and `MetricNames`, for example: `[{"Namespace": "AWS/EC2", "MetricNames": ["CPUUtilization", "NetworkOut"]},{"Namespace": "AWS/S3", "MetricNames": ["BucketSizeBytes"]}]`. Can't use this parameter with `ExcludeMetricsFilters` parameter.   |        n/a       |                    |
 | ExcludeMetricsFilters     | The filter for the metrics to exclude from the stream that will get created, should be valid json that contains the keys `Namespace` and `MetricNames`, for example: `[{"Namespace": "AWS/EC2", "MetricNames": ["CPUUtilization", "NetworkOut"]}]`. Can't use this parameter with `MetricsFilter` parameter.   |        n/a       |                    |
+| MetricsTagEnrichmentEnabled | When `TelemetryMode` is `metrics`, resolve AWS resource tags via the **Resource Groups Tagging API** and attach them to streamed metric datapoints (YACE-compatible namespace map and associator). When `true`, the stack adds the required IAM statements. Set `false` to disable lookups (for example if the Lambda cannot reach the tagging API from its VPC). | `true` |                    |
+| MetricsContinueOnResourceFailure | When `TelemetryMode` is `metrics`, if `true`, tagging or resource-discovery errors cause the function to **skip AWS tags** for affected namespaces and still ship metrics. If `false`, the invocation **fails** instead (no Coralogix delivery for that batch). | `true` |                    |
+| MetricsFileCacheEnabled | When `TelemetryMode` is `metrics`, persist a per-namespace cache of discovered resources under `MetricsFileCachePath` on the Lambda filesystem between invocations to reduce `GetResources` traffic. | `true` |                    |
+| MetricsFileCachePath | Directory used for the metrics resource cache files (typically Lambda ephemeral storage, e.g. `/tmp`). | `/tmp` |                    |
+| MetricsFileCacheExpiration | Maximum age of cache files before they are refreshed. Human-readable duration (e.g. `1h`, `30m`); same style as Go `ParseDuration` for familiarity. | `1h` |                    |
+| BatchMetrics | When `TelemetryMode` is `metrics`, set to `true` to batch OpenTelemetry metric messages from a single Firehose payload into one aggregated request to Coralogix (`BATCH_METRICS` env). When `false`, behavior matches the previous per-message pattern. | `false` |                    |
+| MetricsBatchMaxSize | Maximum size in **MB** of the aggregated encoded protobuf batch when `BatchMetrics` is `true` (maps to `METRICS_BATCH_MAX_SIZE`). | `4` |                    |
+
+**Static labels on metrics:** The **`CustomMetadata`** parameter applies when `TelemetryMode=metrics` as well as for logs: comma-separated `key=value` pairs are added as labels on transformed metric datapoints. Only the **first** `=` in each pair separates key from value, so values may contain `=`.
+
+**VPC / PrivateLink:** With tag enrichment enabled, the Lambda must reach `tagging.amazonaws.com` (NAT gateway, interface VPC endpoint, or equivalent). See [AWS PrivateLink](https://coralogix.com/docs/integrations/aws/aws-privatelink/aws-privatelink/) and the [firehose-metrics-private-link example](examples/firehose-metrics-private-link/).
 
 #### Batching (optional)
 
-- `BATCH_METRICS`: When enabled (`1`, `true`, or `yes`), the Lambda batches all OpenTelemetry metric messages contained in a single Firehose event into one aggregated `ExportMetricsServiceRequest` and sends a single POST request to `POST /v1/metrics`. This reduces network overhead versus sending one request per message. Default: disabled.
-  - Environment variable only (not a stack parameter).
+- **`BatchMetrics`** stack parameter (sets **`BATCH_METRICS`** env): When enabled (`true`), the Lambda batches all OpenTelemetry metric messages contained in a single Firehose event into one aggregated `ExportMetricsServiceRequest` and sends a single POST request to `POST /v1/metrics`. This reduces network overhead versus sending one request per message. Default: disabled.
   - Works only with `TELEMETRY_MODE=metrics`.
   - Note: Larger events can produce larger single requests; ensure they fit within your network and service limits.
- - `METRICS_BATCH_MAX_SIZE`: Maximum size in megabytes for the aggregated encoded protobuf payload before it is flushed and sent. Default: `4`. Applies only when `BATCH_METRICS` is enabled. If a single transformed message exceeds this size, it is sent by itself.
+- **`METRICS_BATCH_MAX_SIZE`** (from **`MetricsBatchMaxSize`** parameter): Maximum size in megabytes for the aggregated encoded protobuf payload before it is flushed and sent. Default: `4`. Applies only when batching is enabled. If a single transformed message exceeds this size, it is sent by itself.
 
 ## Troubleshooting
 

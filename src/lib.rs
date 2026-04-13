@@ -2,6 +2,7 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 pub mod clients;
+pub mod custom_metadata;
 pub mod events;
 pub mod logs;
 pub mod metrics;

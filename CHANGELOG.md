@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.4.7 / 2026-04-08
+### 💡 Enhancements 💡
+- **Firehose metrics — AWS resource tag enrichment:** When `TelemetryMode=metrics`, the shipper can enrich CloudWatch metric stream datapoints with **resource tags** using the **Resource Groups Tagging API** and a **YACE-compatible** service map and associator (embedded registry derived from YACE `services.go`). New stack parameters: **`MetricsTagEnrichmentEnabled`**, **`MetricsContinueOnResourceFailure`**, **`MetricsFileCacheEnabled`**, **`MetricsFileCachePath`**, **`MetricsFileCacheExpiration`**. IAM statements for `tag:GetResources` and related read APIs are added when enrichment is enabled.
+- **Firehose metrics — static labels:** **`CustomMetadata`** is applied to metrics the same way as logs: comma-separated `key=value` pairs; only the first `=` splits key and value (values may contain `=`).
+
 ## v1.4.6 / 2026-03-17
 ### 💡 Enhancements 💡
 - **Kinesis batching performance fix**: Kinesis records are now collected and sent in a single batched API call instead of being processed sequentially. This significantly improves throughput for high-volume Kinesis streams (e.g., 700 records now result in ~1 API call instead of ~700).
