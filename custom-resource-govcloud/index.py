@@ -671,11 +671,11 @@ def lambda_handler(event, context):
         match integration_type:
             case 'S3' | 'S3Csv' | 'VpcFlow' | 'CloudTrail' | 'CloudFront':
                 ConfigureS3Integration(event, context, cfn, partition).handle()
-            case 'Kafka' | 'MSK':
+            case 'Kafka':
                 ConfigureKafkaIntegration(event, context, cfn).handle()
             case 'CloudWatch':
                 ConfigureCloudwatchIntegration(event, context, cfn, partition).handle()
-            case 'Kinesis' | 'Sqs' | 'Sns' | 'EcrScan':
+            case 'Kinesis' | 'MSK' | 'Sqs' | 'Sns' | 'EcrScan':
                 cfn.send(cfn.SUCCESS, response_data={}, physical_resource_id=None,
                          no_echo=False, reason=None)
                 return
