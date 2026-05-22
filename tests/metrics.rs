@@ -1,5 +1,7 @@
+use aws_config::BehaviorVersion;
 use coralogix_aws_shipper::events;
 use coralogix_aws_shipper::metrics::config::Config;
+use aws_sdk_resourcegroupstagging::Client as RgtClient;
 use lambda_runtime::{Context, LambdaEvent};
 use serde_json;
 use std::sync::Arc;
@@ -14,9 +16,14 @@ use prost::Message;
 async fn run_test_firehose_transform_flow() {
     let data = std::fs::read("./tests/fixtures/cwstream_metrics.json").unwrap();
     let config = Config::load_from_env().unwrap();
+    let aws_cfg = aws_config::defaults(BehaviorVersion::latest())
+        .region("eu-central-1")
+        .load()
+        .await;
+    let rgt = RgtClient::new(&aws_cfg);
     let evt: events::Combined = serde_json::from_slice(&data).unwrap();
     let evt = LambdaEvent::new(evt, Context::default());
-    coralogix_aws_shipper::metrics::handler(&config, evt)
+    coralogix_aws_shipper::metrics::handler(&config, &rgt, evt)
         .await
         .unwrap();
 }
@@ -115,6 +122,7 @@ async fn test_firehose_transform_flow() {
             ("INTEGRATION_TYPE", Some("S3")),
             ("AWS_REGION", Some("eu-central-1")),
             ("TELEMETRY_MODE", Some("metrics")),
+            ("METRICS_TAG_ENRICHMENT_ENABLED", Some("false")),
         ],
         run_test_firehose_transform_flow(),
     )
@@ -210,6 +218,7 @@ async fn test_firehose_transform_flow_batched() {
             ("AWS_REGION", Some("eu-central-1")),
             ("TELEMETRY_MODE", Some("metrics")),
             ("BATCH_METRICS", Some("1")),
+            ("METRICS_TAG_ENRICHMENT_ENABLED", Some("false")),
         ],
         run_test_firehose_transform_flow(),
     )

@@ -1,7 +1,7 @@
 use aws_lambda_events::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::cloudwatch_logs::LogData;
 use aws_lambda_events::ecr_scan::EcrScanEvent;
-use aws_lambda_events::encodings::Base64Data;
+use aws_lambda_events::event::kinesis::KinesisEventRecord;
 use aws_lambda_events::kafka::KafkaRecord;
 use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_cloudwatchlogs::Client as LogsClient;
@@ -27,6 +27,7 @@ use tracing::{debug, info, warn};
 use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
 use crate::logs::ecr;
+use crate::logs::transform;
 
 // Type alias for the error type returned by list_tags_for_resource
 // Using Box<dyn Error> to handle the SDK error type which has private generic parameters
@@ -65,6 +66,17 @@ impl MetadataContext {
             v
         } else {
             None
+        }
+    }
+
+    /// Creates an independent snapshot of this context with the current key-value pairs.
+    /// The snapshot is a deep copy: mutations to the original or the snapshot do not
+    /// affect each other. Used to capture per-record metadata before the shared context
+    /// is overwritten by the next record in a batch loop.
+    pub fn snapshot(&self) -> Self {
+        let inner = self.inner.read().unwrap();
+        Self {
+            inner: Arc::new(RwLock::new(inner.clone())),
         }
     }
 
@@ -454,7 +466,7 @@ pub async fn s3(
 
 pub async fn kinesis_logs(
     mctx: &MetadataContext,
-    kinesis_message: Base64Data,
+    records: Vec<KinesisEventRecord>,
     coralogix_exporter: DynLogExporter,
     config: &Config,
     aws_config: &aws_config::SdkConfig,
@@ -467,52 +479,95 @@ pub async fn kinesis_logs(
         .sub_name
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
-    let v = kinesis_message.0;
 
-    let decompressed_data = match gunzip(v.clone(), String::new()) {
-        Ok(data) => data,
-        Err(_) => {
-            tracing::debug!("Data does not appear to be valid gzip format. Treating as UTF-8");
-            v // set decompressed_data to the original data if decompression fails
-        }
-    };
+    let mut all_logs_with_meta: Vec<coralogix::LogWithMeta> = Vec::new();
 
-    let decoded_data = match String::from_utf8(decompressed_data) {
-        Ok(s) => s,
-        Err(error) => {
-            tracing::debug!(?error, "Failed to decode data");
-            String::new()
-        }
-    };
+    for record in records {
+        // Populate per-record Kinesis metadata into the shared context.
+        mctx.insert("kinesis.event.id".to_string(), record.event_id.clone());
+        mctx.insert("kinesis.event.name".to_string(), record.event_name.clone());
+        mctx.insert("kinesis.event.source".to_string(), record.event_source.clone());
+        mctx.insert("kinesis.event.source_arn".to_string(), record.event_source_arn.clone());
 
-    // String::from_utf8(decompressed_data.clone())?;
-    let batches = match serde_json::from_str(&decoded_data) {
-        Ok(logs) => {
-            process_cloudwatch_logs(
-                &mctx,
-                logs,
-                config.sampling,
-                &config.blocking_pattern,
-                config.log_stream_filter.as_ref(),
-            )
-            .await?
+        debug!("Kinesis record: {:?}", record);
+        let v = record.kinesis.data.0;
+        debug!("Kinesis data: {:?}", &v);
+
+        let decompressed_data = match gunzip(v.clone(), String::new()) {
+            Ok(data) => data,
+            Err(_) => {
+                tracing::debug!("Data does not appear to be valid gzip format. Treating as UTF-8");
+                v
+            }
+        };
+
+        let decoded_data = match String::from_utf8(decompressed_data) {
+            Ok(s) => s,
+            Err(error) => {
+                tracing::warn!(?error, "Failed to decode Kinesis record data, skipping record");
+                continue;
+            }
+        };
+
+        // Try to parse as CloudWatch logs format, otherwise treat as raw log.
+        // process_cloudwatch_logs may insert additional metadata (cw.log.group, etc.) into mctx.
+        let record_logs = match serde_json::from_str(&decoded_data) {
+            Ok(cw_logs) => {
+                process_cloudwatch_logs(
+                    mctx,
+                    cw_logs,
+                    config.sampling,
+                    &config.blocking_pattern,
+                    config.log_stream_filter.as_ref(),
+                )
+                .await?
+            }
+            Err(_) => {
+                tracing::debug!("Data is not CloudWatch logs format, treating as raw log");
+                if decoded_data.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![decoded_data]
+                }
+            }
+        };
+
+        if record_logs.is_empty() {
+            continue;
         }
-        Err(_) => {
-            tracing::debug!("Failed to decode data");
-            if decoded_data.is_empty() {
-                Vec::new()
-            } else {
-                vec![decoded_data]
+
+        // Snapshot mctx AFTER all per-record metadata has been written (including any CW metadata
+        // set by process_cloudwatch_logs above). Each log from this record gets this snapshot so
+        // dynamic APP_NAME/SUB_NAME templates and add_metadata enrichment resolve correctly.
+        let record_snapshot = mctx.snapshot();
+
+        // Apply the Starlark transform per-record so that expanded logs inherit this record's context.
+        let transformed_logs: Vec<String> =
+            match transform::transform_logs(record_logs, config, aws_config).await {
+                Ok(logs) => logs,
+                Err(e) => {
+                    tracing::error!("Log transformation failed for Kinesis record: {}", e);
+                    return Err(Error::from(e.to_string().as_str()));
+                }
+            };
+
+        for log in transformed_logs {
+            if !log.trim().is_empty() {
+                all_logs_with_meta.push(coralogix::LogWithMeta {
+                    log,
+                    mctx: record_snapshot.snapshot(),
+                });
             }
         }
-    };
+    }
 
-    coralogix::process_batches(
-        batches,
+    info!("Collected {} logs from Kinesis batch", all_logs_with_meta.len());
+
+    coralogix::process_batches_with_meta(
+        all_logs_with_meta,
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
         coralogix_exporter,
         aws_config,
     )
@@ -520,9 +575,12 @@ pub async fn kinesis_logs(
     Ok(())
 }
 
+/// Process SQS text messages with per-message metadata snapshots.
+/// Each message is paired with the `MetadataContext` snapshot captured at the time
+/// that SQS record was processed in the caller loop, preserving `sqs.event.id` and
+/// `sqs.event.source` per message for dynamic APP_NAME/SUB_NAME resolution.
 pub async fn sqs_logs(
-    mctx: &MetadataContext,
-    sqs_message: String,
+    messages_with_meta: Vec<(String, MetadataContext)>,
     coralogix_exporter: DynLogExporter,
     config: &Config,
     aws_config: &aws_config::SdkConfig,
@@ -535,15 +593,35 @@ pub async fn sqs_logs(
         .sub_name
         .clone()
         .unwrap_or_else(|| "NO SUBSYSTEM NAME".to_string());
-    let mut batches = Vec::new();
-    tracing::debug!("SQS Message: {:?}", sqs_message);
-    batches.push(sqs_message.clone());
-    coralogix::process_batches(
-        batches,
+
+    tracing::debug!("SQS messages: {} to process", messages_with_meta.len());
+
+    // Apply transform per-message so that transformed logs inherit their source message's context.
+    let mut all_logs_with_meta: Vec<coralogix::LogWithMeta> = Vec::new();
+    for (message, msg_mctx) in messages_with_meta {
+        let transformed: Vec<String> =
+            match transform::transform_logs(vec![message], config, aws_config).await {
+                Ok(logs) => logs,
+                Err(e) => {
+                    tracing::error!("Log transformation failed for SQS message: {}", e);
+                    return Err(Error::from(e.to_string().as_str()));
+                }
+            };
+        for log in transformed {
+            if !log.trim().is_empty() {
+                all_logs_with_meta.push(coralogix::LogWithMeta {
+                    log,
+                    mctx: msg_mctx.snapshot(),
+                });
+            }
+        }
+    }
+
+    coralogix::process_batches_with_meta(
+        all_logs_with_meta,
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
         coralogix_exporter,
         aws_config,
     )

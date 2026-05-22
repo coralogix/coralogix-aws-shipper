@@ -1,0 +1,17 @@
+aws_region = "eu-west-1"
+
+name_prefix = "cx-shipper-ex"
+
+# Required: from Coralogix PrivateLink documentation for this AWS region.
+coralogix_privatelink_service_name = "com.amazonaws.vpce.REGION.vpce-svc-XXXXXXXXXXXXXXXXX"
+
+# Set false only if Coralogix instructs you to use manual DNS for the endpoint.
+coralogix_privatelink_private_dns_enabled = true
+
+# Match Coralogix PrivateLink Lambda guide (Secrets Manager + S3 when used). Set false only if you rely solely on NAT.
+create_secrets_manager_interface_endpoint = true
+create_s3_gateway_endpoint                = true
+
+common_tags = {
+  Purpose = "coralogix-firehose-metrics-privatelink-example"
+}

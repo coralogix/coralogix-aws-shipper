@@ -5,24 +5,8 @@
 packaged.yaml
 samconfig.toml
 
-# Local / editor
-.DS_Store
-.cursor/
+# Example-specific CloudFormation parameter files (may contain secrets); keep parameters.example.json in repo
+examples/**/parameters.json
 
-# Secrets and local env (never commit)
-lambda.env
-*.env.local
-
-# Python
-**/__pycache__/
-*.py[cod]
-
-# GovCloud / custom-resource Lambda zips (build with scripts/package_govcloud_artifacts.sh)
-custom-resource/*.zip
-
-# Terraform local state (keep out of PR unless publishing IaC intentionally)
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.*
-terraform/*.tfvars
-terraform/*.tfvars.json
+# Terraform provider lock files (run terraform init locally to regenerate)
+**/.terraform.lock.hcl

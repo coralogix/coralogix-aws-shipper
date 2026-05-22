@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.4.7 / 2026-04-08
+### 💡 Enhancements 💡
+- **Firehose metrics — AWS resource tag enrichment:** When `TelemetryMode=metrics`, the shipper can enrich CloudWatch metric stream datapoints with **resource tags** using the **Resource Groups Tagging API** and a **YACE-compatible** service map and associator (embedded registry derived from YACE `services.go`). New stack parameters: **`MetricsTagEnrichmentEnabled`**, **`MetricsContinueOnResourceFailure`**, **`MetricsFileCacheEnabled`**, **`MetricsFileCachePath`**, **`MetricsFileCacheExpiration`**. IAM statements for `tag:GetResources` and related read APIs are added when enrichment is enabled.
+- **Firehose metrics — static labels:** **`CustomMetadata`** is applied to metrics the same way as logs: comma-separated `key=value` pairs; only the first `=` splits key and value (values may contain `=`).
+
+## v1.4.6 / 2026-03-17
+### 💡 Enhancements 💡
+- **Kinesis batching performance fix**: Kinesis records are now collected and sent in a single batched API call instead of being processed sequentially. This significantly improves throughput for high-volume Kinesis streams (e.g., 700 records now result in ~1 API call instead of ~700).
+- **SQS batching performance fix**: SQS text messages are now collected and sent in a single batched API call instead of being processed sequentially (same pattern as Kinesis).
+
+### 🧰 Bug fixes 🧰
+- Fixed `BATCHES_MAX_CONCURRENCY` environment variable being ignored. The config value is now properly used to control concurrent batch sending (was previously hardcoded to 5).
+- **Kinesis/SQS per-record metadata preservation**: Dynamic `APP_NAME`/`SUB_NAME` templates (e.g. `{{kinesis.event.source_arn}}`, `{{sqs.event.id}}`) and `add_metadata` enrichment now resolve correctly for each log entry using its own record's metadata context. Previously, batching caused all entries in a Lambda invocation to inherit only the last record's metadata values.
+
 ## v1.4.5 / 2026-03-12
 ### 💡 Enhancements 💡
 - Add `LogStreamFilter` parameter to filter CloudWatch log events by log stream name before shipping ([#170](https://github.com/coralogix/coralogix-aws-shipper/issues/170)). Accepts a regex pattern; only matching streams are sent to Coralogix.
