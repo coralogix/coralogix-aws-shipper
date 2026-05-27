@@ -229,9 +229,7 @@ fn yace_registry() -> &'static [YaceService] {
 }
 
 pub fn service_for_namespace(namespace: &str) -> Option<&'static YaceService> {
-    yace_registry()
-        .iter()
-        .find(|s| s.namespace == namespace)
+    yace_registry().iter().find(|s| s.namespace == namespace)
 }
 
 /// Per-invocation cache: one associator per CloudWatch namespace.
@@ -279,7 +277,10 @@ impl NamespaceResourceCache {
                 self.associators.insert(key, assoc);
             }
         }
-        Ok(self.associators.get(key).expect("associator inserted above"))
+        Ok(self
+            .associators
+            .get(key)
+            .expect("associator inserted above"))
     }
 }
 
@@ -412,7 +413,11 @@ async fn get_or_fetch_resources(
     }
 
     let safe_ns = svc.namespace.replace('/', "-");
-    let file_path = format!("{}/cache-{}", file_cache_path.trim_end_matches('/'), safe_ns);
+    let file_path = format!(
+        "{}/cache-{}",
+        file_cache_path.trim_end_matches('/'),
+        safe_ns
+    );
 
     if file_cache_enabled {
         if let Ok(meta) = std::fs::metadata(&file_path) {
@@ -587,11 +592,10 @@ mod tests {
         let mut dp = SummaryDataPoint::default();
         let meta = HashMap::from([("env".to_string(), "staging".to_string())]);
         apply_custom_metadata_labels(&mut dp, &meta);
-        assert!(
-            dp.attributes
-                .iter()
-                .any(|kv| kv.key == "env" && attribute_string_value(kv) == "staging")
-        );
+        assert!(dp
+            .attributes
+            .iter()
+            .any(|kv| kv.key == "env" && attribute_string_value(kv) == "staging"));
     }
 
     #[tokio::test]
@@ -622,10 +626,9 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(
-            dp.attributes
-                .iter()
-                .any(|kv| kv.key == "static" && attribute_string_value(kv) == "yes")
-        );
+        assert!(dp
+            .attributes
+            .iter()
+            .any(|kv| kv.key == "static" && attribute_string_value(kv) == "yes"));
     }
 }

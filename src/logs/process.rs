@@ -3,8 +3,8 @@ use aws_lambda_events::cloudwatch_logs::LogData;
 use aws_lambda_events::ecr_scan::EcrScanEvent;
 use aws_lambda_events::event::kinesis::KinesisEventRecord;
 use aws_lambda_events::kafka::KafkaRecord;
-use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_cloudwatchlogs::Client as LogsClient;
+use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_s3::Client;
 use base64::prelude::*;
 use cx_sdk_rest_logs::DynLogExporter;
@@ -173,11 +173,11 @@ static LOG_GROUP_TAGS_CACHE: Lazy<Mutex<HashMap<String, TagCacheEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Fetches tags for a CloudWatch Log Group, using a static cache to avoid repeated API calls.
-/// 
+///
 /// # Returns
 /// - `Ok(HashMap<String, String>)` on successful fetch (from cache or API), even if the log group has no tags
 /// - `Err(Error)` on API failures - errors are NOT cached and allow immediate retry on next invocation
-/// 
+///
 /// # Caching Behavior
 /// - Successful fetches (even with empty tags) are cached with the specified TTL
 /// - Errors are NOT cached, allowing immediate retry on the next Lambda invocation
@@ -309,11 +309,11 @@ async fn fetch_log_group_tags(
 }
 
 /// Fetches tags for a CloudWatch Log Group from the AWS API.
-/// 
+///
 /// # Returns
 /// - `Ok(HashMap<String, String>)` on successful API call, even if the log group has no tags (empty HashMap)
 /// - `Err(SdkError)` on API failures (throttling, IAM errors, network issues, etc.)
-/// 
+///
 /// # Errors
 /// This function will return an error if the API call fails for any reason.
 /// Errors are NOT cached and will allow immediate retry on the next invocation.
@@ -333,7 +333,11 @@ async fn fetch_log_group_tags_from_api(
         Ok(response) => {
             let mut tags = HashMap::new();
             if let Some(tags_map) = response.tags() {
-                debug!("Tags map from API ({} tags): {:?}", tags_map.len(), tags_map);
+                debug!(
+                    "Tags map from API ({} tags): {:?}",
+                    tags_map.len(),
+                    tags_map
+                );
                 // Iterate through ALL tags - ensure we get all of them
                 for (key, value) in tags_map.iter() {
                     debug!("Adding tag: {} = {}", key, value);
@@ -349,7 +353,10 @@ async fn fetch_log_group_tags_from_api(
                     );
                 }
             } else {
-                debug!("No tags found in response for log group: {}", log_group_name);
+                debug!(
+                    "No tags found in response for log group: {}",
+                    log_group_name
+                );
             }
 
             debug!(
@@ -486,8 +493,14 @@ pub async fn kinesis_logs(
         // Populate per-record Kinesis metadata into the shared context.
         mctx.insert("kinesis.event.id".to_string(), record.event_id.clone());
         mctx.insert("kinesis.event.name".to_string(), record.event_name.clone());
-        mctx.insert("kinesis.event.source".to_string(), record.event_source.clone());
-        mctx.insert("kinesis.event.source_arn".to_string(), record.event_source_arn.clone());
+        mctx.insert(
+            "kinesis.event.source".to_string(),
+            record.event_source.clone(),
+        );
+        mctx.insert(
+            "kinesis.event.source_arn".to_string(),
+            record.event_source_arn.clone(),
+        );
 
         debug!("Kinesis record: {:?}", record);
         let v = record.kinesis.data.0;
@@ -504,7 +517,10 @@ pub async fn kinesis_logs(
         let decoded_data = match String::from_utf8(decompressed_data) {
             Ok(s) => s,
             Err(error) => {
-                tracing::warn!(?error, "Failed to decode Kinesis record data, skipping record");
+                tracing::warn!(
+                    ?error,
+                    "Failed to decode Kinesis record data, skipping record"
+                );
                 continue;
             }
         };
@@ -561,7 +577,10 @@ pub async fn kinesis_logs(
         }
     }
 
-    info!("Collected {} logs from Kinesis batch", all_logs_with_meta.len());
+    info!(
+        "Collected {} logs from Kinesis batch",
+        all_logs_with_meta.len()
+    );
 
     coralogix::process_batches_with_meta(
         all_logs_with_meta,
@@ -684,23 +703,17 @@ pub async fn cloudwatch_logs(
     if config.enable_log_group_tags {
         debug!(
             "CloudWatch Log Group tags feature enabled. Log group: {}, cache_ttl_seconds: {}",
-            cloudwatch_event_log.data.log_group,
-            config.log_group_tags_cache_ttl_seconds
+            cloudwatch_event_log.data.log_group, config.log_group_tags_cache_ttl_seconds
         );
         let cache_ttl = Duration::from_secs(config.log_group_tags_cache_ttl_seconds);
         debug!(
             "Calling fetch_log_group_tags for log group: {} with cache_ttl: {:?} ({} seconds)",
-            cloudwatch_event_log.data.log_group,
-            cache_ttl,
-            config.log_group_tags_cache_ttl_seconds
+            cloudwatch_event_log.data.log_group, cache_ttl, config.log_group_tags_cache_ttl_seconds
         );
-        let tags_result = fetch_log_group_tags(
-            logs_client,
-            &cloudwatch_event_log.data.log_group,
-            cache_ttl,
-        )
-        .await;
-        
+        let tags_result =
+            fetch_log_group_tags(logs_client, &cloudwatch_event_log.data.log_group, cache_ttl)
+                .await;
+
         match tags_result {
             Ok(tags) => {
                 debug!(
@@ -709,7 +722,7 @@ pub async fn cloudwatch_logs(
                     cloudwatch_event_log.data.log_group,
                     tags
                 );
-                
+
                 // Serialize tags to JSON string and store in MetadataContext
                 if !tags.is_empty() {
                     match serde_json::to_string(&tags) {
@@ -737,8 +750,7 @@ pub async fn cloudwatch_logs(
             Err(e) => {
                 warn!(
                     "Failed to fetch tags for log group {}: {:?}. Continuing without tags.",
-                    cloudwatch_event_log.data.log_group,
-                    e
+                    cloudwatch_event_log.data.log_group, e
                 );
                 // Error is not cached, so next invocation will retry
             }
@@ -1242,7 +1254,11 @@ mod test {
         )
         .await
         .unwrap();
-        assert_eq!(result.len(), 2, "logs should pass through when stream matches");
+        assert_eq!(
+            result.len(),
+            2,
+            "logs should pass through when stream matches"
+        );
         assert_eq!(result[0], "log line 1");
         assert_eq!(result[1], "log line 2");
     }
@@ -1252,16 +1268,13 @@ mod test {
         let metadata = super::MetadataContext::new();
         let cw_event = make_log_data("main/production", vec!["log line 1"]);
         let filter = Some(Regex::new("^develop/").unwrap());
-        let result = super::process_cloudwatch_logs(
-            &metadata,
-            cw_event,
-            1,
-            "",
-            filter.as_ref(),
-        )
-        .await
-        .unwrap();
-        assert!(result.is_empty(), "should return empty when stream doesn't match");
+        let result = super::process_cloudwatch_logs(&metadata, cw_event, 1, "", filter.as_ref())
+            .await
+            .unwrap();
+        assert!(
+            result.is_empty(),
+            "should return empty when stream doesn't match"
+        );
     }
 
     #[tokio::test]

@@ -67,8 +67,16 @@ pub async fn handler(
         events::Combined::S3(s3_event) => {
             info!("S3 EVENT Detected");
             let (bucket, key) = handle_s3_event(s3_event).await?;
-            crate::logs::process::s3(&mctx, &clients.s3, coralogix_exporter, config, aws_config, bucket, key)
-                .await?;
+            crate::logs::process::s3(
+                &mctx,
+                &clients.s3,
+                coralogix_exporter,
+                config,
+                aws_config,
+                bucket,
+                key,
+            )
+            .await?;
         }
         events::Combined::Sns(sns_event) => {
             debug!("SNS Event: {:?}", sns_event);
@@ -150,9 +158,14 @@ pub async fn handler(
                         let evt: events::Combined = serde_json::from_str(message)?;
                         let internal_event = LambdaEvent::new(evt, Context::default());
 
-                        let result =
-                            handler(clients, coralogix_exporter.clone(), config, aws_config, internal_event)
-                                .await;
+                        let result = handler(
+                            clients,
+                            coralogix_exporter.clone(),
+                            config,
+                            aws_config,
+                            internal_event,
+                        )
+                        .await;
 
                         if result.is_ok() {
                             continue;
@@ -229,8 +242,18 @@ pub async fn handler(
             }
         }
         events::Combined::Kinesis(kinesis_event) => {
-            debug!("Processing {} Kinesis records as batch", kinesis_event.records.len());
-            process::kinesis_logs(&mctx, kinesis_event.records, coralogix_exporter.clone(), config, aws_config).await?;
+            debug!(
+                "Processing {} Kinesis records as batch",
+                kinesis_event.records.len()
+            );
+            process::kinesis_logs(
+                &mctx,
+                kinesis_event.records,
+                coralogix_exporter.clone(),
+                config,
+                aws_config,
+            )
+            .await?;
         }
         events::Combined::Kafka(kafka_event) => {
             let mut all_records = Vec::new();
@@ -238,7 +261,14 @@ pub async fn handler(
                 debug!("Kafka record: {topic_partition:?} --> {records:?}");
                 all_records.append(&mut records)
             }
-            process::kafka_logs(&mctx, all_records, coralogix_exporter.clone(), config, aws_config).await?;
+            process::kafka_logs(
+                &mctx,
+                all_records,
+                coralogix_exporter.clone(),
+                config,
+                aws_config,
+            )
+            .await?;
         }
         events::Combined::EcrScan(ecr_scan_event) => {
             debug!("ECR Scan event: {:?}", ecr_scan_event);

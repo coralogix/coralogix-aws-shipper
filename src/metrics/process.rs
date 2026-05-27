@@ -299,7 +299,7 @@ async fn try_add_to_batch(
         added_resource_metrics = (after_rm.saturating_sub(before_rm)),
         total_resource_metrics = after_rm,
         tracked_bytes = batch.encoded_size,
-       "batched metrics aggregated"
+        "batched metrics aggregated"
     );
 
     Ok(())
@@ -416,7 +416,7 @@ async fn send_final_batch(
     }
 
     info!("batching enabled but aggregator not initialized");
-   Ok(())
+    Ok(())
 }
 
 // transform_firehose_event - processes the KinesisFirehoseEvent and sends the transformed data to Coralogix
@@ -438,7 +438,7 @@ pub async fn transform_firehose_event(
     // Initialize batch aggregator if batching is enabled
     let mut aggregated_opt: Option<MetricsBatch> = if config.batching_enabled {
         Some(MetricsBatch::default())
-   } else {
+    } else {
         None
     };
 
@@ -450,14 +450,14 @@ pub async fn transform_firehose_event(
     for (idx, record) in event.records.clone().into_iter().enumerate() {
         let otel_payload = record.data.clone();
 
-       // Split length-delimited messages
+        // Split length-delimited messages
         let messages = split_length_delimited(&otel_payload.0).map_err(|e| {
             let err = format!("failed to split length-delimited data: {}", e);
             error!("{}", err);
             err
         })?;
 
-       debug!(
+        debug!(
             record_index = idx,
             message_count = messages.len(),
             "record parsed"
@@ -479,8 +479,10 @@ pub async fn transform_firehose_event(
                 .await?;
         }
 
-        let mut response_record: KinesisFirehoseResponseRecord = KinesisFirehoseResponseRecord::default();
-        let mut metadata: KinesisFirehoseResponseRecordMetadata = KinesisFirehoseResponseRecordMetadata::default();
+        let mut response_record: KinesisFirehoseResponseRecord =
+            KinesisFirehoseResponseRecord::default();
+        let mut metadata: KinesisFirehoseResponseRecordMetadata =
+            KinesisFirehoseResponseRecordMetadata::default();
         metadata.partition_keys = std::collections::HashMap::new();
         response_record.metadata = metadata;
         response_record.record_id = record.record_id;
@@ -498,11 +500,10 @@ pub async fn transform_firehose_event(
             total_messages_seen,
         )
         .await?;
-   }
+    }
 
     // Return response to Firehose
     let mut response: KinesisFirehoseResponse = KinesisFirehoseResponse::default();
     response.records = results;
     Ok(response)
-
 }

@@ -1,17 +1,19 @@
 //! Pipeline integration tests: script loading (S3/HTTP/base64), caching, and fail-open behavior.
 
 use aws_config::{BehaviorVersion, SdkConfig};
-use aws_sdk_s3::config::{Credentials as S3Credentials, SharedCredentialsProvider};
 use aws_sdk_s3::config::Region as S3Region;
+use aws_sdk_s3::config::{Credentials as S3Credentials, SharedCredentialsProvider};
 use aws_smithy_runtime::client::http::test_util::ReplayEvent;
 use aws_smithy_runtime::client::http::test_util::StaticReplayClient;
 use aws_smithy_types::body::SdkBody;
 use base64::Engine;
 use coralogix_aws_shipper::logs::config::{Config, IntegrationType, ScriptLoadError};
-use coralogix_aws_shipper::logs::transform::{reset_cache, set_retry_interval_secs, transform_logs};
-use serial_test::serial;
+use coralogix_aws_shipper::logs::transform::{
+    reset_cache, set_retry_interval_secs, transform_logs,
+};
 use cx_sdk_rest_logs::auth::ApiKey;
 use http::Response;
+use serial_test::serial;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -135,10 +137,7 @@ async fn test_load_script_from_s3_mock() {
             .uri(format!("https://{}.s3.amazonaws.com/{}", bucket, key))
             .body(SdkBody::empty())
             .unwrap(),
-        Response::builder()
-            .status(200)
-            .body(response_body)
-            .unwrap(),
+        Response::builder().status(200).body(response_body).unwrap(),
     );
 
     let replay_client = StaticReplayClient::new(vec![replay_event]);
@@ -356,11 +355,17 @@ def process(event):
     let logs_clone = logs.clone();
 
     let result1 = transform_logs(logs.clone(), &config, &aws).await;
-    assert!(result1.is_ok(), "first call should pass through on compilation failure");
+    assert!(
+        result1.is_ok(),
+        "first call should pass through on compilation failure"
+    );
     assert_eq!(result1.unwrap(), logs_clone);
 
     let result2 = transform_logs(logs, &config, &aws).await;
-    assert!(result2.is_ok(), "second call should use cache and pass through without re-compiling");
+    assert!(
+        result2.is_ok(),
+        "second call should use cache and pass through without re-compiling"
+    );
     assert_eq!(result2.unwrap(), logs_clone);
 }
 
@@ -401,10 +406,17 @@ async fn test_transform_logs_retries_resolution_after_ttl_expiry() {
 
     let result1 = transform_logs(logs.clone(), &config, &aws).await;
     assert!(result1.is_ok(), "first call should pass through on 500");
-    assert_eq!(result1.unwrap(), logs_clone, "passthrough on resolution failure");
+    assert_eq!(
+        result1.unwrap(),
+        logs_clone,
+        "passthrough on resolution failure"
+    );
 
     let result2 = transform_logs(logs, &config, &aws).await;
-    assert!(result2.is_ok(), "second call should retry and apply transform");
+    assert!(
+        result2.is_ok(),
+        "second call should retry and apply transform"
+    );
     let transformed = result2.unwrap();
     assert_eq!(transformed.len(), 1, "one log in, one log out");
     assert!(
@@ -437,7 +449,10 @@ def process(event):
     let logs_clone = logs.clone();
 
     let result1 = transform_logs(logs.clone(), &config_bad, &aws).await;
-    assert!(result1.is_ok(), "first call should pass through on compilation failure");
+    assert!(
+        result1.is_ok(),
+        "first call should pass through on compilation failure"
+    );
     assert_eq!(result1.unwrap(), logs_clone);
 
     let result2 = transform_logs(logs, &config_good, &aws).await;
@@ -447,7 +462,10 @@ def process(event):
     );
     let transformed = result2.unwrap();
     assert_eq!(transformed.len(), 1);
-    assert!(transformed[0].contains("log1"), "content preserved through transform");
+    assert!(
+        transformed[0].contains("log1"),
+        "content preserved through transform"
+    );
 
     set_retry_interval_secs(60);
 }

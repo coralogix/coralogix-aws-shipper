@@ -98,28 +98,26 @@ fn into_batches_with_meta_of_estimated_size(
     let target_batch_size = config.batches_max_size * 1024 * 1024;
     let overhead_per_log_estimation = 200;
 
-    let (mut batches, batch, _) = logs.into_iter().fold::<(
-        Vec<Vec<LogWithMeta>>,
-        Vec<LogWithMeta>,
-        usize,
-    ), _>(
-        (Vec::new(), Vec::new(), 0),
-        |acc, lm| {
-            let (mut batches, mut batch, size) = acc;
-            let new_size = size + lm.log.len() + overhead_per_log_estimation;
-            if new_size <= target_batch_size {
-                batch.push(lm);
-                (batches, batch, new_size)
-            } else {
-                if !batch.is_empty() {
-                    batches.push(std::mem::take(&mut batch));
+    let (mut batches, batch, _) = logs
+        .into_iter()
+        .fold::<(Vec<Vec<LogWithMeta>>, Vec<LogWithMeta>, usize), _>(
+            (Vec::new(), Vec::new(), 0),
+            |acc, lm| {
+                let (mut batches, mut batch, size) = acc;
+                let new_size = size + lm.log.len() + overhead_per_log_estimation;
+                if new_size <= target_batch_size {
+                    batch.push(lm);
+                    (batches, batch, new_size)
+                } else {
+                    if !batch.is_empty() {
+                        batches.push(std::mem::take(&mut batch));
+                    }
+                    let new_size = lm.log.len() + overhead_per_log_estimation;
+                    batch.push(lm);
+                    (batches, batch, new_size)
                 }
-                let new_size = lm.log.len() + overhead_per_log_estimation;
-                batch.push(lm);
-                (batches, batch, new_size)
-            }
-        },
-    );
+            },
+        );
     if !batch.is_empty() {
         batches.push(batch);
     }
@@ -146,10 +144,12 @@ pub async fn process_batches(
     }
 
     // Apply transformation pipeline (Starlark if configured, otherwise passthrough)
-    let logs = transform::transform_logs(logs, config, aws_config).await.map_err(|e| {
-        error!("Log transformation failed: {}", e);
-        Error::from(e.to_string())
-    })?;
+    let logs = transform::transform_logs(logs, config, aws_config)
+        .await
+        .map_err(|e| {
+            error!("Log transformation failed: {}", e);
+            Error::from(e.to_string())
+        })?;
 
     let logs: Vec<String> = logs
         .into_iter()
@@ -302,9 +302,9 @@ impl From<&process::MetadataContext> for JsonMessage {
             ecr_scan_source: mctx.get("ecr.scan.source"),
             sqs_event_source: mctx.get("sqs.event.source"),
             sqs_event_id: mctx.get("sqs.event.id"),
-            cw_tags: mctx.get("cw.tags").and_then(|tags_json| {
-                serde_json::from_str::<Value>(&tags_json).ok()
-            }),
+            cw_tags: mctx
+                .get("cw.tags")
+                .and_then(|tags_json| serde_json::from_str::<Value>(&tags_json).ok()),
 
             // to be deprecated
             stream_name: mctx.get("cw.log.stream"),
@@ -511,17 +511,17 @@ fn convert_to_log_entry(
         message.custom_metadata = metadata;
     }
     debug!("Message metadata: {:?}", message.custom_metadata);
-    
+
     // Get tags if they exist
-    let tags_value = mctx.get("cw.tags").and_then(|tags_json| {
-        serde_json::from_str::<Value>(&tags_json).ok()
-    });
-    
+    let tags_value = mctx
+        .get("cw.tags")
+        .and_then(|tags_json| serde_json::from_str::<Value>(&tags_json).ok());
+
     // Build the body with tags at root level
     let body = if message.has_metadata() {
         // If there's metadata, use the JsonMessage structure
         let mut body_value = serde_json::to_value(&message).unwrap_or(message.message);
-        
+
         // If tags exist, merge them at root level
         if let Some(tags) = tags_value {
             if let Value::Object(ref mut body_map) = body_value {
@@ -1110,7 +1110,10 @@ mod tests {
         ];
         let batches = into_batches_of_estimated_size(logs, &config);
         let total: usize = batches.iter().map(|b| b.len()).sum();
-        assert_eq!(total, 5, "into_batches_of_estimated_size does not filter empty entries");
+        assert_eq!(
+            total, 5,
+            "into_batches_of_estimated_size does not filter empty entries"
+        );
 
         let flat: Vec<_> = batches.into_iter().flatten().collect();
         assert!(flat.contains(&"".to_string()));
@@ -1152,11 +1155,7 @@ mod tests {
 
         let batches = into_batches_of_estimated_size(logs, &config);
 
-        assert_eq!(
-            batches.len(),
-            1,
-            "Small logs should fit in a single batch"
-        );
+        assert_eq!(batches.len(), 1, "Small logs should fit in a single batch");
         assert_eq!(batches[0].len(), 100, "All 100 logs should be in the batch");
     }
 
@@ -1195,10 +1194,7 @@ mod tests {
         let batches = into_batches_of_estimated_size(logs, &config);
 
         // The large log should cause a batch split
-        assert!(
-            batches.len() >= 2,
-            "Large log should cause batch splitting"
-        );
+        assert!(batches.len() >= 2, "Large log should cause batch splitting");
 
         // Verify all logs are present
         let all_logs: Vec<String> = batches.into_iter().flatten().collect();

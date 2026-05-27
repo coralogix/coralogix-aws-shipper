@@ -1048,6 +1048,8 @@ Resources:
           SAMPLING: !Ref SamplingRate
           INTEGRATION_TYPE: !Ref IntegrationType
           RUST_LOG: !Ref LogLevel
+          AWS_USE_FIPS_ENDPOINT: "true"
+          ENABLE_AWS_FIPS: "true"
           ADD_METADATA: !If
             - AddMetadataNotSet
             - !Ref AWS::NoValue

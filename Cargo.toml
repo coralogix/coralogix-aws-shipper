@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 aws-smithy-runtime-api = "1.11.3"
+aws-smithy-http-client = { version = "1", features = ["rustls-aws-lc-fips"] }
 aws_lambda_events = { version = "1.0.1", default-features = false, features = ["s3", "sns", "cloudwatch_logs", "sqs", "kinesis", "kafka", "ecr_scan", "firehose"] }
 aws-config = "1.8.13"
 aws-sdk-s3 = "1.121.0"

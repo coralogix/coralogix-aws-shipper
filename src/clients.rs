@@ -1,4 +1,3 @@
-use crate::assume_role;
 use aws_config::SdkConfig;
 use aws_sdk_cloudwatchlogs::config::Credentials as LogsCredentials;
 use aws_sdk_cloudwatchlogs::Client as LogsClient;
@@ -22,16 +21,16 @@ pub struct AwsClients {
 impl AwsClients {
     pub fn new(sdk_config: &SdkConfig) -> Self {
         AwsClients {
-            s3: S3Client::new(&sdk_config),
-            ecr: EcrClient::new(&sdk_config),
-            sqs: SqsClient::new(&sdk_config),
-            logs: LogsClient::new(&sdk_config),
+            s3: S3Client::new(sdk_config),
+            ecr: EcrClient::new(sdk_config),
+            sqs: SqsClient::new(sdk_config),
+            logs: LogsClient::new(sdk_config),
         }
     }
 
     // new_assume_role() method to create a new AWS client with the provided role
     pub async fn new_assume_role(sdk_config: &SdkConfig, role_arn: &str) -> Result<Self, StsError> {
-        let sts_client = StsClient::new(&sdk_config);
+        let sts_client = StsClient::new(sdk_config);
         let response = sts_client
             .assume_role()
             .role_arn(role_arn)
@@ -42,57 +41,82 @@ impl AwsClients {
         // Extract temporary credentials
         let creds = response
             .credentials()
-            .expect(format!("no credentials found for role_arn: {}", role_arn).as_str());
+            .unwrap_or_else(|| panic!("no credentials found for role_arn: {}", role_arn));
+
+        let s3_credentials = S3Credentials::new(
+            creds.access_key_id(),
+            creds.secret_access_key(),
+            Some(creds.session_token().to_string()),
+            None,
+            "s3provider",
+        );
+        let ecr_credentials = EcrCredentials::new(
+            creds.access_key_id(),
+            creds.secret_access_key(),
+            Some(creds.session_token().to_string()),
+            None,
+            "ecrprovider",
+        );
+        let logs_credentials = LogsCredentials::new(
+            creds.access_key_id(),
+            creds.secret_access_key(),
+            Some(creds.session_token().to_string()),
+            None,
+            "logsprovider",
+        );
+
+        let s3 = S3Client::from_conf(assumed_role_s3_config(sdk_config, s3_credentials));
+        let ecr_config = aws_sdk_ecr::config::Builder::from(sdk_config)
+            .credentials_provider(ecr_credentials)
+            .build();
+        let logs_config = aws_sdk_cloudwatchlogs::config::Builder::from(sdk_config)
+            .credentials_provider(logs_credentials)
+            .build();
 
         Ok(AwsClients {
-            s3: assume_role!(
-                "s3provider",
-                role_arn,
-                creds,
-                S3Credentials,
-                S3Client,
-                sdk_config
-            ),
-            ecr: assume_role!(
-                "ecrprovider",
-                role_arn,
-                creds,
-                EcrCredentials,
-                EcrClient,
-                sdk_config
-            ),
+            s3,
+            ecr: EcrClient::from_conf(ecr_config),
 
             // SQS permissions are only required for managing DLQ. The default client is sufficient for this.
-            sqs: SqsClient::new(&sdk_config),
-            logs: assume_role!(
-                "logsprovider",
-                role_arn,
-                creds,
-                LogsCredentials,
-                LogsClient,
-                sdk_config
-            ),
+            sqs: SqsClient::new(sdk_config),
+            logs: LogsClient::from_conf(logs_config),
         })
     }
 }
 
-// macro for creating a new AWS client with the provided role
-#[macro_export]
-macro_rules! assume_role {
-    ($provider_name:expr, $role_arn:expr, $creds:expr, $credentials:ident, $client:ty, $sdk_config:expr) => {{
-        let credentials = $credentials::new(
-            $creds.access_key_id(),
-            $creds.secret_access_key(),
-            Some($creds.session_token().to_string()),
+fn assumed_role_s3_config(
+    sdk_config: &SdkConfig,
+    credentials: S3Credentials,
+) -> aws_sdk_s3::Config {
+    aws_sdk_s3::config::Builder::from(sdk_config)
+        .credentials_provider(credentials)
+        .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aws_config::{BehaviorVersion, Region};
+
+    #[test]
+    fn assumed_role_s3_config_preserves_base_sdk_region() {
+        let sdk_config = SdkConfig::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("us-gov-west-1"))
+            .build();
+        let credentials = S3Credentials::new(
+            "access-key",
+            "secret-key",
+            Some("session-token".to_string()),
             None,
-            $provider_name,
+            "s3provider",
         );
 
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .credentials_provider(credentials)
-            .load()
-            .await;
+        let s3_config = assumed_role_s3_config(&sdk_config, credentials);
 
-        <$client>::new(&config)
-    }};
+        assert_eq!(
+            s3_config.region().map(|region| region.as_ref()),
+            Some("us-gov-west-1")
+        );
+    }
 }

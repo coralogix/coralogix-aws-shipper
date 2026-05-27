@@ -20,7 +20,10 @@ pub fn parse_custom_metadata_str(s: &str) -> HashMap<String, String> {
             }
             metadata.insert(key.to_string(), value.trim().to_string());
         } else {
-            error!("Failed to split key-value pair (expected key=value): {}", pair);
+            error!(
+                "Failed to split key-value pair (expected key=value): {}",
+                pair
+            );
         }
     }
     metadata

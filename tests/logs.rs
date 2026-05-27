@@ -1,10 +1,10 @@
 use anyhow;
 use async_trait::async_trait;
 use aws_config::{BehaviorVersion, SdkConfig};
-use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_cloudwatchlogs::config::Credentials as LogsCredentials;
 use aws_sdk_cloudwatchlogs::config::Region as LogsRegion;
 use aws_sdk_cloudwatchlogs::Client as LogsClient;
+use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sqs::Client as SqsClient;
 // use coralogix_aws_shipper::combined_event::Combined;
@@ -194,12 +194,7 @@ fn get_mock_logsclient(_src: Option<&str>) -> Result<LogsClient, String> {
 
 fn build_test_clients(s3: S3Client, sqs: SqsClient, ecr: EcrClient) -> AwsClients {
     let logs = get_mock_logsclient(None).expect("failed to create logs client");
-    AwsClients {
-        s3,
-        sqs,
-        ecr,
-        logs,
-    }
+    AwsClients { s3, sqs, ecr, logs }
 }
 
 fn test_sdk_config() -> SdkConfig {
@@ -309,9 +304,15 @@ async fn run_test_s3_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -358,9 +359,15 @@ async fn run_test_s3_event_with_periods_in_bucket_name() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -440,9 +447,15 @@ async fn run_test_folder_s3_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -513,9 +526,15 @@ async fn run_cloudtraillogs_s3_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -585,9 +604,15 @@ async fn run_cloudtraillogs_s3_event_starlark() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -597,7 +622,10 @@ async fn run_cloudtraillogs_s3_event_starlark() {
     assert_eq!(singles[0].entries.len(), 20);
 
     let first: Value = serde_json::from_str(&singles[0].entries[0].body.to_string()).unwrap();
-    assert_eq!(first.get("starlark_enriched").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        first.get("starlark_enriched").and_then(|v| v.as_bool()),
+        Some(true)
+    );
     assert_eq!(
         first.get("eventSource").and_then(|v| v.as_str()),
         Some("s3.amazonaws.com")
@@ -619,9 +647,8 @@ async fn run_cloudtraillogs_s3_event_starlark() {
 async fn test_cloudtraillogs_s3_event_starlark() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/cloudtrail_enrich.star")
-            .expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/cloudtrail_enrich.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(
@@ -658,9 +685,15 @@ async fn run_csv_s3_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -728,9 +761,15 @@ async fn run_vpcflowlgos_s3_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -801,9 +840,15 @@ async fn run_vpcflowlgos_s3_event_starlark() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -813,7 +858,10 @@ async fn run_vpcflowlgos_s3_event_starlark() {
     assert_eq!(singles[0].entries.len(), 2);
 
     let first: Value = serde_json::from_str(&singles[0].entries[0].body.to_string()).unwrap();
-    assert_eq!(first.get("starlark_enriched").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        first.get("starlark_enriched").and_then(|v| v.as_bool()),
+        Some(true)
+    );
     assert_eq!(first.get("action").and_then(|v| v.as_str()), Some("ACCEPT"));
 
     assert!(
@@ -832,9 +880,8 @@ async fn run_vpcflowlgos_s3_event_starlark() {
 async fn test_vpcflowlgos_s3_event_starlark() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/vpcflow_enrich.star")
-            .expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/vpcflow_enrich.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(
@@ -888,9 +935,15 @@ async fn run_sns_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -946,8 +999,8 @@ async fn run_sns_event_starlark() {
 async fn test_sns_event_starlark() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/passthrough.star").expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/passthrough.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(
@@ -985,9 +1038,15 @@ async fn run_test_s3_event_large() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1063,9 +1122,15 @@ async fn run_test_s3_event_large_with_sampling() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1130,9 +1195,15 @@ async fn run_cloudwatchlogs_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1197,12 +1268,22 @@ async fn run_cloudwatchlogs_event_with_log_stream_filter_match() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let singles = exporter.take_singles();
-    assert_eq!(singles.len(), 1, "stream matches filter - logs should be exported");
+    assert_eq!(
+        singles.len(),
+        1,
+        "stream matches filter - logs should be exported"
+    );
     assert_eq!(singles[0].entries.len(), 2);
     assert_eq!(singles[0].entries[0].body, "[ERROR] First test message");
     assert_eq!(singles[0].entries[1].body, "[ERROR] Second test message");
@@ -1226,9 +1307,15 @@ async fn run_cloudwatchlogs_event_with_log_stream_filter_no_match() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let singles = exporter.take_singles();
     assert!(
@@ -1293,9 +1380,15 @@ async fn run_cloudwatchlogs_event_starlark() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1307,8 +1400,14 @@ async fn run_cloudwatchlogs_event_starlark() {
     let expected_messages = vec!["[ERROR] First test message", "[ERROR] Second test message"];
     for (i, expected_msg) in expected_messages.iter().enumerate() {
         let actual: Value = serde_json::from_str(&singles[0].entries[i].body.to_string()).unwrap();
-        assert_eq!(actual.get("message").and_then(|v| v.as_str()), Some(expected_msg.as_ref()));
-        assert_eq!(actual.get("starlark_enriched").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            actual.get("message").and_then(|v| v.as_str()),
+            Some(expected_msg.as_ref())
+        );
+        assert_eq!(
+            actual.get("starlark_enriched").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 
     assert!(
@@ -1327,9 +1426,8 @@ async fn run_cloudwatchlogs_event_starlark() {
 async fn test_cloudwatchlogs_event_starlark() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/cloudwatch_enrich.star")
-            .expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/cloudwatch_enrich.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(
@@ -1367,9 +1465,15 @@ async fn run_cloudwatchlogs_event_with_tags() {
 
     // When ENABLE_LOG_GROUP_TAGS is true, the code will attempt to fetch tags
     // The API call will fail (no real AWS credentials), but processing should continue
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1377,7 +1481,7 @@ async fn run_cloudwatchlogs_event_with_tags() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
-    
+
     // Verify that processing completed successfully even though tag fetch failed
     // Tags won't be present because the API call failed, but that's expected
     let log_lines = vec!["[ERROR] First test message", "[ERROR] Second test message"];
@@ -1411,8 +1515,11 @@ async fn test_cloudwatchlogs_event_with_tags() {
 async fn run_cloudwatchlogs_event_without_tags_enabled() {
     let config = Config::load_from_env().unwrap();
     // Verify that enable_log_group_tags is false
-    assert!(!config.enable_log_group_tags, "enable_log_group_tags should be false");
-    
+    assert!(
+        !config.enable_log_group_tags,
+        "enable_log_group_tags should be false"
+    );
+
     let evt: Combined = serde_json::from_str(
         r#"{
             "awslogs": {
@@ -1428,9 +1535,15 @@ async fn run_cloudwatchlogs_event_without_tags_enabled() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1438,7 +1551,7 @@ async fn run_cloudwatchlogs_event_without_tags_enabled() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
-    
+
     // Verify logs are processed normally
     let log_lines = vec!["[ERROR] First test message", "[ERROR] Second test message"];
     for (i, log_line) in log_lines.iter().enumerate() {
@@ -1488,9 +1601,15 @@ async fn run_blocking_and_newline_pattern() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1557,9 +1676,15 @@ async fn run_test_empty_s3_event() {
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1621,9 +1746,15 @@ async fn run_sqs_s3_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1702,9 +1833,15 @@ async fn run_sqs_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1759,8 +1896,8 @@ async fn run_sqs_event_starlark() {
 async fn test_sqs_event_starlark() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/passthrough.star").expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/passthrough.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(
@@ -1846,15 +1983,21 @@ async fn run_sqs_multiple_records_batched() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
-    
+
     // Key assertion: All 3 records should be batched into a SINGLE API call
     assert_eq!(
         singles.len(),
@@ -1862,7 +2005,7 @@ async fn run_sqs_multiple_records_batched() {
         "Multiple SQS records should be batched into a single API call, got {} calls",
         singles.len()
     );
-    
+
     // All 3 log entries should be in that single batch
     assert_eq!(
         singles[0].entries.len(),
@@ -1874,7 +2017,8 @@ async fn run_sqs_multiple_records_batched() {
     let expected_logs = vec!["SQS Message 1", "SQS Message 2", "SQS Message 3"];
     for (i, expected) in expected_logs.iter().enumerate() {
         assert_eq!(
-            singles[0].entries[i].body, *expected,
+            singles[0].entries[i].body,
+            *expected,
             "Record {} content mismatch",
             i + 1
         );
@@ -1931,9 +2075,15 @@ async fn run_kinesis_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -1988,8 +2138,8 @@ async fn run_kinesis_event_starlark() {
 async fn test_kinesis_event_starlark() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/passthrough.star").expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/passthrough.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(
@@ -2041,9 +2191,15 @@ async fn run_kinesis_with_cloudwatch_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -2157,15 +2313,21 @@ async fn run_kinesis_multiple_records_batched() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
-    
+
     // Key assertion: All 3 records should be batched into a SINGLE API call
     assert_eq!(
         singles.len(),
@@ -2173,7 +2335,7 @@ async fn run_kinesis_multiple_records_batched() {
         "Multiple Kinesis records should be batched into a single API call, got {} calls",
         singles.len()
     );
-    
+
     // All 3 log entries should be in that single batch
     assert_eq!(
         singles[0].entries.len(),
@@ -2185,7 +2347,8 @@ async fn run_kinesis_multiple_records_batched() {
     let expected_logs = vec!["Record 1", "Record 2", "Record 3"];
     for (i, expected) in expected_logs.iter().enumerate() {
         assert_eq!(
-            singles[0].entries[i].body, *expected,
+            singles[0].entries[i].body,
+            *expected,
             "Record {} content mismatch",
             i + 1
         );
@@ -2429,18 +2592,15 @@ async fn run_sqs_dynamic_app_name_per_record() {
 
     // Each entry must carry the application_name from its OWN SQS message ID.
     assert_eq!(
-        singles[0].entries[0].application_name,
-        "msg-id-A",
+        singles[0].entries[0].application_name, "msg-id-A",
         "Entry 0 should have msg-id-A as application_name"
     );
     assert_eq!(
-        singles[0].entries[1].application_name,
-        "msg-id-B",
+        singles[0].entries[1].application_name, "msg-id-B",
         "Entry 1 should have msg-id-B as application_name"
     );
     assert_eq!(
-        singles[0].entries[2].application_name,
-        "msg-id-C",
+        singles[0].entries[2].application_name, "msg-id-C",
         "Entry 2 should have msg-id-C as application_name"
     );
 }
@@ -2482,9 +2642,15 @@ async fn run_cloudfront_s3_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -2549,9 +2715,15 @@ async fn run_test_s3_event_with_metadata() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -2618,9 +2790,15 @@ async fn run_test_s3_event_elb() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -2724,9 +2902,15 @@ async fn run_kafka_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -2762,8 +2946,8 @@ async fn run_kafka_event_starlark() {
 async fn test_kafka_event_starlark() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/passthrough.star").expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/passthrough.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(
@@ -2836,9 +3020,15 @@ async fn run_kafka_event_with_base64() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -2969,9 +3159,15 @@ async fn run_test_ecrscan_event() {
     let s3_client = get_mock_s3client(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -3096,9 +3292,15 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
 
     let exporter = Arc::new(FakeLogExporter::new());
     let event = LambdaEvent::new(evt, Context::default());
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let req_count = s3_relay_client.actual_requests().into_iter().count();
     assert_eq!(req_count, 2, "expected 2 requests, got {}", req_count);
@@ -3106,7 +3308,11 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
     // Assert the replayed S3 response body was read and processed: exporter received logs from tests/fixtures/s3.log
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1, "expected 1 export batch");
-    assert_eq!(singles[0].entries.len(), 4, "expected 4 log lines from s3.log fixture");
+    assert_eq!(
+        singles[0].entries.len(),
+        4,
+        "expected 4 log lines from s3.log fixture"
+    );
     let expected_log_lines = [
         "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
@@ -3115,7 +3321,8 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
     ];
     for (i, expected) in expected_log_lines.iter().enumerate() {
         assert_eq!(
-            singles[0].entries[i].body, *expected,
+            singles[0].entries[i].body,
+            *expected,
             "log line {} should match fixture content",
             i + 1
         );
@@ -3222,9 +3429,15 @@ async fn run_test_cloudwatch_retry_limit_reached_dlq_event() {
 
     let exporter = Arc::new(FailingLogExporter::default());
     let event = LambdaEvent::new(evt, Context::default());
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let req_count = s3_relay_client.actual_requests().into_iter().count();
     assert_eq!(req_count, 1, "expected 1 requests, got {}", req_count);
@@ -3365,9 +3578,15 @@ async fn run_test_route_failed_event_to_dlq() {
     let event = LambdaEvent::new(evt, Context::default());
     let config = Config::load_from_env().expect("failed to load config from env");
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let req_count = sqs_replay_client.actual_requests().into_iter().count();
     assert_eq!(req_count, 1, "expected 1 request, got {}", req_count);
@@ -3465,9 +3684,15 @@ async fn run_dlq_success_msg() {
     let event = LambdaEvent::new(evt, Context::default());
     let config = Config::load_from_env().expect("failed to load config from env");
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -3560,9 +3785,15 @@ async fn run_test_s3_event_with_custom_metadata() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -3628,9 +3859,15 @@ async fn run_csv_s3_custom_headers_event() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -3699,9 +3936,15 @@ async fn run_csv_s3_event_starlark() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -3711,10 +3954,12 @@ async fn run_csv_s3_event_starlark() {
     assert_eq!(singles[0].entries.len(), 2);
 
     for (i, _) in singles[0].entries.iter().enumerate() {
-        let actual: Value =
-            serde_json::from_str(&singles[0].entries[i].body.to_string()).unwrap();
+        let actual: Value = serde_json::from_str(&singles[0].entries[i].body.to_string()).unwrap();
         assert_eq!(actual.get("source").and_then(|v| v.as_str()), Some("csv"));
-        assert_eq!(actual.get("transformed").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            actual.get("transformed").and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert!(actual.get("id").is_some());
         assert!(actual.get("message").is_some());
         assert!(actual.get("severity").is_some());
@@ -3736,8 +3981,8 @@ async fn run_csv_s3_event_starlark() {
 async fn test_csv_s3_event_starlark() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/csv_enrich.star").expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/csv_enrich.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(
@@ -3758,11 +4003,14 @@ async fn test_csv_s3_event_starlark() {
 async fn run_test_s3_event_starlark_unnest() {
     coralogix_aws_shipper::logs::transform::reset_cache().await;
 
-    let s3_client =
-        get_mock_s3client(Some("./tests/fixtures/starlark/unnest.log")).expect("failed to create s3 client");
+    let s3_client = get_mock_s3client(Some("./tests/fixtures/starlark/unnest.log"))
+        .expect("failed to create s3 client");
     let config = Config::load_from_env().expect("failed to load config from env");
 
-    let (bucket, key) = ("coralogix-serverless-repo", "coralogix-aws-shipper/starlark_unnest.log");
+    let (bucket, key) = (
+        "coralogix-serverless-repo",
+        "coralogix-aws-shipper/starlark_unnest.log",
+    );
     let evt: Combined = serde_json::from_str(s3event_string(bucket, key).as_str())
         .expect("failed to parse s3_event");
 
@@ -3773,9 +4021,15 @@ async fn run_test_s3_event_starlark_unnest() {
     let ecr_client = get_mock_ecrclient(None).unwrap();
     let clients = build_test_clients(s3_client, sqs_client, ecr_client);
 
-    coralogix_aws_shipper::logs::handler(&clients, exporter.clone(), &config, &test_sdk_config(), event)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::logs::handler(
+        &clients,
+        exporter.clone(),
+        &config,
+        &test_sdk_config(),
+        event,
+    )
+    .await
+    .unwrap();
 
     let bulks = exporter.take_bulks();
     assert!(bulks.is_empty());
@@ -3813,8 +4067,8 @@ async fn run_test_s3_event_starlark_unnest() {
 async fn test_s3_event_starlark_unnest() {
     use base64::Engine;
 
-    let starlark_script =
-        std::fs::read_to_string("tests/fixtures/starlark/unnest_filter.star").expect("failed to read starlark script");
+    let starlark_script = std::fs::read_to_string("tests/fixtures/starlark/unnest_filter.star")
+        .expect("failed to read starlark script");
     let starlark_script_base64 = base64::engine::general_purpose::STANDARD.encode(&starlark_script);
 
     temp_env::async_with_vars(

@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
+use aws_sdk_resourcegroupstagging::Client as RgtClient;
 use coralogix_aws_shipper::events;
 use coralogix_aws_shipper::metrics::config::Config;
-use aws_sdk_resourcegroupstagging::Client as RgtClient;
 use lambda_runtime::{Context, LambdaEvent};
 use serde_json;
 use std::sync::Arc;
