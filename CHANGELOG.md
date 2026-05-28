@@ -1,4 +1,7 @@
 # Changelog
+## v1.4.8 / 2026-05-28
+### 💡 Enhancements 💡
+- Added FIPS support for AWS connections on Gov Cloud.
 
 ## v1.4.7 / 2026-04-08
 ### 💡 Enhancements 💡
