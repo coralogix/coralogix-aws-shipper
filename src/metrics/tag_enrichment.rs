@@ -612,6 +612,9 @@ mod tests {
     async fn enrich_unsupported_namespace_skips_rgt_but_adds_custom_metadata() {
         let aws_cfg = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .region("us-east-1")
+            .http_client(aws_smithy_http_client::test_util::StaticReplayClient::new(
+                vec![],
+            ))
             .load()
             .await;
         let client = RgtClient::new(&aws_cfg);

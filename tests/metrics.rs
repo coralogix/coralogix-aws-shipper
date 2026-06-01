@@ -16,6 +16,9 @@ async fn run_test_firehose_transform_flow() {
     let config = Config::load_from_env().unwrap();
     let aws_cfg = aws_config::defaults(BehaviorVersion::latest())
         .region("eu-central-1")
+        .http_client(aws_smithy_http_client::test_util::StaticReplayClient::new(
+            vec![],
+        ))
         .load()
         .await;
     let rgt = RgtClient::new(&aws_cfg);

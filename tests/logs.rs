@@ -72,7 +72,7 @@ fn get_mock_ecrclient(src: Option<&str>) -> Result<EcrClient, String> {
         }
         None => aws_smithy_types::body::SdkBody::empty(),
     };
-    let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+    let replay_event = aws_smithy_http_client::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::from(""))
             .unwrap(),
@@ -89,11 +89,9 @@ fn get_mock_ecrclient(src: Option<&str>) -> Result<EcrClient, String> {
             "",
         ))
         .region(aws_sdk_ecr::config::Region::new("eu-central-1"))
-        .http_client(
-            aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
-                replay_event,
-            ]),
-        )
+        .http_client(aws_smithy_http_client::test_util::StaticReplayClient::new(
+            vec![replay_event],
+        ))
         .build();
 
     Ok(aws_sdk_ecr::Client::from_conf(conf))
@@ -108,7 +106,7 @@ fn get_mock_s3client(src: Option<&str>) -> Result<S3Client, String> {
         None => aws_smithy_types::body::SdkBody::empty(),
     };
 
-    let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+    let replay_event = aws_smithy_http_client::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::from(""))
             .unwrap(),
@@ -125,11 +123,9 @@ fn get_mock_s3client(src: Option<&str>) -> Result<S3Client, String> {
             "",
         ))
         .region(aws_sdk_s3::config::Region::new("eu-central-1"))
-        .http_client(
-            aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
-                replay_event,
-            ]),
-        )
+        .http_client(aws_smithy_http_client::test_util::StaticReplayClient::new(
+            vec![replay_event],
+        ))
         .build();
 
     Ok(aws_sdk_s3::Client::from_conf(conf))
@@ -144,7 +140,7 @@ fn get_mock_sqsclient(src: Option<&str>) -> Result<SqsClient, String> {
         None => aws_smithy_types::body::SdkBody::empty(),
     };
 
-    let replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+    let replay_event = aws_smithy_http_client::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::from(""))
             .unwrap(),
@@ -152,7 +148,7 @@ fn get_mock_sqsclient(src: Option<&str>) -> Result<SqsClient, String> {
     );
 
     let replay_client =
-        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![replay_event]);
+        aws_smithy_http_client::test_util::StaticReplayClient::new(vec![replay_event]);
 
     let conf = aws_sdk_sqs::Config::builder()
         .behavior_version(BehaviorVersion::latest())
@@ -172,8 +168,7 @@ fn get_mock_sqsclient(src: Option<&str>) -> Result<SqsClient, String> {
 
 fn get_mock_logsclient(_src: Option<&str>) -> Result<LogsClient, String> {
     // No HTTP calls are expected in current tests; provide a replay client to satisfy the SDK.
-    let replay_client =
-        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![]);
+    let replay_client = aws_smithy_http_client::test_util::StaticReplayClient::new(vec![]);
 
     let conf = aws_sdk_cloudwatchlogs::Config::builder()
         .behavior_version(BehaviorVersion::latest())
@@ -3231,7 +3226,7 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
         ]
     }"#).expect("failed to parse ecrscan_event");
 
-    let s3_replay_event_failure = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+    let s3_replay_event_failure = aws_smithy_http_client::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::empty())
             .unwrap(),
@@ -3245,7 +3240,7 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
         .map_err(|e| e.to_string())
         .expect("failed to read test fixture: tests/fixtures/s3.log");
 
-    let s3_replay_event_get_object = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+    let s3_replay_event_get_object = aws_smithy_http_client::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::empty())
             .unwrap(),
@@ -3255,12 +3250,11 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
             .unwrap(),
     );
 
-    let s3_relay_client =
-        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
-            s3_replay_event_failure,
-            s3_replay_event_get_object,
-            // s3_replay_event_result,
-        ]);
+    let s3_relay_client = aws_smithy_http_client::test_util::StaticReplayClient::new(vec![
+        s3_replay_event_failure,
+        s3_replay_event_get_object,
+        // s3_replay_event_result,
+    ]);
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = make_client!(aws_sdk_s3, s3_relay_client);
@@ -3384,7 +3378,7 @@ async fn run_test_cloudwatch_retry_limit_reached_dlq_event() {
         ]
     }"#).expect("failed to parse ecrscan_event");
 
-    let s3_replay_event_result = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+    let s3_replay_event_result = aws_smithy_http_client::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::empty())
             .unwrap(),
@@ -3395,9 +3389,7 @@ async fn run_test_cloudwatch_retry_limit_reached_dlq_event() {
     );
 
     let s3_relay_client =
-        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
-            s3_replay_event_result,
-        ]);
+        aws_smithy_http_client::test_util::StaticReplayClient::new(vec![s3_replay_event_result]);
 
     let sqs_client = get_mock_sqsclient(None).unwrap();
     let s3_client = make_client!(aws_sdk_s3, s3_relay_client);
@@ -3520,7 +3512,7 @@ async fn run_test_route_failed_event_to_dlq() {
         ]
     }"#).expect("failed to parse ecrscan_event");
 
-    let sqs_replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+    let sqs_replay_event = aws_smithy_http_client::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::empty())
             .unwrap(),
@@ -3530,7 +3522,7 @@ async fn run_test_route_failed_event_to_dlq() {
             .unwrap(),
     );
 
-    let s3_replay_event = aws_smithy_runtime::client::http::test_util::ReplayEvent::new(
+    let s3_replay_event = aws_smithy_http_client::test_util::ReplayEvent::new(
         http::Request::builder()
             .body(aws_smithy_types::body::SdkBody::empty())
             .unwrap(),
@@ -3541,12 +3533,10 @@ async fn run_test_route_failed_event_to_dlq() {
     );
 
     let sqs_replay_client =
-        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![
-            sqs_replay_event,
-        ]);
+        aws_smithy_http_client::test_util::StaticReplayClient::new(vec![sqs_replay_event]);
 
     let s3_relay_client =
-        aws_smithy_runtime::client::http::test_util::StaticReplayClient::new(vec![s3_replay_event]);
+        aws_smithy_http_client::test_util::StaticReplayClient::new(vec![s3_replay_event]);
 
     let sqs_client = make_client!(aws_sdk_sqs, sqs_replay_client);
     let s3_client = make_client!(aws_sdk_s3, s3_relay_client);

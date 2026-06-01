@@ -3,8 +3,8 @@
 use aws_config::{BehaviorVersion, SdkConfig};
 use aws_sdk_s3::config::Region as S3Region;
 use aws_sdk_s3::config::{Credentials as S3Credentials, SharedCredentialsProvider};
-use aws_smithy_runtime::client::http::test_util::ReplayEvent;
-use aws_smithy_runtime::client::http::test_util::StaticReplayClient;
+use aws_smithy_http_client::test_util::ReplayEvent;
+use aws_smithy_http_client::test_util::StaticReplayClient;
 use aws_smithy_types::body::SdkBody;
 use base64::Engine;
 use coralogix_aws_shipper::logs::config::{Config, IntegrationType, ScriptLoadError};

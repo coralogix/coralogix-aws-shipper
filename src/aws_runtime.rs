@@ -14,19 +14,20 @@ pub fn aws_fips_enabled() -> bool {
 }
 
 pub async fn load_sdk_config() -> SdkConfig {
-    if aws_fips_enabled() {
+    let crypto_mode = if aws_fips_enabled() {
         tracing::info!("AWS FIPS mode enabled for SDK HTTP client");
-        let http_client = Builder::new()
-            .tls_provider(tls::Provider::Rustls(CryptoMode::AwsLcFips))
-            .build_https();
-
-        aws_config::defaults(BehaviorVersion::latest())
-            .http_client(http_client)
-            .load()
-            .await
+        CryptoMode::AwsLcFips
     } else {
-        aws_config::load_defaults(BehaviorVersion::latest()).await
-    }
+        CryptoMode::AwsLc
+    };
+    let http_client = Builder::new()
+        .tls_provider(tls::Provider::Rustls(crypto_mode))
+        .build_https();
+
+    aws_config::defaults(BehaviorVersion::latest())
+        .http_client(http_client)
+        .load()
+        .await
 }
 
 #[cfg(test)]
