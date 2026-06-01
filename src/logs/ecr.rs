@@ -135,12 +135,12 @@ pub async fn process_ecr_scan_event(
                     attributes: current_attributes,
                 };
                 let findings = Findings {
-                    package: package,
+                    package,
                     details: current_details,
                 };
                 let root = Root {
                     metadata: current_ecr_metadata.clone(),
-                    findings: findings,
+                    findings,
                 };
                 logs.push(
                     serde_json::to_string(&root)
@@ -154,11 +154,11 @@ pub async fn process_ecr_scan_event(
                 .map(|(severity, count)| format!("{:?}: {}", severity, count))
                 .collect();
             let ecr_scan_summary: EcrScanSummary = EcrScanSummary {
-                finding_severity_counts: finding_severity_counts,
+                finding_severity_counts,
             };
             let current_count_root = CurrentCountRoot {
                 metadata: current_ecr_metadata,
-                ecr_scan_summary: ecr_scan_summary,
+                ecr_scan_summary,
             };
             logs.push(
                 serde_json::to_string(&current_count_root)

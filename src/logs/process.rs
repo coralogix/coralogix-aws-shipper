@@ -62,11 +62,7 @@ impl MetadataContext {
 
     pub fn get(&self, key: &str) -> Option<String> {
         let inner = self.inner.read().unwrap();
-        if let Some(v) = inner.get(key).cloned() {
-            v
-        } else {
-            None
-        }
+        inner.get(key).cloned()?
     }
 
     /// Creates an independent snapshot of this context with the current key-value pairs.
@@ -462,7 +458,7 @@ pub async fn s3(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
+        mctx,
         coralogix_exporter,
         aws_config,
     )
@@ -670,7 +666,7 @@ pub async fn sns_logs(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
+        mctx,
         coralogix_exporter,
         aws_config,
     )
@@ -760,7 +756,7 @@ pub async fn cloudwatch_logs(
     let logs = match config.integration_type {
         IntegrationType::CloudWatch => {
             process_cloudwatch_logs(
-                &mctx,
+                mctx,
                 cloudwatch_event_log.data,
                 config.sampling,
                 &config.blocking_pattern,
@@ -782,7 +778,7 @@ pub async fn cloudwatch_logs(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
+        mctx,
         coralogix_exporter,
         aws_config,
     )
@@ -810,13 +806,13 @@ pub async fn ecr_scan_logs(
     //let mut batches = Vec::new();
 
     tracing::debug!("ECR Scan Event: {:?}", ecr_scan_event);
-    let payload = ecr::process_ecr_scan_event(ecr_scan_event, config, &ecr_client).await?;
+    let payload = ecr::process_ecr_scan_event(ecr_scan_event, config, ecr_client).await?;
     coralogix::process_batches(
         payload,
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
+        mctx,
         coralogix_exporter,
         aws_config,
     )
@@ -965,7 +961,7 @@ async fn process_csv(
             .copied()
             .collect_vec()
     } else {
-        if custom_header.len() > 0 {
+        if !custom_header.is_empty() {
             flow_header = custom_header.split(csv_delimiter).collect_vec();
         } else {
             flow_header = array_s[0].split(csv_delimiter).collect_vec();
@@ -1099,7 +1095,7 @@ pub async fn kafka_logs(
         &defined_app_name,
         &defined_sub_name,
         config,
-        &mctx,
+        mctx,
         coralogix_exporter,
         aws_config,
     )

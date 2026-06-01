@@ -19,7 +19,7 @@ pub enum Combined {
     Sqs(SqsEvent),
     Kinesis(KinesisEvent),
     Kafka(KafkaEvent),
-    EcrScan(EcrScanEvent),
+    EcrScan(Box<EcrScanEvent>),
     Firehose(KinesisFirehoseEvent),
 }
 
@@ -41,7 +41,7 @@ impl<'de> Deserialize<'de> for Combined {
         }
         if let Ok(event) = EcrScanEvent::deserialize(&raw_value) {
             tracing::info!("ecr scan event detected");
-            return Ok(Combined::EcrScan(event));
+            return Ok(Combined::EcrScan(Box::new(event)));
         }
 
         if let Ok(event) = LogsEvent::deserialize(&raw_value) {

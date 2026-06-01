@@ -1,6 +1,5 @@
 use coralogix_aws_shipper::logs::transform::{StarlarkError, StarlarkTransformer};
 use proptest::prelude::*;
-use serde_json;
 
 // =============================================================================
 // Happy Path
@@ -292,7 +291,7 @@ fn test_starlark_float_precision() {
     // Verify floats remain as numbers (not strings)
     assert!(parsed.get("pi").is_some());
     assert!(parsed["pi"].is_f64());
-    assert_eq!(parsed["pi"].as_f64(), Some(3.141592653589793));
+    assert_eq!(parsed["pi"].as_f64(), Some(std::f64::consts::PI));
 
     assert!(parsed.get("small").is_some());
     assert!(parsed["small"].is_f64());

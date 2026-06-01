@@ -99,8 +99,7 @@ impl Config {
                 .map(|s| {
                     Regex::new(&s).map_err(|e| format!("Invalid LOG_STREAM_FILTER regex: {}", e))
                 })
-                .transpose()
-                .map_err(|e| e)?,
+                .transpose()?,
 
             sampling: env::var("SAMPLING")
                 .map_err(|e| format!("sampling not set - {}", e))?
@@ -290,7 +289,7 @@ impl Config {
             || s.contains("event")
             || s.contains("transform");
 
-        all_base64 && !looks_like_code && (s.len() % 4 == 0 || s.ends_with('='))
+        all_base64 && !looks_like_code && (s.len().is_multiple_of(4) || s.ends_with('='))
     }
 
     /// Load a Starlark script from an S3 bucket

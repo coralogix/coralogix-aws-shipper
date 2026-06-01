@@ -9,6 +9,7 @@ use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use std::time::Duration;
 use tracing::{debug, error, warn};
 
 /// Prometheus/common `LabelsToSignature` (FNV-1a + string hash), matching YACE associator.
@@ -96,15 +97,13 @@ impl Associator {
                     continue;
                 };
                 let mut labels = HashMap::new();
-                for name_opt in regex.capture_names() {
-                    if let Some(name) = name_opt {
-                        if name.is_empty() {
-                            continue;
-                        }
-                        let disp = name.replace('_', " ");
-                        if let Some(mat) = caps.name(name) {
-                            labels.insert(disp, mat.as_str().to_string());
-                        }
+                for name in regex.capture_names().flatten() {
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let disp = name.replace('_', " ");
+                    if let Some(mat) = caps.name(name) {
+                        labels.insert(disp, mat.as_str().to_string());
                     }
                 }
                 if labels.is_empty() {
@@ -135,6 +134,7 @@ impl Associator {
         }
 
         let dim_names: Vec<&str> = metric_dims.iter().map(|(k, _)| k.as_str()).collect();
+        let amazon_mq_broker_suffix_re = Regex::new(r"-[0-9]+$").expect("valid regex");
 
         for regexp_mapping in &self.mappings {
             if !contains_all(&dim_names, &regexp_mapping.dimension_names) {
@@ -145,9 +145,7 @@ impl Associator {
                 for (name, value) in metric_dims {
                     let mut v = value.clone();
                     if namespace == "AWS/AmazonMQ" && name == "Broker" {
-                        v = Regex::new(r"-[0-9]+$")
-                            .map(|re| re.replace_all(&v, "").to_string())
-                            .unwrap_or(v);
+                        v = amazon_mq_broker_suffix_re.replace_all(&v, "").to_string();
                     }
                     if r_dim == name {
                         labels.insert(name.clone(), v);
@@ -164,8 +162,8 @@ impl Associator {
     }
 }
 
-fn contains_all<'a>(a: &[&'a str], b: &[String]) -> bool {
-    b.iter().all(|e| a.iter().any(|x| *x == e.as_str()))
+fn contains_all(a: &[&str], b: &[String]) -> bool {
+    b.iter().all(|e| a.contains(&e.as_str()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -350,7 +348,7 @@ async fn fetch_tagged_resources(
             out.push(TaggedResource { arn, tags });
         }
         token = resp.pagination_token().map(|s| s.to_string());
-        if token.as_ref().map_or(true, |t| t.is_empty()) {
+        if token.as_ref().is_none_or(|t| t.is_empty()) {
             break;
         }
     }
@@ -457,16 +455,28 @@ async fn get_or_fetch_resources(
     }
 }
 
+pub struct EnrichmentOptions<'a> {
+    pub file_cache_enabled: bool,
+    pub file_cache_path: &'a str,
+    pub file_cache_ttl: Duration,
+    pub continue_on_resource_failure: bool,
+    pub custom_metadata: &'a HashMap<String, String>,
+}
+
 pub async fn enrich_summary_datapoint(
     client: &RgtClient,
     dp: &mut SummaryDataPoint,
     cache: &mut NamespaceResourceCache,
-    file_cache_enabled: bool,
-    file_cache_path: &str,
-    file_cache_ttl: std::time::Duration,
-    continue_on_resource_failure: bool,
-    custom_metadata: &HashMap<String, String>,
+    options: EnrichmentOptions<'_>,
 ) -> Result<(), String> {
+    let EnrichmentOptions {
+        file_cache_enabled,
+        file_cache_path,
+        file_cache_ttl,
+        continue_on_resource_failure,
+        custom_metadata,
+    } = options;
+
     let (namespace, _metric_name, dims) = cw_metric_from_attributes(&dp.attributes);
     if namespace.is_empty() {
         append_static_labels(dp, custom_metadata);
@@ -618,11 +628,13 @@ mod tests {
             &client,
             &mut dp,
             &mut cache,
-            false,
-            "/tmp",
-            std::time::Duration::from_secs(3600),
-            true,
-            &meta,
+            EnrichmentOptions {
+                file_cache_enabled: false,
+                file_cache_path: "/tmp",
+                file_cache_ttl: Duration::from_secs(3600),
+                continue_on_resource_failure: true,
+                custom_metadata: &meta,
+            },
         )
         .await
         .unwrap();

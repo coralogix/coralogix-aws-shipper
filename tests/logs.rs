@@ -1,4 +1,3 @@
-use anyhow;
 use async_trait::async_trait;
 use aws_config::{BehaviorVersion, SdkConfig};
 use aws_sdk_cloudwatchlogs::config::Credentials as LogsCredentials;
@@ -320,12 +319,10 @@ async fn run_test_s3_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
-    let log_lines = vec![
-        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    let log_lines = ["172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-    ];
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\""];
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(singles[0].entries[i].body == *log_line);
     }
@@ -375,12 +372,10 @@ async fn run_test_s3_event_with_periods_in_bucket_name() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
-    let log_lines = vec![
-        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    let log_lines = ["172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-    ];
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\""];
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(singles[0].entries[i].body == *log_line);
     }
@@ -463,12 +458,10 @@ async fn run_test_folder_s3_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
-    let log_lines = vec![
-        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    let log_lines = ["172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-    ];
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\""];
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(singles[0].entries[i].body == *log_line);
     }
@@ -542,11 +535,9 @@ async fn run_cloudtraillogs_s3_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 20);
-    let log_lines = vec![
-        "{\"additionalEventData\":{\"AuthenticationMethod\":\"AuthHeader\",\"CipherSuite\":\"ECDHE-RSA-AES128-GCM-SHA256\",\"SignatureVersion\":\"SigV4\",\"bytesTransferredIn\":0,\"bytesTransferredOut\":480,\"x-amz-id-2\":\"1z7a7FcycBJ1A+larL8G04ZyJ3noJ823M3XEMt02L1jPF+QCGCBtudtO82vouBkJ+10K2jbfhA4=\"},\"awsRegion\":\"eu-central-1\",\"eventCategory\":\"Management\",\"eventID\":\"8d50073e-6d4f-4380-918e-cc17dd847be5\",\"eventName\":\"GetBucketAcl\",\"eventSource\":\"s3.amazonaws.com\",\"eventTime\":\"2023-10-17T04:53:21Z\",\"eventType\":\"AwsApiCall\",\"eventVersion\":\"1.09\",\"managementEvent\":true,\"readOnly\":true,\"recipientAccountId\":\"597078901540\",\"requestID\":\"JTT53K6AS8TR39ER\",\"requestParameters\":{\"Host\":\"aws-cloudtrail-logs-597078901540-082ac93e.s3.eu-central-1.amazonaws.com\",\"acl\":\"\",\"bucketName\":\"aws-cloudtrail-logs-597078901540-082ac93e\"},\"resources\":[{\"ARN\":\"arn:aws:s3:::aws-cloudtrail-logs-597078901540-082ac93e\",\"accountId\":\"597078901540\",\"type\":\"AWS::S3::Bucket\"}],\"responseElements\":null,\"sharedEventID\":\"d0264078-8cb0-45eb-8b53-32a8469888af\",\"sourceIPAddress\":\"cloudtrail.amazonaws.com\",\"userAgent\":\"cloudtrail.amazonaws.com\",\"userIdentity\":{\"invokedBy\":\"cloudtrail.amazonaws.com\",\"type\":\"AWSService\"}}",
+    let log_lines = ["{\"additionalEventData\":{\"AuthenticationMethod\":\"AuthHeader\",\"CipherSuite\":\"ECDHE-RSA-AES128-GCM-SHA256\",\"SignatureVersion\":\"SigV4\",\"bytesTransferredIn\":0,\"bytesTransferredOut\":480,\"x-amz-id-2\":\"1z7a7FcycBJ1A+larL8G04ZyJ3noJ823M3XEMt02L1jPF+QCGCBtudtO82vouBkJ+10K2jbfhA4=\"},\"awsRegion\":\"eu-central-1\",\"eventCategory\":\"Management\",\"eventID\":\"8d50073e-6d4f-4380-918e-cc17dd847be5\",\"eventName\":\"GetBucketAcl\",\"eventSource\":\"s3.amazonaws.com\",\"eventTime\":\"2023-10-17T04:53:21Z\",\"eventType\":\"AwsApiCall\",\"eventVersion\":\"1.09\",\"managementEvent\":true,\"readOnly\":true,\"recipientAccountId\":\"597078901540\",\"requestID\":\"JTT53K6AS8TR39ER\",\"requestParameters\":{\"Host\":\"aws-cloudtrail-logs-597078901540-082ac93e.s3.eu-central-1.amazonaws.com\",\"acl\":\"\",\"bucketName\":\"aws-cloudtrail-logs-597078901540-082ac93e\"},\"resources\":[{\"ARN\":\"arn:aws:s3:::aws-cloudtrail-logs-597078901540-082ac93e\",\"accountId\":\"597078901540\",\"type\":\"AWS::S3::Bucket\"}],\"responseElements\":null,\"sharedEventID\":\"d0264078-8cb0-45eb-8b53-32a8469888af\",\"sourceIPAddress\":\"cloudtrail.amazonaws.com\",\"userAgent\":\"cloudtrail.amazonaws.com\",\"userIdentity\":{\"invokedBy\":\"cloudtrail.amazonaws.com\",\"type\":\"AWSService\"}}",
         "{\"awsRegion\":\"eu-central-1\",\"eventCategory\":\"Management\",\"eventID\":\"5fb5255f-7ad4-4bc6-a0a3-0ab6d1113b8c\",\"eventName\":\"GenerateDataKey\",\"eventSource\":\"kms.amazonaws.com\",\"eventTime\":\"2023-10-17T04:53:24Z\",\"eventType\":\"AwsApiCall\",\"eventVersion\":\"1.08\",\"managementEvent\":true,\"readOnly\":true,\"recipientAccountId\":\"597078901540\",\"requestID\":\"4e67281e-2ae9-4515-b75f-e56cc6873220\",\"requestParameters\":{\"encryptionContext\":{\"aws:cloudtrail:arn\":\"arn:aws:cloudtrail:eu-central-1:597078901540:trail/Mytrail\",\"aws:s3:arn\":\"arn:aws:s3:::aws-cloudtrail-logs-597078901540-082ac93e/AWSLogs/597078901540/CloudTrail/eu-west-1/2023/10/17/597078901540_CloudTrail_eu-west-1_20231017T0450Z_KREKSWgLUgTraBu8.json.gz\"},\"keyId\":\"arn:aws:kms:eu-central-1:597078901540:key/a339d1af-e88e-4801-8d64-5c7861a4405f\",\"keySpec\":\"AES_256\"},\"resources\":[{\"ARN\":\"arn:aws:kms:eu-central-1:597078901540:key/a339d1af-e88e-4801-8d64-5c7861a4405f\",\"accountId\":\"597078901540\",\"type\":\"AWS::KMS::Key\"}],\"responseElements\":null,\"sharedEventID\":\"a2999d91-c0d3-4037-9171-93e6a1a08e53\",\"sourceIPAddress\":\"cloudtrail.amazonaws.com\",\"userAgent\":\"cloudtrail.amazonaws.com\",\"userIdentity\":{\"invokedBy\":\"cloudtrail.amazonaws.com\",\"type\":\"AWSService\"}}",
-        "{\"additionalEventData\":{\"AuthenticationMethod\":\"AuthHeader\",\"CipherSuite\":\"ECDHE-RSA-AES128-GCM-SHA256\",\"SignatureVersion\":\"SigV4\",\"bytesTransferredIn\":0,\"bytesTransferredOut\":480,\"x-amz-id-2\":\"q2Jj4jfv73eSK1oWlBOTMMPsCU0YhMcYUcXrCi8W8s4NZfzPEgW9xrSmpir1iMIrV+zs0kR2MwE=\"},\"awsRegion\":\"eu-central-1\",\"eventCategory\":\"Management\",\"eventID\":\"d7ced48b-0d40-43ba-a78c-25b4389654c0\",\"eventName\":\"GetBucketAcl\",\"eventSource\":\"s3.amazonaws.com\",\"eventTime\":\"2023-10-17T04:53:26Z\",\"eventType\":\"AwsApiCall\",\"eventVersion\":\"1.09\",\"managementEvent\":true,\"readOnly\":true,\"recipientAccountId\":\"597078901540\",\"requestID\":\"19XECQVKGPN8JJ6D\",\"requestParameters\":{\"Host\":\"aws-cloudtrail-logs-597078901540-082ac93e.s3.eu-central-1.amazonaws.com\",\"acl\":\"\",\"bucketName\":\"aws-cloudtrail-logs-597078901540-082ac93e\"},\"resources\":[{\"ARN\":\"arn:aws:s3:::aws-cloudtrail-logs-597078901540-082ac93e\",\"accountId\":\"597078901540\",\"type\":\"AWS::S3::Bucket\"}],\"responseElements\":null,\"sharedEventID\":\"f513090d-b111-40e5-940a-81b0f98fe916\",\"sourceIPAddress\":\"cloudtrail.amazonaws.com\",\"userAgent\":\"cloudtrail.amazonaws.com\",\"userIdentity\":{\"invokedBy\":\"cloudtrail.amazonaws.com\",\"type\":\"AWSService\"}}"
-    ];
+        "{\"additionalEventData\":{\"AuthenticationMethod\":\"AuthHeader\",\"CipherSuite\":\"ECDHE-RSA-AES128-GCM-SHA256\",\"SignatureVersion\":\"SigV4\",\"bytesTransferredIn\":0,\"bytesTransferredOut\":480,\"x-amz-id-2\":\"q2Jj4jfv73eSK1oWlBOTMMPsCU0YhMcYUcXrCi8W8s4NZfzPEgW9xrSmpir1iMIrV+zs0kR2MwE=\"},\"awsRegion\":\"eu-central-1\",\"eventCategory\":\"Management\",\"eventID\":\"d7ced48b-0d40-43ba-a78c-25b4389654c0\",\"eventName\":\"GetBucketAcl\",\"eventSource\":\"s3.amazonaws.com\",\"eventTime\":\"2023-10-17T04:53:26Z\",\"eventType\":\"AwsApiCall\",\"eventVersion\":\"1.09\",\"managementEvent\":true,\"readOnly\":true,\"recipientAccountId\":\"597078901540\",\"requestID\":\"19XECQVKGPN8JJ6D\",\"requestParameters\":{\"Host\":\"aws-cloudtrail-logs-597078901540-082ac93e.s3.eu-central-1.amazonaws.com\",\"acl\":\"\",\"bucketName\":\"aws-cloudtrail-logs-597078901540-082ac93e\"},\"resources\":[{\"ARN\":\"arn:aws:s3:::aws-cloudtrail-logs-597078901540-082ac93e\",\"accountId\":\"597078901540\",\"type\":\"AWS::S3::Bucket\"}],\"responseElements\":null,\"sharedEventID\":\"f513090d-b111-40e5-940a-81b0f98fe916\",\"sourceIPAddress\":\"cloudtrail.amazonaws.com\",\"userAgent\":\"cloudtrail.amazonaws.com\",\"userIdentity\":{\"invokedBy\":\"cloudtrail.amazonaws.com\",\"type\":\"AWSService\"}}"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         let expected: Value = serde_json::from_str(log_line).unwrap();
@@ -701,10 +692,8 @@ async fn run_csv_s3_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
-    let log_lines = vec![
-        "{\"id\":1,\"message\":\"This is an info message\",\"severity\":\"INFO\",\"timestamp\":\"2019-01-01 00:00:00\"}",
-        "{\"id\":2,\"message\":\"This is another info message\",\"severity\":\"INFO\",\"timestamp\":\"2019-01-01 00:00:01\"}"
-    ];
+    let log_lines = ["{\"id\":1,\"message\":\"This is an info message\",\"severity\":\"INFO\",\"timestamp\":\"2019-01-01 00:00:00\"}",
+        "{\"id\":2,\"message\":\"This is another info message\",\"severity\":\"INFO\",\"timestamp\":\"2019-01-01 00:00:01\"}"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         let expected: Value = serde_json::from_str(log_line).unwrap();
@@ -777,10 +766,8 @@ async fn run_vpcflowlgos_s3_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
-    let log_lines = vec![
-        "{\"account-id\":\"123456789012\",\"action\":\"ACCEPT\",\"bytes\":4096,\"dstaddr\":\"172.31.9.12\",\"dstport\":3389,\"end\":1418530070,\"interface-id\":\"eni-abc123de\",\"log-status\":\"OK\",\"packets\":20,\"protocol\":6,\"srcaddr\":\"172.31.9.69\",\"srcport\":49761,\"start\":1418530010,\"version\":2}",
-        "{\"account-id\":\"123456789012\",\"action\":\"ACCEPT\",\"bytes\":5060,\"dstaddr\":\"172.31.9.21\",\"dstport\":3389,\"end\":1418530070,\"interface-id\":\"eni-abc123de\",\"log-status\":\"OK\",\"packets\":20,\"protocol\":6,\"srcaddr\":\"172.31.9.69\",\"srcport\":49761,\"start\":1418530010,\"version\":2}",
-    ];
+    let log_lines = ["{\"account-id\":\"123456789012\",\"action\":\"ACCEPT\",\"bytes\":4096,\"dstaddr\":\"172.31.9.12\",\"dstport\":3389,\"end\":1418530070,\"interface-id\":\"eni-abc123de\",\"log-status\":\"OK\",\"packets\":20,\"protocol\":6,\"srcaddr\":\"172.31.9.69\",\"srcport\":49761,\"start\":1418530010,\"version\":2}",
+        "{\"account-id\":\"123456789012\",\"action\":\"ACCEPT\",\"bytes\":5060,\"dstaddr\":\"172.31.9.21\",\"dstport\":3389,\"end\":1418530070,\"interface-id\":\"eni-abc123de\",\"log-status\":\"OK\",\"packets\":20,\"protocol\":6,\"srcaddr\":\"172.31.9.69\",\"srcport\":49761,\"start\":1418530010,\"version\":2}"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         let expected: Value = serde_json::from_str(log_line).unwrap();
@@ -951,7 +938,7 @@ async fn run_sns_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 1);
-    let log_lines = vec!["[INFO] some test log line"];
+    let log_lines = ["[INFO] some test log line"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
@@ -1059,7 +1046,7 @@ async fn run_test_s3_event_large() {
     assert!(singles[0].entries.len() == 5321);
     assert!(singles[9].entries.len() == 2104);
 
-    let log_lines = vec![
+    let log_lines = [
         "https 2023-09-05T05:35:00.264447Z app/dummy-alb/0123456789abcdef 203.0.113.10:1438 10.0.1.193:32081 0.001 0.004 0.000 200 200 1839 229 \"POST https://api.example.com:443/v1/track HTTP/1.1\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/dummy-target/0123456789abcdef \"Root=1-64f6be04-000000000000000000000001\" \"api.example.com\" \"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000001\" 0 2023-09-05T05:35:00.258000Z \"waf,forward\" \"-\" \"-\" \"10.0.1.193:32081\" \"200\" \"-\" \"-\"",
         "https 2023-09-05T05:35:00.272291Z app/dummy-alb/0123456789abcdef 198.51.100.20:60451 10.0.2.210:32081 0.001 0.008 0.000 200 200 19931 229 \"POST https://api.example.com:443/v1/track HTTP/1.1\" \"lua-resty-http/0.17.1 (Lua) ngx_lua/10021\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/dummy-target/0123456789abcdef \"Root=1-64f6be04-000000000000000000000002\" \"api.example.com\" \"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000001\" 0 2023-09-05T05:35:00.263000Z \"waf,forward\" \"-\" \"-\" \"10.0.2.210:32081\" \"200\" \"-\" \"-\"",
         "https 2023-09-05T05:37:23.688000Z app/dummy-alb/0123456789abcdef 198.51.100.185:5834 10.0.86.211:32081 0.005 0.045 0.000 302 302 28604 153 \"GET https://checkout.example.com:443/health HTTP/1.1\" \"Amazon Simple Notification Service Agent\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/dummy-target/0123456789abcdef \"Root=1-64f6be04-0ef61b1763641328\" \"checkout.example.com\" \"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000001\" 0 2023-09-05T05:37:23.137000Z \"waf,forward\" \"-\" \"-\" \"10.0.86.211:32081\" \"302\" \"-\" \"-\"", // last log line
@@ -1140,10 +1127,8 @@ async fn run_test_s3_event_large_with_sampling() {
     assert!(singles.len() == 1);
     assert!(singles[0].entries.len() == 500);
 
-    let log_lines = vec![
-        "https 2023-09-05T05:35:00.264447Z app/dummy-alb/0123456789abcdef 203.0.113.10:1438 10.0.1.193:32081 0.001 0.004 0.000 200 200 1839 229 \"POST https://api.example.com:443/v1/track HTTP/1.1\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/dummy-target/0123456789abcdef \"Root=1-64f6be04-000000000000000000000001\" \"api.example.com\" \"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000001\" 0 2023-09-05T05:35:00.258000Z \"waf,forward\" \"-\" \"-\" \"10.0.1.193:32081\" \"200\" \"-\" \"-\"",
-        "https 2023-09-05T05:35:00.300000Z app/dummy-alb/0123456789abcdef 192.0.2.114:15719 10.0.23.208:32081 0.001 0.012 0.000 304 304 17965 298 \"GET https://cdn.example.com:443/v1/metrics HTTP/1.1\" \"Go-http-client/1.1\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/dummy-target/0123456789abcdef \"Root=1-64f6be04-e42e5037d9f2dd0d\" \"cdn.example.com\" \"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000001\" 0 2023-09-05T05:35:00.520000Z \"waf,forward\" \"-\" \"-\" \"10.0.23.208:32081\" \"304\" \"-\" \"-\"",
-    ];
+    let log_lines = ["https 2023-09-05T05:35:00.264447Z app/dummy-alb/0123456789abcdef 203.0.113.10:1438 10.0.1.193:32081 0.001 0.004 0.000 200 200 1839 229 \"POST https://api.example.com:443/v1/track HTTP/1.1\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/dummy-target/0123456789abcdef \"Root=1-64f6be04-000000000000000000000001\" \"api.example.com\" \"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000001\" 0 2023-09-05T05:35:00.258000Z \"waf,forward\" \"-\" \"-\" \"10.0.1.193:32081\" \"200\" \"-\" \"-\"",
+        "https 2023-09-05T05:35:00.300000Z app/dummy-alb/0123456789abcdef 192.0.2.114:15719 10.0.23.208:32081 0.001 0.012 0.000 304 304 17965 298 \"GET https://cdn.example.com:443/v1/metrics HTTP/1.1\" \"Go-http-client/1.1\" ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/dummy-target/0123456789abcdef \"Root=1-64f6be04-e42e5037d9f2dd0d\" \"cdn.example.com\" \"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000001\" 0 2023-09-05T05:35:00.520000Z \"waf,forward\" \"-\" \"-\" \"10.0.23.208:32081\" \"304\" \"-\" \"-\""];
 
     // iterate first 2 log lines
     for (i, log_line) in log_lines.iter().enumerate() {
@@ -1211,7 +1196,7 @@ async fn run_cloudwatchlogs_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
-    let log_lines = vec!["[ERROR] First test message", "[ERROR] Second test message"];
+    let log_lines = ["[ERROR] First test message", "[ERROR] Second test message"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
@@ -1397,12 +1382,12 @@ async fn run_cloudwatchlogs_event_starlark() {
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
 
-    let expected_messages = vec!["[ERROR] First test message", "[ERROR] Second test message"];
+    let expected_messages = ["[ERROR] First test message", "[ERROR] Second test message"];
     for (i, expected_msg) in expected_messages.iter().enumerate() {
         let actual: Value = serde_json::from_str(&singles[0].entries[i].body.to_string()).unwrap();
         assert_eq!(
             actual.get("message").and_then(|v| v.as_str()),
-            Some(expected_msg.as_ref())
+            Some(*expected_msg)
         );
         assert_eq!(
             actual.get("starlark_enriched").and_then(|v| v.as_bool()),
@@ -1484,7 +1469,7 @@ async fn run_cloudwatchlogs_event_with_tags() {
 
     // Verify that processing completed successfully even though tag fetch failed
     // Tags won't be present because the API call failed, but that's expected
-    let log_lines = vec!["[ERROR] First test message", "[ERROR] Second test message"];
+    let log_lines = ["[ERROR] First test message", "[ERROR] Second test message"];
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
             singles[0].entries[i].body.to_string().contains(log_line),
@@ -1553,7 +1538,7 @@ async fn run_cloudwatchlogs_event_without_tags_enabled() {
     assert_eq!(singles[0].entries.len(), 2);
 
     // Verify logs are processed normally
-    let log_lines = vec!["[ERROR] First test message", "[ERROR] Second test message"];
+    let log_lines = ["[ERROR] First test message", "[ERROR] Second test message"];
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
             singles[0].entries[i].body.to_string().contains(log_line),
@@ -1617,7 +1602,7 @@ async fn run_blocking_and_newline_pattern() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 1);
-    let log_lines = vec!["00:40:45.810 [main] INFO  example.MapMessageExample"];
+    let log_lines = ["00:40:45.810 [main] INFO  example.MapMessageExample"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
@@ -1762,12 +1747,10 @@ async fn run_sqs_s3_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
-    let log_lines = vec![
-        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    let log_lines = ["172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-    ];
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\""];
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(singles[0].entries[i].body == *log_line);
     }
@@ -1849,7 +1832,7 @@ async fn run_sqs_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 1);
-    let log_lines = vec!["[INFO] some test log line"];
+    let log_lines = ["[INFO] some test log line"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
@@ -2014,7 +1997,7 @@ async fn run_sqs_multiple_records_batched() {
     );
 
     // Verify the content of each record
-    let expected_logs = vec!["SQS Message 1", "SQS Message 2", "SQS Message 3"];
+    let expected_logs = ["SQS Message 1", "SQS Message 2", "SQS Message 3"];
     for (i, expected) in expected_logs.iter().enumerate() {
         assert_eq!(
             singles[0].entries[i].body,
@@ -2091,7 +2074,7 @@ async fn run_kinesis_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 1);
-    let log_lines = vec!["Dummy data"];
+    let log_lines = ["Dummy data"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
@@ -2207,7 +2190,7 @@ async fn run_kinesis_with_cloudwatch_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
-    let log_lines = vec!["hello world", "goodbye dreams"];
+    let log_lines = ["hello world", "goodbye dreams"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(
@@ -2344,7 +2327,7 @@ async fn run_kinesis_multiple_records_batched() {
     );
 
     // Verify the content of each record
-    let expected_logs = vec!["Record 1", "Record 2", "Record 3"];
+    let expected_logs = ["Record 1", "Record 2", "Record 3"];
     for (i, expected) in expected_logs.iter().enumerate() {
         assert_eq!(
             singles[0].entries[i].body,
@@ -2659,12 +2642,10 @@ async fn run_cloudfront_s3_event() {
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
 
-    let log_lines = vec![
-        "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49375,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"-\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 453,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 780,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:53\",\n  \"time-taken\": \"0.167\",\n  \"time-to-first-byte\": \"0.167\",\n  \"x-edge-detailed-result-type\": \"OriginDnsError\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"3vr84z1By73gt94sb9ctFnbgUb1EK6rqQpoCPMSwbwok7D49uf3cVw==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}",
+    let log_lines = ["{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49375,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"-\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 453,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 780,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:53\",\n  \"time-taken\": \"0.167\",\n  \"time-to-first-byte\": \"0.167\",\n  \"x-edge-detailed-result-type\": \"OriginDnsError\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"3vr84z1By73gt94sb9ctFnbgUb1EK6rqQpoCPMSwbwok7D49uf3cVw==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}",
         "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49375,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"https://d2s17x7wkoojlc.cloudfront.net/\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 136,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/favicon.ico\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 781,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:54\",\n  \"time-taken\": \"0.163\",\n  \"time-to-first-byte\": \"0.163\",\n  \"x-edge-detailed-result-type\": \"OriginDnsError\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"bBnwFlTyBT0c29Ba_AuVD6ALSSu5nrUXzyW7XG74CwVMsbgpvdEF3Q==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}",
         "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49391,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"-\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 462,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 785,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:59\",\n  \"time-taken\": \"0.001\",\n  \"time-to-first-byte\": \"0.001\",\n  \"x-edge-detailed-result-type\": \"Error\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"g9c8US-JEZ87C92_2dChfj-RiZ1aza8n0scq8XoXOESNqK94Yrpw9Q==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}",
-        "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49391,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"https://d2s17x7wkoojlc.cloudfront.net/\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 136,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/favicon.ico\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 785,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:59\",\n  \"time-taken\": \"0.000\",\n  \"time-to-first-byte\": \"0.000\",\n  \"x-edge-detailed-result-type\": \"Error\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"d9gtwwsExRoLvnTr319jrfihZOGY3PbRbWOZq-_pPx0bVO00TKyEkw==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}"
-    ];
+        "{\"c-ip\": \"179.37.223.62\",\n  \"c-port\": 49391,\n  \"cs(Cookie)\": \"-\",\n  \"cs(Host)\": \"d2s17x7wkoojlc.cloudfront.net\",\n  \"cs(Referer)\": \"https://d2s17x7wkoojlc.cloudfront.net/\",\n  \"cs(User-Agent)\": \"Mozilla/5.0%20(Macintosh;%20Intel%20Mac%20OS%20X%2010_15_7)%20AppleWebKit/537.36%20(KHTML,%20like%20Gecko)%20Chrome/119.0.0.0%20Safari/537.36\",\n  \"cs-bytes\": 136,\n  \"cs-method\": \"GET\",\n  \"cs-protocol\": \"https\",\n  \"cs-protocol-version\": \"HTTP/2.0\",\n  \"cs-uri-query\": \"-\",\n  \"cs-uri-stem\": \"/favicon.ico\",\n  \"date\": \"2024-01-08\",\n  \"fle-encrypted-fields\": \"-\",\n  \"fle-status\": \"-\",\n  \"sc-bytes\": 785,\n  \"sc-content-len\": 507,\n  \"sc-content-type\": \"text/html\",\n  \"sc-range-end\": \"-\",\n  \"sc-range-start\": \"-\",\n  \"sc-status\": 502,\n  \"ssl-cipher\": \"TLS_AES_128_GCM_SHA256\",\n  \"ssl-protocol\": \"TLSv1.3\",\n  \"time\": \"16:56:59\",\n  \"time-taken\": \"0.000\",\n  \"time-to-first-byte\": \"0.000\",\n  \"x-edge-detailed-result-type\": \"Error\",\n  \"x-edge-location\": \"EZE50-P2\",\n  \"x-edge-request-id\": \"d9gtwwsExRoLvnTr319jrfihZOGY3PbRbWOZq-_pPx0bVO00TKyEkw==\",\n  \"x-edge-response-result-type\": \"Error\",\n  \"x-edge-result-type\": \"Error\",\n  \"x-forwarded-for\": \"-\",\n  \"x-host-header\": \"d2s17x7wkoojlc.cloudfront.net\"}"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         let expected: Value = serde_json::from_str(log_line).unwrap();
@@ -2731,12 +2712,10 @@ async fn run_test_s3_event_with_metadata() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
-    let log_lines = vec![
-        "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+    let log_lines = ["{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
         "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
         "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
-        "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
-    ];
+        "{\"key_name\":\"coralogix-aws-shipper/s3.log\",\"bucket_name\":\"coralogix-serverless-repo\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}"];
     for (i, log_line) in log_lines.iter().enumerate() {
         let expected: Value = serde_json::from_str(log_line).unwrap();
         assert_eq!(singles[0].entries[i].body, expected);
@@ -3115,7 +3094,7 @@ async fn test_invalid_event() {
     )
     .map_err(|e| e.to_string());
 
-    assert!(r.is_err() == true);
+    assert!(r.is_err());
     assert!(r.err() == Some("unsupported or bad event type: {\"test\":\"unsupported event\",\"type\":\"invalid\"}".to_string()));
 }
 
@@ -3302,7 +3281,7 @@ async fn run_test_s3_retry_limit_reached_dlq_event() {
     .await
     .unwrap();
 
-    let req_count = s3_relay_client.actual_requests().into_iter().count();
+    let req_count = s3_relay_client.actual_requests().count();
     assert_eq!(req_count, 2, "expected 2 requests, got {}", req_count);
 
     // Assert the replayed S3 response body was read and processed: exporter received logs from tests/fixtures/s3.log
@@ -3427,7 +3406,7 @@ async fn run_test_cloudwatch_retry_limit_reached_dlq_event() {
 
     let config = Config::load_from_env().expect("failed to load config from env");
 
-    let exporter = Arc::new(FailingLogExporter::default());
+    let exporter = Arc::new(FailingLogExporter);
     let event = LambdaEvent::new(evt, Context::default());
     coralogix_aws_shipper::logs::handler(
         &clients,
@@ -3439,10 +3418,10 @@ async fn run_test_cloudwatch_retry_limit_reached_dlq_event() {
     .await
     .unwrap();
 
-    let req_count = s3_relay_client.actual_requests().into_iter().count();
+    let req_count = s3_relay_client.actual_requests().count();
     assert_eq!(req_count, 1, "expected 1 requests, got {}", req_count);
 
-    s3_relay_client.actual_requests().into_iter().for_each(|v| {
+    s3_relay_client.actual_requests().for_each(|v| {
         let val = std::str::from_utf8(v.body().bytes().unwrap()).unwrap();
         println!("{}", val);
         println!("{}", v.uri());
@@ -3588,10 +3567,10 @@ async fn run_test_route_failed_event_to_dlq() {
     .await
     .unwrap();
 
-    let req_count = sqs_replay_client.actual_requests().into_iter().count();
+    let req_count = sqs_replay_client.actual_requests().count();
     assert_eq!(req_count, 1, "expected 1 request, got {}", req_count);
 
-    sqs_replay_client.actual_requests().into_iter().for_each(|x| {
+    sqs_replay_client.actual_requests().for_each(|x| {
         let v = std::str::from_utf8(x.body().bytes().unwrap()).unwrap();
         let got: serde_json::Value = serde_json::from_str(v).unwrap();
         let expected: serde_json::Value = serde_json::from_str(r#"{"MessageAttributes": {"LastError": {"DataType": "String", "StringValue": "dispatch failure"}, "retry": {"DataType": "String", "StringValue": "4"}}, "MessageBody": "{\"Records\": [{\"eventVersion\": \"2.0\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-east-1\", \"eventTime\": \"1970-01-01T00:00:00.000Z\", \"eventName\": \"ObjectCreated:Put\", \"userIdentity\": {\"principalId\": \"EXAMPLE\"}, \"requestParameters\": {\"sourceIPAddress\": \"127.0.0.1\"}, \"responseElements\": {\"x-amz-request-id\": \"EXAMPLE123456789\", \"x-amz-id-2\": \"EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH\"}, \"s3\": {\"s3SchemaVersion\": \"1.0\", \"configurationId\": \"testConfigRule\", \"bucket\": {\"name\": \"example-bucket\", \"ownerIdentity\": {\"principalId\": \"EXAMPLE\"}, \"arn\": \"arn:aws:s3:::example-bucket\"}, \"object\": {\"key\": \"test/key\", \"size\": 1024, \"eTag\": \"0123456789abcdef0123456789abcdef\", \"sequencer\": \"0A1B2C3D4E5F678901\"}}}]}", "QueueUrl": "https://sqs.eu-west-1.amazonaws.com/035955823196/dlq-EchoDLQ-ZhCQ49N5iRjT"}"#).unwrap();
@@ -3700,12 +3679,10 @@ async fn run_dlq_success_msg() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
-    let log_lines = vec![
-        "172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
+    let log_lines = ["172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
         "172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\"",
-    ];
+        "172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \"GET / HTTP/1.1\" 304 0 \"-\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\" \"-\""];
     for (i, log_line) in log_lines.iter().enumerate() {
         assert!(singles[0].entries[i].body == *log_line);
     }
@@ -3801,12 +3778,10 @@ async fn run_test_s3_event_with_custom_metadata() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
-    let log_lines = vec![
-        "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
+    let log_lines = ["{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:01:10 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
         "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:29:33 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
         "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:34:52 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
-        "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}",
-    ];
+        "{\"client\":\"client1\",\"env\":\"prod\",\"message\":\"172.17.0.1 - - [26/Oct/2023:11:57:06 +0000] \\\"GET / HTTP/1.1\\\" 304 0 \\\"-\\\" \\\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36\\\" \\\"-\\\"\"}"];
     for (i, log_line) in log_lines.iter().enumerate() {
         let expected: Value = serde_json::from_str(log_line).unwrap();
         assert_eq!(singles[0].entries[i].body, expected);
@@ -3875,10 +3850,8 @@ async fn run_csv_s3_custom_headers_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
-    let log_lines = vec![
-        "{\"client\":1,\"text\":\"This is an info message\",\"sev\":\"INFO\",\"time\":\"2019-01-01 00:00:00\"}",
-        "{\"client\":2,\"text\":\"This is another info message\",\"sev\":\"INFO\",\"time\":\"2019-01-01 00:00:01\"}"
-    ];
+    let log_lines = ["{\"client\":1,\"text\":\"This is an info message\",\"sev\":\"INFO\",\"time\":\"2019-01-01 00:00:00\"}",
+        "{\"client\":2,\"text\":\"This is another info message\",\"sev\":\"INFO\",\"time\":\"2019-01-01 00:00:01\"}"];
 
     for (i, log_line) in log_lines.iter().enumerate() {
         let expected: Value = serde_json::from_str(log_line).unwrap();

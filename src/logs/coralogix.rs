@@ -397,14 +397,12 @@ impl JsonMessage {
             || self.sqs_event_source.is_some()
             || self.sqs_event_id.is_some()
             || self.cw_tags.is_some()
-          
             // to be deprecated
             || self.stream_name.is_some()
             || self.loggroup_name.is_some()
             || self.bucket_name.is_some()
             || self.key_name.is_some()
             || self.topic_name.is_some()
-        
             || !self.custom_metadata.is_empty()
     }
 }
@@ -1081,15 +1079,15 @@ mod tests {
 
             // Should use defaults, NOT any other available metadata
             assert_eq!(
-                entry2.application_name, 
+                entry2.application_name,
                 "unknown-application",
-                "Failed for metadata key '{}' when key missing - should use defaults, not other metadata", 
+                "Failed for metadata key '{}' when key missing - should use defaults, not other metadata",
                 key
             );
             assert_eq!(
-                entry2.subsystem_name, 
-                "unknown-subsystem", 
-                "Failed for metadata key '{}' when key missing - should use defaults, not other metadata", 
+                entry2.subsystem_name,
+                "unknown-subsystem",
+                "Failed for metadata key '{}' when key missing - should use defaults, not other metadata",
                 key
             );
         }

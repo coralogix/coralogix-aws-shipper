@@ -278,7 +278,7 @@ pub async fn handler(
             process::ecr_scan_logs(
                 &mctx,
                 &clients.ecr,
-                ecr_scan_event,
+                *ecr_scan_event,
                 coralogix_exporter.clone(),
                 config,
                 aws_config,
@@ -344,13 +344,13 @@ async fn s3_store_failed_event(
             .bucket
             .name
             .as_deref()
-            .ok_or_else(|| format!("failed to get bucket name"))?;
+            .ok_or_else(|| "failed to get bucket name".to_string())?;
         let k = e.records[0]
             .s3
             .object
             .key
             .as_deref()
-            .ok_or_else(|| format!("failed to get object key name"))?;
+            .ok_or_else(|| "failed to get object key name".to_string())?;
 
         match process::get_bytes_from_s3(s3client, b.to_string(), k.to_string()).await {
             Ok(bytes) => {
