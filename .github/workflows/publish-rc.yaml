@@ -53,11 +53,12 @@ jobs:
       - name: install protobuf compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+          sudo apt-get install -y protobuf-compiler clang llvm gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: sam build
         env:
           RUST_ARCH: ${{ matrix.target }}
+          CARGO_LAMBDA_COMPILER: cargo
         run: sam build
 
       - name: package
@@ -118,4 +119,3 @@ jobs:
           aws s3 cp \
             $(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | to_entries | .[] | select(.key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}/coralogix-aws-shipper-custom-resource.zip
-
