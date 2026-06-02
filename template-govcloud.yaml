@@ -1095,6 +1095,7 @@ Resources:
           TELEMETRY_MODE: !Ref TelemetryMode
           BATCH_METRICS: !Ref BatchMetrics
           METRICS_BATCH_MAX_SIZE: !Ref MetricsBatchMaxSize
+          METRICS_TAG_ENRICHMENT_ENABLED: 'false'
           ENABLE_LOG_GROUP_TAGS: !Ref EnableLogGroupTags
           LOG_GROUP_TAGS_CACHE_TTL_SECONDS: !Ref LogGroupTagsCacheTTLSeconds
 
