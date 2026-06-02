@@ -249,8 +249,8 @@ class ConfigureS3Integration:
             response = self.s3.get_bucket_notification_configuration(Bucket=bucket)
             configs = response.get('LambdaFunctionConfigurations', [])
             if not configs:
-                print('no previous notification configurations found...')
-                return
+                print(f'no previous notification configurations found for bucket {bucket}...')
+                continue
 
             updated_configuration = {
                 'LambdaFunctionConfigurations': [
@@ -367,6 +367,22 @@ class ConfigureKafkaIntegration:
         time.sleep(15)
         return self.create()
 
+    def _is_managed_mapping(self, mapping):
+        """
+        Return True only for the Kafka/MSK source mapping owned by this
+        integration. Other mappings on the same Lambda (e.g. the DLQ SQS
+        mapping created by configure_dlq) must be left untouched.
+        """
+        # Self-managed Kafka mappings have no EventSourceArn; they are
+        # identified by the SelfManagedEventSource block.
+        if self.integration == "Kafka":
+            return "SelfManagedEventSource" in mapping
+        # MSK mappings reference the cluster ARN as their EventSourceArn.
+        if self.integration == "MSK":
+            msk_cluster_arn = getattr(self.params, "MSKClusterArn", None)
+            return mapping.get("EventSourceArn") == msk_cluster_arn
+        return False
+
     @handle_exceptions
     def delete(self):
         print('msk/kafka deleting previous mapping(s)')
@@ -375,6 +391,9 @@ class ConfigureKafkaIntegration:
             FunctionName=function_name,
         )["EventSourceMappings"]
         for mapping in mappings:
+            if not self._is_managed_mapping(mapping):
+                print(f'skipping unrelated event source mapping: {mapping.get("UUID")}')
+                continue
             if mapping["State"] == "Enabled":
                 self.aws_lambda.update_event_source_mapping(
                     UUID=mapping["UUID"],
