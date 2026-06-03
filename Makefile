@@ -1,9 +1,17 @@
 FUNCTIONS := handler
 LAMBDA_NAME := coralogix-aws-shipper
 ARCH := $(or ${RUST_ARCH},arm64)
-LAMBDA_COMPILER := $(or ${CARGO_LAMBDA_COMPILER},cargo-zigbuild)
 
-# Determine the target based on the architecture
+# CARGO_LAMBDA_COMPILER is opt-in only.
+# Leave unset for the default build (cargo-lambda picks zigbuild internally
+# when the .2.17 glibc-pinned target is used, and lets cmake use the native
+# cross-compiler for C crates like aws-lc-fips-sys).
+# Set to "cargo" only for FIPS builds that require the native cargo backend:
+#   CARGO_LAMBDA_COMPILER=cargo make build-LambdaFunction
+LAMBDA_COMPILER := ${CARGO_LAMBDA_COMPILER}
+
+# When the native cargo compiler is requested, set up the cross-compile env
+# and drop the .2.17 glibc pin (zig is not involved).
 ifeq ($(ARCH),arm64)
     ifeq ($(LAMBDA_COMPILER),cargo)
         TARGET_ARCH := aarch64-unknown-linux-gnu
@@ -27,8 +35,11 @@ else
     $(error Unsupported architecture: $(ARCH))
 endif
 
+# Pass --compiler only when LAMBDA_COMPILER is explicitly set.
+COMPILER_FLAG := $(if $(LAMBDA_COMPILER),--compiler $(LAMBDA_COMPILER),)
+
 build-LambdaFunction:
-	$(AARCH64_BUILD_ENV) cargo lambda build --compiler $(LAMBDA_COMPILER) --release --target $(TARGET_ARCH)
+	$(AARCH64_BUILD_ENV) cargo lambda build $(COMPILER_FLAG) --release --target $(TARGET_ARCH)
 	@mkdir -p $(ARTIFACTS_DIR)
 	cp ./target/lambda/$(LAMBDA_NAME)/bootstrap $(ARTIFACTS_DIR)
 
