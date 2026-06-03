@@ -696,7 +696,7 @@ cd ..
 ```bash
 GOVCLOUD_BUCKET="your-govcloud-artifacts-bucket"
 GOVCLOUD_REGION="us-gov-west-1"
-VERSION="1.4.5"
+VERSION="1.4.8"
 PREFIX="coralogix-aws-shipper"
 
 aws s3 cp bootstrap.zip \

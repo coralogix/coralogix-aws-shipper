@@ -3,10 +3,35 @@ import boto3
 import os
 import re
 import json, time, boto3, time
+import copy
 from urllib import request, parse, error
 import functools
 from types import SimpleNamespace
 import traceback
+
+# Parameter keys whose values are sensitive and must never reach CloudWatch Logs.
+# When StoreAPIKeyInSecretsManager=false the template passes the raw Coralogix
+# API key through ResourceProperties.Parameters, so it must be redacted before
+# the event is logged.
+_SENSITIVE_PARAM_KEYS = {'apikey', 'coralogixapikey'}
+
+
+def redact_event(event):
+    """
+    Return a deep copy of the CloudFormation custom-resource event with
+    sensitive parameter values redacted, so the raw API key is never logged.
+    """
+    try:
+        redacted = copy.deepcopy(event)
+    except Exception:
+        return {'_redaction_error': 'unable to copy event for safe logging'}
+    params = redacted.get('ResourceProperties', {}).get('Parameters', {})
+    if isinstance(params, dict):
+        for key in params:
+            if key.lower() in _SENSITIVE_PARAM_KEYS:
+                params[key] = '***REDACTED***'
+    return redacted
+
 
 def sanitize_statement_id_prefix(identifier):
     """
@@ -167,11 +192,21 @@ class ConfigureS3Integration:
         print("Request Type:", self.event['RequestType'])
         for bucket in self.params.S3BucketName.split(","):
             function_name = self.event['ResourceProperties']['LambdaArn'].split(':')[-1]
+            shipper_arn = self.event['ResourceProperties']['LambdaArn']
             BucketNotificationConfiguration = self.s3.get_bucket_notification_configuration(
                 Bucket=bucket
             )
             BucketNotificationConfiguration.pop('ResponseMetadata')
             BucketNotificationConfiguration.setdefault('LambdaFunctionConfigurations', [])
+
+            # Drop any pre-existing configuration for this shipper before
+            # re-adding it. On a CFN Create retry the previous (partial) config
+            # is still present, and appending unconditionally would register a
+            # duplicate/ambiguous notification for the same Lambda.
+            BucketNotificationConfiguration['LambdaFunctionConfigurations'] = [
+                cfg for cfg in BucketNotificationConfiguration['LambdaFunctionConfigurations']
+                if cfg.get('LambdaFunctionArn') != shipper_arn
+            ]
 
             BucketNotificationConfiguration['LambdaFunctionConfigurations'].append({
                 'Id': self.event.get('PhysicalResourceId', self.context.aws_request_id),
@@ -495,7 +530,10 @@ class ConfigureCloudwatchIntegration:
                     filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
                     logGroupName=log_group
                 )
-            if not LambdaPremissionPrefix:
+            # CloudWatchLogGroupPrefix.split(',') yields [''] (not []) when the
+            # prefix is empty, so guard against that explicitly; otherwise the
+            # per-log-group invoke permission added in create() is never removed.
+            if not LambdaPremissionPrefix or LambdaPremissionPrefix == ['']:
                 replaced_prefix =  sanitize_statement_id_prefix(log_group)
                 response = self.aws_lambda.remove_permission(
                     FunctionName=lambda_arn,
@@ -624,7 +662,7 @@ def lambda_handler(event, context):
     '''
     AWS Lambda handler function
     '''
-    print("Received event:", event)
+    print("Received event:", redact_event(event))
     cfn = CFNResponse(event, context)
     
     # handle metrics integration

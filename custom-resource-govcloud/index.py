@@ -14,6 +14,7 @@ import boto3
 import os
 import re
 import time
+import copy
 import traceback
 import functools
 from urllib import request, parse, error
@@ -24,17 +25,51 @@ from types import SimpleNamespace
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Lambda StatementId has a hard limit of 100 characters. Callers wrap the
+# sanitized value with fixed prefixes/suffixes (e.g. "allow-s3-...-invoke-...",
+# "allow-trigger-from-...-log-groups"), so the sanitized portion is capped well
+# below 100 to leave room for those additions.
+_MAX_SANITIZED_PREFIX_LEN = 45
+
+
 def sanitize_statement_id_prefix(identifier: str) -> str:
     """
     Sanitize an identifier for use in Lambda permission statement IDs.
-    Ensures only AWS-compatible characters remain.
-    Limits output to 65 characters to provide safety margin for StatementId.
+
+    Ensures only AWS-compatible characters remain and caps the length at
+    _MAX_SANITIZED_PREFIX_LEN so that callers have headroom to append their own
+    fixed prefixes/suffixes without exceeding the 100-character StatementId limit.
     """
     updated_prefix = identifier
-    if len(identifier) >= 65:
-        updated_prefix = identifier[:60] + identifier[-5:]
+    if len(identifier) > _MAX_SANITIZED_PREFIX_LEN:
+        head = _MAX_SANITIZED_PREFIX_LEN - 5
+        updated_prefix = identifier[:head] + identifier[-5:]
     updated_prefix = re.sub(r'[^a-zA-Z0-9\-_]', '_', updated_prefix)
     return updated_prefix
+
+
+# Parameter keys whose values are sensitive and must never reach CloudWatch Logs.
+# When StoreAPIKeyInSecretsManager=false the template passes the raw Coralogix
+# API key through ResourceProperties.Parameters, so it must be redacted before
+# the event is logged.
+_SENSITIVE_PARAM_KEYS = {'apikey', 'coralogixapikey'}
+
+
+def redact_event(event):
+    """
+    Return a deep copy of the CloudFormation custom-resource event with
+    sensitive parameter values redacted, so the raw API key is never logged.
+    """
+    try:
+        redacted = copy.deepcopy(event)
+    except Exception:
+        return {'_redaction_error': 'unable to copy event for safe logging'}
+    params = redacted.get('ResourceProperties', {}).get('Parameters', {})
+    if isinstance(params, dict):
+        for key in params:
+            if key.lower() in _SENSITIVE_PARAM_KEYS:
+                params[key] = '***REDACTED***'
+    return redacted
 
 
 def handle_exceptions(func):
@@ -193,9 +228,19 @@ class ConfigureS3Integration:
         print("Request Type:", self.event['RequestType'])
         for bucket in self.params.S3BucketName.split(","):
             function_name = self.event['ResourceProperties']['LambdaArn'].split(':')[-1]
+            shipper_arn = self.event['ResourceProperties']['LambdaArn']
             bucket_notification = self.s3.get_bucket_notification_configuration(Bucket=bucket)
             bucket_notification.pop('ResponseMetadata')
             bucket_notification.setdefault('LambdaFunctionConfigurations', [])
+
+            # Drop any pre-existing configuration for this shipper before
+            # re-adding it. On a CFN Create retry the previous (partial) config
+            # is still present, and appending unconditionally would register a
+            # duplicate/ambiguous notification for the same Lambda.
+            bucket_notification['LambdaFunctionConfigurations'] = [
+                cfg for cfg in bucket_notification['LambdaFunctionConfigurations']
+                if cfg.get('LambdaFunctionArn') != shipper_arn
+            ]
 
             bucket_notification['LambdaFunctionConfigurations'].append({
                 'Id': self.event.get('PhysicalResourceId', self.context.aws_request_id),
@@ -210,9 +255,6 @@ class ConfigureS3Integration:
                 },
                 'Events': ['s3:ObjectCreated:*'],
             })
-
-            if len(bucket_notification['LambdaFunctionConfigurations']) == 0:
-                bucket_notification.pop('LambdaFunctionConfigurations')
 
             print(f'notification configuration: {bucket_notification}')
 
@@ -236,16 +278,23 @@ class ConfigureS3Integration:
 
     @handle_exceptions
     def update(self):
-        err = self.delete()
+        # On Update, clean up notifications from the PREVIOUS bucket list
+        # (OldResourceProperties), otherwise buckets removed from S3BucketName
+        # keep their stale Lambda notification and continue invoking the shipper.
+        old_params = self.event.get('OldResourceProperties', {}).get('Parameters', {})
+        old_bucket_names = old_params.get('S3BucketName', self.params.S3BucketName)
+        err = self.delete(bucket_names=old_bucket_names)
         if err:
             raise Exception(err)
         time.sleep(15)
         return self.create()
 
     @handle_exceptions
-    def delete(self):
+    def delete(self, bucket_names=None):
         lambda_function_arn = self.event['ResourceProperties']['LambdaArn']
-        for bucket in self.params.S3BucketName.split(","):
+        if bucket_names is None:
+            bucket_names = self.params.S3BucketName
+        for bucket in bucket_names.split(","):
             response = self.s3.get_bucket_notification_configuration(Bucket=bucket)
             configs = response.get('LambdaFunctionConfigurations', [])
             if not configs:
@@ -349,6 +398,7 @@ class ConfigureKafkaIntegration:
             lambda_name = self.event['ResourceProperties']['LambdaArn'].split(':')[-1]
             msk_cluster_arn = self.params.MSKClusterArn
             topics = self.params.KafkaTopic.split(',')
+            response = None
             for topic in topics:
                 response = self.aws_lambda.create_event_source_mapping(
                     EventSourceArn=msk_cluster_arn,
@@ -357,7 +407,8 @@ class ConfigureKafkaIntegration:
                     StartingPosition='LATEST',
                     BatchSize=100,
                 )
-            print('create msk event source mapping response:', response)
+            if response is not None:
+                print('create msk event source mapping response:', response)
 
     @handle_exceptions
     def update(self):
@@ -515,7 +566,7 @@ class ConfigureCloudwatchIntegration:
             Environment={'Variables': new_env_vars},
         )
 
-    def _remove_subscription_filter(self, log_group, lambda_arn):
+    def _remove_subscription_filter(self, log_group):
         response = self.cloudwatch_logs.describe_subscription_filters(logGroupName=log_group)
         lambda_arn = self.event['ResourceProperties']['LambdaArn']
         lambda_permission_prefixes = self.params.CloudWatchLogGroupPrefix.split(',')
@@ -525,7 +576,10 @@ class ConfigureCloudwatchIntegration:
                     filterName=f'coralogix-aws-shipper-cloudwatch-trigger-{lambda_arn[-4:]}',
                     logGroupName=log_group,
                 )
-            if not lambda_permission_prefixes:
+            # CloudWatchLogGroupPrefix.split(',') yields [''] (not []) when the
+            # prefix is empty, so guard against that explicitly; otherwise the
+            # per-log-group invoke permission added in create() is never removed.
+            if not lambda_permission_prefixes or lambda_permission_prefixes == ['']:
                 replaced_prefix = sanitize_statement_id_prefix(log_group)
                 self.aws_lambda.remove_permission(
                     FunctionName=lambda_arn,
@@ -541,7 +595,7 @@ class ConfigureCloudwatchIntegration:
         old_log_group_names = os.environ.get('log_groups', '').split(',')
         for old_log_group in old_log_group_names:
             if old_log_group not in new_log_group_names:
-                self._remove_subscription_filter(old_log_group, custom_lambda_name)
+                self._remove_subscription_filter(old_log_group)
 
         self._update_custom_lambda_env(custom_lambda_name, new_env_vars)
 
@@ -553,10 +607,9 @@ class ConfigureCloudwatchIntegration:
 
     @handle_exceptions
     def delete(self):
-        lambda_arn = self.event['ResourceProperties']['LambdaArn']
         log_group_names = self.params.CloudWatchLogGroupName.split(',')
         for log_group in log_group_names:
-            self._remove_subscription_filter(log_group, lambda_arn)
+            self._remove_subscription_filter(log_group)
 
     def handle(self):
         response_status = self.cfn.SUCCESS
@@ -657,7 +710,7 @@ class ConfigureMetricsIntegration:
 
 def lambda_handler(event, context):
     """AWS Lambda handler for the custom-resource orchestrator."""
-    print("Received event:", event)
+    print("Received event:", redact_event(event))
     cfn = CFNResponse(event, context)
 
     partition = event['ResourceProperties']['Parameters'].get('AWSPartition', 'aws-us-gov')
