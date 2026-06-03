@@ -1,7 +1,7 @@
 FUNCTIONS := handler
 LAMBDA_NAME := coralogix-aws-shipper
 ARCH := $(or ${RUST_ARCH},arm64)
-LAMBDA_COMPILER := $(or ${CARGO_LAMBDA_COMPILER},cargo)
+LAMBDA_COMPILER := $(or ${CARGO_LAMBDA_COMPILER},cargo-zigbuild)
 
 # Determine the target based on the architecture
 ifeq ($(ARCH),arm64)
@@ -34,3 +34,32 @@ build-LambdaFunction:
 
 delete:
 	sam delete
+
+# ---------------------------------------------------------------------------
+# pre-merge-check: mirrors what CI does on push to master, without S3/SAR.
+#
+# Usage:
+#   make pre-merge-check             # arm64 build (default)
+#   make pre-merge-check RUST_ARCH=x86-64
+#
+# Steps (in order):
+#   1. cfn-lint      – same check as the tests.yaml PR workflow
+#   2. sam validate  – same check as the publish.yaml validate job
+#   3. cargo test    – unit + integration tests
+#   4. cargo clippy  – deny warnings (catches issues before the build)
+#   5. sam build     – actual cross-compilation (the most common failure point)
+# ---------------------------------------------------------------------------
+.PHONY: pre-merge-check
+pre-merge-check:
+	@echo "=== [1/5] cfn-lint ==="
+	cfn-lint --template template.yaml --region us-east-1 --config-file .cfn-lint.yaml
+	@echo "=== [2/5] sam validate ==="
+	sam validate
+	@echo "=== [3/5] cargo test ==="
+	cargo test --all -- --nocapture
+	@echo "=== [4/5] cargo clippy ==="
+	cargo clippy --all-targets -- -D warnings
+	@echo "=== [5/5] sam build (ARCH=$(ARCH)) ==="
+	RUST_ARCH=$(ARCH) CARGO_LAMBDA_COMPILER=$(LAMBDA_COMPILER) sam build
+	@echo ""
+	@echo "All checks passed. Safe to merge."

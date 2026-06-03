@@ -149,7 +149,6 @@ jobs:
       - name: sam build
         env:
           RUST_ARCH: ${{ matrix.target }}
-          CARGO_LAMBDA_COMPILER: cargo
         run: sam build
 
       - name: package
