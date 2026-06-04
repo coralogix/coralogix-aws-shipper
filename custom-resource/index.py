@@ -25,11 +25,16 @@ def redact_event(event):
         redacted = copy.deepcopy(event)
     except Exception:
         return {'_redaction_error': 'unable to copy event for safe logging'}
-    params = redacted.get('ResourceProperties', {}).get('Parameters', {})
-    if isinstance(params, dict):
-        for key in params:
-            if key.lower() in _SENSITIVE_PARAM_KEYS:
-                params[key] = '***REDACTED***'
+    # Redact sensitive parameters in both the current and previous property
+    # blocks. CloudFormation Update requests also carry OldResourceProperties,
+    # which (when StoreAPIKeyInSecretsManager=false) holds the previous raw API
+    # key and would otherwise be logged in cleartext.
+    for block in ('ResourceProperties', 'OldResourceProperties'):
+        params = redacted.get(block, {}).get('Parameters', {})
+        if isinstance(params, dict):
+            for key in params:
+                if key.lower() in _SENSITIVE_PARAM_KEYS:
+                    params[key] = '***REDACTED***'
     return redacted
 
 
