@@ -12,6 +12,28 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-${WORKDIR}/.build-artifacts}"
 MAX_GLIBC="${MAX_GLIBC:-2.34}"   # provided.al2023 runtime glibc
 BIN_NAME="coralogix-aws-shipper"
 
+# The target architecture MUST be explicit. cargo-lambda defaults to x86_64, so
+# without this the arm64 runner would silently emit an x86_64 bootstrap and the
+# arm64 Lambda artifact would fail at startup with an exec-format mismatch.
+# Accept LAMBDA_ARCH (env) or the first positional arg; tolerate the various
+# spellings used across the workflows (matrix.target = arm64|x86-64,
+# matrix.arch = arm64|amd64).
+LAMBDA_ARCH="${LAMBDA_ARCH:-${1:-}}"
+case "${LAMBDA_ARCH}" in
+  arm64|aarch64)
+    TARGET_TRIPLE="aarch64-unknown-linux-gnu"
+    EXPECTED_ARCH_TOKEN="aarch64" ;;
+  x86-64|x86_64|amd64)
+    TARGET_TRIPLE="x86_64-unknown-linux-gnu"
+    EXPECTED_ARCH_TOKEN="x86-64" ;;
+  "")
+    echo "ERROR: LAMBDA_ARCH not set (expected: arm64 | x86-64)." >&2
+    exit 1 ;;
+  *)
+    echo "ERROR: unknown LAMBDA_ARCH '${LAMBDA_ARCH}' (expected: arm64 | x86-64)." >&2
+    exit 1 ;;
+esac
+
 export RUSTUP_HOME="${RUSTUP_HOME:-/opt/rustup}"
 export CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
 export PATH="${CARGO_HOME}/bin:${PATH}"
@@ -30,11 +52,13 @@ fi
 cd "${WORKDIR}"
 rustup show
 
-echo "=== building FIPS lambda (native cargo, no zig) ==="
-# Direct cargo-lambda invocation (native arm64). We deliberately do NOT go through
+echo "=== building FIPS lambda (native cargo, no zig) for ${LAMBDA_ARCH} (${TARGET_TRIPLE}) ==="
+# Direct cargo-lambda invocation. We deliberately do NOT go through
 # `make build-LambdaFunction`, whose cargo path injects an x86->arm64 cross env
 # (sysroot /usr/aarch64-linux-gnu) that does not exist on a native arm64 host.
-cargo lambda build --release --compiler cargo
+# The --target is explicit: each CI leg runs on its NATIVE runner, so this is a
+# native build, and it guarantees the bootstrap arch matches the requested one.
+cargo lambda build --release --compiler cargo --target "${TARGET_TRIPLE}"
 
 mkdir -p "${ARTIFACT_DIR}"
 cp "./target/lambda/${BIN_NAME}/bootstrap" "${ARTIFACT_DIR}/bootstrap"
@@ -56,5 +80,13 @@ if [ -n "${max_req}" ]; then
   fi
 fi
 
-file "${ARTIFACT_DIR}/bootstrap"
-echo "=== FIPS BUILD OK (glibc <= ${MAX_GLIBC}) ==="
+echo "=== verifying bootstrap architecture is ${LAMBDA_ARCH} (${EXPECTED_ARCH_TOKEN}) ==="
+file_out="$(file "${ARTIFACT_DIR}/bootstrap")"
+echo "${file_out}"
+if ! echo "${file_out}" | grep -qi "${EXPECTED_ARCH_TOKEN}"; then
+  echo "ERROR: bootstrap architecture does not match requested ${LAMBDA_ARCH}." >&2
+  echo "       expected '${EXPECTED_ARCH_TOKEN}' in: ${file_out}" >&2
+  exit 1
+fi
+
+echo "=== FIPS BUILD OK (${LAMBDA_ARCH}, glibc <= ${MAX_GLIBC}) ==="

@@ -71,6 +71,7 @@ jobs:
             -v "$PWD":/work -w /work \
             -v ~/.cargo-registry:/usr/local/cargo/registry \
             -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
+            -e LAMBDA_ARCH=${{ matrix.arch }} \
             fips-al2023-builder:latest \
             bash /work/ci/fips-build.sh
 
