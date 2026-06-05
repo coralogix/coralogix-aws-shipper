@@ -1,5 +1,7 @@
 /target/
 /local/
+.worktrees/
+docs/
 .aws-sam
 .vscode
 packaged.yaml

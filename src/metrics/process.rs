@@ -1,5 +1,5 @@
 use crate::metrics::config::Config;
-use crate::metrics::tag_enrichment::NamespaceResourceCache;
+use crate::metrics::tag_enrichment::{EnrichmentOptions, NamespaceResourceCache};
 use aws_sdk_resourcegroupstagging::Client as RgtClient;
 // use aws_lambda_events::encodings::Base64Data;
 use aws_lambda_events::event::firehose::{
@@ -31,7 +31,7 @@ impl MetricsBatch {
     fn extend(&mut self, message: ExportMetricsServiceRequest, encoded_len: usize) {
         self.request
             .resource_metrics
-            .extend(message.resource_metrics.into_iter());
+            .extend(message.resource_metrics);
         self.encoded_size += encoded_len;
     }
 
@@ -45,7 +45,7 @@ fn split_length_delimited(data: &[u8]) -> Result<Vec<&[u8]>, String> {
     let mut chunks = Vec::new();
     let mut remaining = data;
 
-    while remaining.len() > 0 {
+    while !remaining.is_empty() {
         // Decode the length prefix (varint)
         let length = decode_varint(&mut remaining)
             .map_err(|e| format!("Failed to decode varint: {}", e))? as usize;
@@ -87,7 +87,7 @@ async fn transform_message(
     rgt_client: &RgtClient,
     ns_cache: &mut NamespaceResourceCache,
 ) -> Result<ExportMetricsServiceRequest, Error> {
-    let mut decoded_message = ExportMetricsServiceRequest::decode(&*message)?;
+    let mut decoded_message = ExportMetricsServiceRequest::decode(message)?;
     debug!("decoded metrics: {:?}", decoded_message);
 
     for resource in decoded_message.resource_metrics.iter_mut() {
@@ -144,11 +144,14 @@ async fn transform_message(
                                         rgt_client,
                                         data_point,
                                         ns_cache,
-                                        config.file_cache_enabled,
-                                        &config.file_cache_path,
-                                        config.file_cache_expiration,
-                                        config.continue_on_resource_failure,
-                                        &config.custom_metadata,
+                                        EnrichmentOptions {
+                                            file_cache_enabled: config.file_cache_enabled,
+                                            file_cache_path: &config.file_cache_path,
+                                            file_cache_ttl: config.file_cache_expiration,
+                                            continue_on_resource_failure: config
+                                                .continue_on_resource_failure,
+                                            custom_metadata: &config.custom_metadata,
+                                        },
                                     )
                                     .await
                                     .map_err(|e| -> Error { e.into() })?;
@@ -299,7 +302,7 @@ async fn try_add_to_batch(
         added_resource_metrics = (after_rm.saturating_sub(before_rm)),
         total_resource_metrics = after_rm,
         tracked_bytes = batch.encoded_size,
-       "batched metrics aggregated"
+        "batched metrics aggregated"
     );
 
     Ok(())
@@ -416,7 +419,7 @@ async fn send_final_batch(
     }
 
     info!("batching enabled but aggregator not initialized");
-   Ok(())
+    Ok(())
 }
 
 // transform_firehose_event - processes the KinesisFirehoseEvent and sends the transformed data to Coralogix
@@ -438,7 +441,7 @@ pub async fn transform_firehose_event(
     // Initialize batch aggregator if batching is enabled
     let mut aggregated_opt: Option<MetricsBatch> = if config.batching_enabled {
         Some(MetricsBatch::default())
-   } else {
+    } else {
         None
     };
 
@@ -450,14 +453,14 @@ pub async fn transform_firehose_event(
     for (idx, record) in event.records.clone().into_iter().enumerate() {
         let otel_payload = record.data.clone();
 
-       // Split length-delimited messages
+        // Split length-delimited messages
         let messages = split_length_delimited(&otel_payload.0).map_err(|e| {
             let err = format!("failed to split length-delimited data: {}", e);
             error!("{}", err);
             err
         })?;
 
-       debug!(
+        debug!(
             record_index = idx,
             message_count = messages.len(),
             "record parsed"
@@ -479,8 +482,10 @@ pub async fn transform_firehose_event(
                 .await?;
         }
 
-        let mut response_record: KinesisFirehoseResponseRecord = KinesisFirehoseResponseRecord::default();
-        let mut metadata: KinesisFirehoseResponseRecordMetadata = KinesisFirehoseResponseRecordMetadata::default();
+        let mut response_record: KinesisFirehoseResponseRecord =
+            KinesisFirehoseResponseRecord::default();
+        let mut metadata: KinesisFirehoseResponseRecordMetadata =
+            KinesisFirehoseResponseRecordMetadata::default();
         metadata.partition_keys = std::collections::HashMap::new();
         response_record.metadata = metadata;
         response_record.record_id = record.record_id;
@@ -498,11 +503,10 @@ pub async fn transform_firehose_event(
             total_messages_seen,
         )
         .await?;
-   }
+    }
 
     // Return response to Firehose
     let mut response: KinesisFirehoseResponse = KinesisFirehoseResponse::default();
     response.records = results;
     Ok(response)
-
 }

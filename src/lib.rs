@@ -1,6 +1,7 @@
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
+pub mod aws_runtime;
 pub mod clients;
 pub mod custom_metadata;
 pub mod events;

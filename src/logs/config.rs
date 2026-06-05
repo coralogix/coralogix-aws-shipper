@@ -4,21 +4,21 @@ use std::str::FromStr;
 use std::string::String;
 use std::{env, fmt};
 
-use fancy_regex::Regex;
 use aws_config::SdkConfig;
-use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::config::Credentials as S3Credentials;
+use aws_sdk_s3::Client as S3Client;
 use aws_sdk_secretsmanager::operation::get_secret_value::GetSecretValueError;
 use aws_sdk_sts::Client as StsClient;
 use cx_sdk_rest_logs::auth::ApiKey;
+use fancy_regex::Regex;
 use thiserror::Error;
 
 /// Maximum allowed size for a downloaded Starlark script (1 MiB).
 const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
 
 pub struct Config {
-    pub newline_pattern: String,  // this should be regex
-    pub blocking_pattern: String, // this should be regex
+    pub newline_pattern: String,          // this should be regex
+    pub blocking_pattern: String,         // this should be regex
     pub log_stream_filter: Option<Regex>, // pre-compiled regex to filter log streams
     pub sampling: usize,
     pub logs_per_batch: usize,
@@ -96,9 +96,10 @@ impl Config {
             log_stream_filter: env::var("LOG_STREAM_FILTER")
                 .ok()
                 .filter(|s| !s.trim().is_empty())
-                .map(|s| Regex::new(&s).map_err(|e| format!("Invalid LOG_STREAM_FILTER regex: {}", e)))
-                .transpose()
-                .map_err(|e| e)?,
+                .map(|s| {
+                    Regex::new(&s).map_err(|e| format!("Invalid LOG_STREAM_FILTER regex: {}", e))
+                })
+                .transpose()?,
 
             sampling: env::var("SAMPLING")
                 .map_err(|e| format!("sampling not set - {}", e))?
@@ -140,7 +141,9 @@ impl Config {
             dlq_retry_limit: env::var("DLQ_RETRY_LIMIT").ok(),
             dlq_s3_bucket: env::var("DLQ_S3_BUCKET").ok(),
             lambda_assume_role: env::var("LAMBDA_ASSUME_ROLE").ok(),
-            starlark_script: env::var("STARLARK_SCRIPT").ok().filter(|s| !s.trim().is_empty()),
+            starlark_script: env::var("STARLARK_SCRIPT")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
             enable_log_group_tags: env::var("ENABLE_LOG_GROUP_TAGS")
                 .unwrap_or("false".to_string())
                 .parse::<bool>()
@@ -148,7 +151,12 @@ impl Config {
             log_group_tags_cache_ttl_seconds: env::var("LOG_GROUP_TAGS_CACHE_TTL_SECONDS")
                 .unwrap_or("300".to_string())
                 .parse::<u64>()
-                .map_err(|e| format!("Error parsing LOG_GROUP_TAGS_CACHE_TTL_SECONDS to u64 - {}", e))?,
+                .map_err(|e| {
+                    format!(
+                        "Error parsing LOG_GROUP_TAGS_CACHE_TTL_SECONDS to u64 - {}",
+                        e
+                    )
+                })?,
         };
 
         Ok(conf)
@@ -206,7 +214,10 @@ pub enum ScriptLoadError {
     #[error("Script is not valid UTF-8")]
     InvalidUtf8,
     #[error("Script exceeds maximum allowed size of {max_bytes} bytes (got {actual_bytes} bytes)")]
-    ScriptTooLarge { max_bytes: usize, actual_bytes: usize },
+    ScriptTooLarge {
+        max_bytes: usize,
+        actual_bytes: usize,
+    },
 }
 
 impl Config {
@@ -224,7 +235,9 @@ impl Config {
 
         // Auto-detect S3 path: starts with s3://
         if trimmed.starts_with("s3://") {
-            return Self::load_from_s3(trimmed, aws_config, self.lambda_assume_role.as_deref()).await.map(Some);
+            return Self::load_from_s3(trimmed, aws_config, self.lambda_assume_role.as_deref())
+                .await
+                .map(Some);
         }
 
         // Auto-detect URL: starts with http:// or https://
@@ -234,7 +247,10 @@ impl Config {
 
         // Before Base64 detection, strip all whitespace for wrapped base64 support
         // (base64 command wraps output at 76 chars by default)
-        let stripped = trimmed.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let stripped = trimmed
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
 
         // Auto-detect Base64: base64 characters only, reasonable length
         // Base64 strings are typically longer and don't contain spaces/newlines when encoded
@@ -258,22 +274,22 @@ impl Config {
         }
 
         // Check if it's all base64 characters
-        let base64_chars: std::collections::HashSet<char> = 
+        let base64_chars: std::collections::HashSet<char> =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
                 .chars()
                 .collect();
-        
+
         let all_base64 = s.chars().all(|c| base64_chars.contains(&c));
-        
+
         // Must be all base64 chars AND (length multiple of 4 OR ends with padding)
         // AND doesn't look like actual Starlark code (contains common keywords)
-        let looks_like_code = s.contains("def ") 
-            || s.contains("return ") 
+        let looks_like_code = s.contains("def ")
+            || s.contains("return ")
             || (s.contains("if ") && s.contains(":"))
             || s.contains("event")
             || s.contains("transform");
-        
-        all_base64 && !looks_like_code && (s.len() % 4 == 0 || s.ends_with('='))
+
+        all_base64 && !looks_like_code && (s.len().is_multiple_of(4) || s.ends_with('='))
     }
 
     /// Load a Starlark script from an S3 bucket
@@ -284,7 +300,7 @@ impl Config {
     ) -> Result<String, ScriptLoadError> {
         // Parse s3://bucket/key format
         let (bucket, key) = Self::parse_s3_path(s3_path)?;
-        
+
         // Build S3 client with assumed-role credentials if configured, otherwise use base config
         let s3_client = if let Some(role_arn) = assume_role_arn {
             // Perform STS assume-role to get temporary credentials
@@ -298,9 +314,9 @@ impl Config {
                 .map_err(|e| ScriptLoadError::S3Error(format!("STS assume-role failed: {}", e)))?;
 
             // Extract temporary credentials
-            let creds = response
-                .credentials()
-                .ok_or_else(|| ScriptLoadError::S3Error(format!("No credentials found for role_arn: {}", role_arn)))?;
+            let creds = response.credentials().ok_or_else(|| {
+                ScriptLoadError::S3Error(format!("No credentials found for role_arn: {}", role_arn))
+            })?;
 
             // Build S3 client with assumed-role credentials
             let credentials = S3Credentials::new(
@@ -311,13 +327,11 @@ impl Config {
                 "s3provider",
             );
 
-            let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            let config = aws_sdk_s3::config::Builder::from(aws_config)
                 .credentials_provider(credentials)
-                .region(aws_config.region().cloned())
-                .load()
-                .await;
+                .build();
 
-            S3Client::new(&config)
+            S3Client::from_conf(config)
         } else {
             // Use base config (no assume-role)
             S3Client::new(aws_config)
@@ -446,38 +460,44 @@ mod script_loading_tests {
     #[test]
     fn test_looks_like_base64() {
         use base64::prelude::*;
-        
+
         // Valid base64 string
         let script = "def transform(event):\n    return [event]";
         let encoded = BASE64_STANDARD.encode(script);
         assert!(Config::looks_like_base64(&encoded));
-        
+
         // Valid - base64 with newlines (whitespace should be stripped before calling)
         let wrapped = "ZGVmIHRyYW5zZm9ybShldmVudCk6\nICAgIHJldHVybiBbZXZlbnRd";
         let stripped: String = wrapped.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(Config::looks_like_base64(&stripped));
-        
+
         // Invalid - too short
         assert!(!Config::looks_like_base64("ZGVm"));
-        
+
         // Invalid - looks like code
-        assert!(!Config::looks_like_base64("def transform(event): return [event]"));
-        
+        assert!(!Config::looks_like_base64(
+            "def transform(event): return [event]"
+        ));
+
         // Invalid - contains non-base64 characters
-        assert!(!Config::looks_like_base64("ZGVmIHRyYW5zZm9ybShldmVudCk6!@#"));
-        
+        assert!(!Config::looks_like_base64(
+            "ZGVmIHRyYW5zZm9ybShldmVudCk6!@#"
+        ));
+
         // Valid base64 with padding
-        assert!(Config::looks_like_base64("ZGVmIHRyYW5zZm9ybShldmVudCk6CiAgICByZXR1cm4gW2V2ZW50XQ=="));
+        assert!(Config::looks_like_base64(
+            "ZGVmIHRyYW5zZm9ybShldmVudCk6CiAgICByZXR1cm4gW2V2ZW50XQ=="
+        ));
     }
 
     #[test]
     fn test_looks_like_base64_with_wrapped_output() {
         use base64::prelude::*;
-        
+
         // Simulate wrapped base64 (newlines every 76 chars, as produced by default base64 command)
         let script = "def transform(event):\n    return [event]";
         let encoded = BASE64_STANDARD.encode(script);
-        
+
         // Simulate base64 command wrapping at 76 characters
         let wrapped: String = encoded
             .chars()
@@ -486,11 +506,11 @@ mod script_loading_tests {
             .map(|chunk| chunk.iter().collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
-        
+
         // After stripping whitespace (as done in resolve_starlark_script), should be detected as base64
         let stripped: String = wrapped.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(Config::looks_like_base64(&stripped));
-        
+
         // Verify it can be decoded correctly
         let decoded = Config::decode_base64(&stripped).unwrap();
         assert_eq!(decoded, script);

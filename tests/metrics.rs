@@ -1,11 +1,9 @@
 use aws_config::BehaviorVersion;
+use aws_sdk_resourcegroupstagging::Client as RgtClient;
 use coralogix_aws_shipper::events;
 use coralogix_aws_shipper::metrics::config::Config;
-use aws_sdk_resourcegroupstagging::Client as RgtClient;
 use lambda_runtime::{Context, LambdaEvent};
-use serde_json;
 use std::sync::Arc;
-use wiremock;
 
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest; // Example path for trace data
 use opentelemetry_proto::tonic::metrics::v1::metric::Data::Summary;
@@ -18,6 +16,9 @@ async fn run_test_firehose_transform_flow() {
     let config = Config::load_from_env().unwrap();
     let aws_cfg = aws_config::defaults(BehaviorVersion::latest())
         .region("eu-central-1")
+        .http_client(aws_smithy_http_client::test_util::StaticReplayClient::new(
+            vec![],
+        ))
         .load()
         .await;
     let rgt = RgtClient::new(&aws_cfg);
@@ -47,7 +48,7 @@ async fn test_firehose_transform_flow() {
             for resource in metrics.resource_metrics {
                 for scope_metrics in resource.scope_metrics {
                     for metric in scope_metrics.metrics.iter() {
-                        assert!(metric.unit == "");
+                        assert!(metric.unit.is_empty());
                         let data = metric.data.clone().ok_or("no metric data").unwrap();
                         // let summary = data.summary.ok_or("no summary").unwrap();
 
@@ -60,20 +61,16 @@ async fn test_firehose_transform_flow() {
                                         any_value::Value::StringValue("testapp".to_string());
 
                                     // asert cx.application.name is in labels
-                                    assert!(
-                                        dp.attributes
-                                            .iter()
-                                            .any(|label| { label.key == "cx.application.name" })
-                                            == true
-                                    );
+                                    assert!(dp
+                                        .attributes
+                                        .iter()
+                                        .any(|label| { label.key == "cx.application.name" }));
 
                                     // asert cx.subsystem.name is in labels
-                                    assert!(
-                                        dp.attributes
-                                            .iter()
-                                            .any(|label| { label.key == "cx.subsystem.name" })
-                                            == true
-                                    );
+                                    assert!(dp
+                                        .attributes
+                                        .iter()
+                                        .any(|label| { label.key == "cx.subsystem.name" }));
 
                                     dp.attributes.iter().for_each(|label| {
                                         if label.key == "cx.application.name" {
@@ -148,7 +145,7 @@ async fn test_firehose_transform_flow_batched() {
             for resource in metrics.resource_metrics {
                 for scope_metrics in resource.scope_metrics {
                     for metric in scope_metrics.metrics.iter() {
-                        assert!(metric.unit == "");
+                        assert!(metric.unit.is_empty());
                         let data = metric.data.clone().ok_or("no metric data").unwrap();
 
                         match data {
@@ -158,19 +155,15 @@ async fn test_firehose_transform_flow_batched() {
                                 let expected_app_name =
                                     any_value::Value::StringValue("testapp".to_string());
 
-                                assert!(
-                                    dp.attributes
-                                        .iter()
-                                        .any(|label| { label.key == "cx.application.name" })
-                                        == true
-                                );
+                                assert!(dp
+                                    .attributes
+                                    .iter()
+                                    .any(|label| { label.key == "cx.application.name" }));
 
-                                assert!(
-                                    dp.attributes
-                                        .iter()
-                                        .any(|label| { label.key == "cx.subsystem.name" })
-                                        == true
-                                );
+                                assert!(dp
+                                    .attributes
+                                    .iter()
+                                    .any(|label| { label.key == "cx.subsystem.name" }));
 
                                 dp.attributes.iter().for_each(|label| {
                                     if label.key == "cx.application.name" {

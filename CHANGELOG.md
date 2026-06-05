@@ -1,4 +1,12 @@
 # Changelog
+## v1.4.8 / 2026-05-28
+### 💡 Enhancements 💡
+- Added FIPS support for AWS connections on Gov Cloud.
+
+### 🧰 Bug fixes 🧰
+- **Custom resource — redact API key from logs**: The custom-resource orchestrator logged the full CloudFormation event on every invocation. When `StoreAPIKeyInSecretsManager=false` the raw Coralogix API key was passed through `ResourceProperties.Parameters` and written to CloudWatch Logs. Sensitive parameters (`ApiKey`, `CoralogixAPIKey`) are now redacted before logging.
+- **Custom resource — CloudWatch permission cleanup with no prefix**: `CloudWatchLogGroupPrefix.split(',')` returns `['']` (not `[]`) when the prefix is empty, so the per-log-group `lambda:InvokeFunction` permission added during create was never removed on delete/update, leaking stale permission statements. The guard now handles the `['']` case.
+- **Custom resource — duplicate S3 notifications on retry**: On a CloudFormation Create retry, `create()` appended a second Lambda notification configuration to the bucket without removing the previous one, producing a duplicate/ambiguous trigger for the same shipper. Existing configurations for the shipper ARN are now removed before re-adding.
 
 ## v1.4.7 / 2026-04-08
 ### 💡 Enhancements 💡

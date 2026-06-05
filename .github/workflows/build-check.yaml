@@ -1,0 +1,80 @@
+name: build check
+
+# Dry-run build gate: when a PR is opened against master, compile the FIPS-enabled
+# Lambda inside an Amazon Linux 2023 builder (native compiler, glibc 2.34) for BOTH
+# architectures, to catch broken / incompatible dependencies before merge.
+# No publish, no SAR, no S3.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches:
+      - master
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Makefile"
+      - "template.yaml"
+      - "ci/**"
+      - ".github/workflows/build-check.yaml"
+
+jobs:
+  fips-build:
+    name: fips build (${{ matrix.arch }}, provided.al2023)
+    # Allow skipping with a label, mirroring the tests.yaml `skip-test` pattern.
+    if: "!contains(github.event.pull_request.labels.*.name, 'skip-build-check')"
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: start ssh agent for rust private dependencies
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: set up docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: build AL2023 builder image (cached, native ${{ matrix.arch }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ci/Dockerfile.builder
+          tags: fips-al2023-builder:latest
+          load: true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      - name: cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo-registry
+          key: cargo-registry-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-${{ matrix.arch }}-
+
+      - name: build FIPS lambda (dry run, no publish)
+        run: |
+          mkdir -p ~/.cargo-registry
+          docker run --rm \
+            -v "$PWD":/work -w /work \
+            -v ~/.cargo-registry:/usr/local/cargo/registry \
+            -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
+            fips-al2023-builder:latest \
+            bash /work/ci/fips-build.sh
+
+      - name: artifact summary
+        run: |
+          file .build-artifacts/bootstrap
+          ls -la .build-artifacts/

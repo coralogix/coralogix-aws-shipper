@@ -1,6 +1,5 @@
 use coralogix_aws_shipper::logs::transform::{StarlarkError, StarlarkTransformer};
 use proptest::prelude::*;
-use serde_json;
 
 // =============================================================================
 // Happy Path
@@ -34,7 +33,9 @@ fn test_starlark_filter_logs() {
     let script = include_str!("../fixtures/starlark/filter_logs.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    let lines: Vec<&str> = include_str!("../fixtures/starlark/filter_logs.log").lines().collect();
+    let lines: Vec<&str> = include_str!("../fixtures/starlark/filter_logs.log")
+        .lines()
+        .collect();
     let debug_log = lines[0].trim();
     let result = transformer.transform(debug_log).unwrap();
     assert_eq!(result.len(), 0);
@@ -51,9 +52,14 @@ fn test_starlark_return_empty_string() {
     let script = include_str!("../fixtures/starlark/return_empty_string.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
 
-    let result = transformer.transform(r#"{"drop": true, "msg": "invalid"}"#).unwrap();
+    let result = transformer
+        .transform(r#"{"drop": true, "msg": "invalid"}"#)
+        .unwrap();
     assert_eq!(result.len(), 1);
-    assert!(result[0].is_empty(), "transform emits empty string for dropped records");
+    assert!(
+        result[0].is_empty(),
+        "transform emits empty string for dropped records"
+    );
 
     let logs = vec![
         r#"{"drop": true}"#.to_string(),
@@ -84,14 +90,20 @@ fn test_starlark_enrich() {
 fn test_starlark_missing_transform_function() {
     let script = include_str!("../fixtures/starlark/missing_transform.star");
     let result = StarlarkTransformer::new(script);
-    assert!(matches!(result, Err(StarlarkError::TransformFunctionNotFound)));
+    assert!(matches!(
+        result,
+        Err(StarlarkError::TransformFunctionNotFound)
+    ));
 }
 
 #[test]
 fn test_starlark_non_callable_transform() {
     let script = include_str!("../fixtures/starlark/non_callable_transform.star");
     let result = StarlarkTransformer::new(script);
-    assert!(matches!(result, Err(StarlarkError::TransformNotCallable(_))));
+    assert!(matches!(
+        result,
+        Err(StarlarkError::TransformNotCallable(_))
+    ));
     if let Err(e) = result {
         assert!(format!("{}", e).contains("dict"));
     }
@@ -147,7 +159,8 @@ fn test_starlark_to_json_builtin() {
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert!(parsed.get("serialized").is_some());
-    let serialized: serde_json::Value = serde_json::from_str(parsed["serialized"].as_str().unwrap()).unwrap();
+    let serialized: serde_json::Value =
+        serde_json::from_str(parsed["serialized"].as_str().unwrap()).unwrap();
     assert_eq!(serialized["key"], "value");
     assert_eq!(serialized["num"], 42);
     assert_eq!(serialized["bool"], true);
@@ -168,14 +181,16 @@ fn test_starlark_print_builtin() {
     // Print output goes to stderr (captured by Lambda/CloudWatch).
     let script = include_str!("../fixtures/starlark/print_debug.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    
+
     // Test basic print during transform
     let result = transformer.transform(r#"{"msg": "hello"}"#).unwrap();
     assert_eq!(result.len(), 1);
     assert!(result[0].contains("hello"));
-    
+
     // Test print with debug flag
-    let result = transformer.transform(r#"{"debug": true, "data": "test"}"#).unwrap();
+    let result = transformer
+        .transform(r#"{"debug": true, "data": "test"}"#)
+        .unwrap();
     assert_eq!(result.len(), 1);
     assert!(result[0].contains("debug"));
 }
@@ -219,7 +234,9 @@ fn test_starlark_batch_one_fails() {
 fn test_starlark_helpers() {
     let script = include_str!("../fixtures/starlark/helpers.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    let lines: Vec<&str> = include_str!("../fixtures/starlark/helpers.log").lines().collect();
+    let lines: Vec<&str> = include_str!("../fixtures/starlark/helpers.log")
+        .lines()
+        .collect();
     let result = transformer.transform(lines[0].trim()).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
@@ -234,7 +251,7 @@ fn test_starlark_helpers() {
 fn test_starlark_numeric_precision() {
     let script = include_str!("../fixtures/starlark/passthrough.star");
     let transformer = StarlarkTransformer::new(script).unwrap();
-    
+
     // Test epoch milliseconds (large i64 value)
     let epoch_ms = 1706745600000i64;
     let input = format!(r#"{{"timestamp": {}}}"#, epoch_ms);
@@ -243,7 +260,7 @@ fn test_starlark_numeric_precision() {
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert!(parsed.get("timestamp").is_some());
     assert_eq!(parsed["timestamp"].as_i64(), Some(epoch_ms));
-    
+
     // Test large i64 value (near i32::MAX)
     let large_num = i64::from(i32::MAX) + 1000;
     let input = format!(r#"{{"large_num": {}}}"#, large_num);
@@ -252,7 +269,7 @@ fn test_starlark_numeric_precision() {
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
     assert!(parsed.get("large_num").is_some());
     assert_eq!(parsed["large_num"].as_i64(), Some(large_num));
-    
+
     // Test negative large values
     let negative_large = -1706745600000i64;
     let input = format!(r#"{{"negative": {}}}"#, negative_large);
@@ -270,12 +287,12 @@ fn test_starlark_float_precision() {
     let result = transformer.transform(input).unwrap();
     assert_eq!(result.len(), 1);
     let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
-    
+
     // Verify floats remain as numbers (not strings)
     assert!(parsed.get("pi").is_some());
     assert!(parsed["pi"].is_f64());
-    assert_eq!(parsed["pi"].as_f64(), Some(3.141592653589793));
-    
+    assert_eq!(parsed["pi"].as_f64(), Some(std::f64::consts::PI));
+
     assert!(parsed.get("small").is_some());
     assert!(parsed["small"].is_f64());
     assert_eq!(parsed["small"].as_f64(), Some(0.0000001));

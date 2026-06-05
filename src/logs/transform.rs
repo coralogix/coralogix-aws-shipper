@@ -108,9 +108,7 @@ pub async fn transform_logs(
             None => true,
             Some(CacheState::Ready(None)) => has_script_config, // Config now has script, retry
             Some(CacheState::Ready(Some(_))) => !has_script_config, // Config no longer has script
-            Some(CacheState::Failed { failed_at }) => {
-                failed_at.elapsed() >= retry_interval
-            }
+            Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
         }
     };
 
@@ -273,8 +271,8 @@ impl StarlarkTransformer {
     /// Returns a Vec of transformed log strings (can be 0, 1, or many)
     pub fn transform(&self, log: &str) -> Result<Vec<String>, TransformError> {
         // Parse the input as JSON
-        let json_value: serde_json::Value =
-            serde_json::from_str(log).unwrap_or_else(|_| serde_json::Value::String(log.to_string()));
+        let json_value: serde_json::Value = serde_json::from_str(log)
+            .unwrap_or_else(|_| serde_json::Value::String(log.to_string()));
 
         // Create a new module for this evaluation, importing from frozen
         let module = Module::new();
@@ -340,7 +338,6 @@ fn starlark_extras(builder: &mut GlobalsBuilder) {
         let json = starlark_to_json(v).map_err(|e| anyhow::anyhow!(e))?;
         Ok(serde_json::to_string(&json)?)
     }
-
 }
 
 // ============================================================================
@@ -453,11 +450,15 @@ fn starlark_to_json(value: Value) -> Result<serde_json::Value, String> {
         // Try to parse as u64 first (handles u64::MAX and positive i64 values)
         if let Ok(parsed_u64) = int_str.parse::<u64>() {
             // Create Number from u64 using Number::from for better precision handling
-            return Ok(serde_json::Value::Number(serde_json::Number::from(parsed_u64)));
+            return Ok(serde_json::Value::Number(serde_json::Number::from(
+                parsed_u64,
+            )));
         }
         // Try i64 for negative numbers
         if let Ok(parsed_i64) = int_str.parse::<i64>() {
-            return Ok(serde_json::Value::Number(serde_json::Number::from(parsed_i64)));
+            return Ok(serde_json::Value::Number(serde_json::Number::from(
+                parsed_i64,
+            )));
         }
         // If parsing fails, use to_json_value() result (will be a string for very large integers)
         if let Ok(json_val) = value.to_json_value() {
@@ -511,7 +512,8 @@ fn starlark_to_json_strings(value: Value) -> Result<Vec<String>, TransformError>
     } else {
         Err(TransformError::InvalidReturnType(format!(
             "got {} (type: {}), expected a list. Example: return [event] or return []",
-            value, value.get_type()
+            value,
+            value.get_type()
         )))
     }
 }

@@ -5,7 +5,6 @@ pub mod logs;
 pub mod metrics;
 
 use crate::events::Combined;
-use aws_config::BehaviorVersion;
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use tracing::{info, warn};
 
@@ -48,7 +47,7 @@ async fn main() -> Result<(), Error> {
             .as_str(),
     );
 
-    let aws_config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    let aws_config = coralogix_aws_shipper::aws_runtime::load_sdk_config().await;
     let mut aws_clients = clients::AwsClients::new(&aws_config);
 
     match mode {
@@ -100,7 +99,13 @@ async fn main() -> Result<(), Error> {
 
             let coralogix_exporter = crate::logs::set_up_coralogix_exporter(&conf)?;
             run(service_fn(|request: LambdaEvent<Combined>| {
-                logs::handler(&aws_clients, coralogix_exporter.clone(), &conf, &aws_config, request)
+                logs::handler(
+                    &aws_clients,
+                    coralogix_exporter.clone(),
+                    &conf,
+                    &aws_config,
+                    request,
+                )
             }))
             .await
         }
