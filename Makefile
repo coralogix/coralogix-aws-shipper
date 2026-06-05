@@ -38,10 +38,22 @@ endif
 # Pass --compiler only when LAMBDA_COMPILER is explicitly set.
 COMPILER_FLAG := $(if $(LAMBDA_COMPILER),--compiler $(LAMBDA_COMPILER),)
 
+# PREBUILT_BOOTSTRAP lets `sam build` reuse a bootstrap that was already compiled
+# elsewhere (e.g. inside the Amazon Linux 2023 FIPS builder via ci/fips-build.sh)
+# instead of recompiling. The CI publish workflows build the FIPS-enabled binary in
+# the AL2023 container (native compiler, glibc 2.34) and then point sam build at it
+# so the rest of the SAM package/publish flow runs unchanged on the host runner.
 build-LambdaFunction:
+ifdef PREBUILT_BOOTSTRAP
+	@echo "Using prebuilt bootstrap: $(PREBUILT_BOOTSTRAP)"
+	@test -f "$(PREBUILT_BOOTSTRAP)" || { echo "PREBUILT_BOOTSTRAP not found: $(PREBUILT_BOOTSTRAP)"; exit 1; }
+	@mkdir -p $(ARTIFACTS_DIR)
+	cp "$(PREBUILT_BOOTSTRAP)" $(ARTIFACTS_DIR)/bootstrap
+else
 	$(AARCH64_BUILD_ENV) cargo lambda build $(COMPILER_FLAG) --release --target $(TARGET_ARCH)
 	@mkdir -p $(ARTIFACTS_DIR)
 	cp ./target/lambda/$(LAMBDA_NAME)/bootstrap $(ARTIFACTS_DIR)
+endif
 
 delete:
 	sam delete

@@ -96,14 +96,19 @@ jobs:
     name: build
     needs: validate
     if: ${{ github.event_name == 'workflow_dispatch' || success() }}
-    runs-on: ubuntu-latest
+    # Each arch builds on its own native runner so the FIPS binary is compiled
+    # natively inside the Amazon Linux 2023 container (no cross-compile, glibc 2.34).
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     strategy:
+      fail-fast: false
       matrix:
-        target:
-          - arm64
-          - x86-64
+        include:
+          - target: arm64
+            runner: ubuntu-24.04-arm
+          - target: x86-64
+            runner: ubuntu-latest
 
     steps:
       - name: checkout
@@ -115,11 +120,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
+      # python is still needed so `sam build` can package the python
+      # CustomResourceFunction (runtime python3.12); cargo-lambda is no longer
+      # installed on the host because the Rust build happens in the AL2023 container.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # caching pip dependencies
-      - run: pip3 install cargo-lambda
 
       - uses: aws-actions/setup-sam@v2
         with:
@@ -130,11 +136,27 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: install protobuf compiler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler clang llvm gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-      
+      - name: set up docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: build AL2023 builder image (cached, native ${{ matrix.target }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ci/Dockerfile.builder
+          tags: fips-al2023-builder:latest
+          load: true
+          cache-from: type=gha,scope=publish-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=publish-${{ matrix.target }}
+
+      - name: cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo-registry
+          key: cargo-registry-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-${{ matrix.target }}-
+
       - name: install yq
         run: sudo snap install yq
 
@@ -146,9 +168,20 @@ jobs:
           current=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
           echo "current_version=$current" >> $GITHUB_ENV
 
-      - name: sam build
+      - name: build FIPS bootstrap (AL2023, native ${{ matrix.target }})
+        run: |
+          mkdir -p ~/.cargo-registry
+          docker run --rm \
+            -v "$PWD":/work -w /work \
+            -v ~/.cargo-registry:/usr/local/cargo/registry \
+            -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
+            fips-al2023-builder:latest \
+            bash /work/ci/fips-build.sh
+
+      - name: sam build (reuse prebuilt FIPS bootstrap)
         env:
           RUST_ARCH: ${{ matrix.target }}
+          PREBUILT_BOOTSTRAP: ${{ github.workspace }}/.build-artifacts/bootstrap
         run: sam build
 
       - name: package
