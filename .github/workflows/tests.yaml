@@ -6,8 +6,8 @@ on:
       - master
       - dev
     paths:
-      - ".cfn-lint.yaml"
-      - ".github/workflows/tests.yaml"
+      - ".cfnlintrc"
+      - ".github/workflows/**"
       - ".pre-commit-config.yaml"
       - "src/**"
       - "Cargo.toml"
@@ -41,12 +41,19 @@ jobs:
           rust_source=false
           rust_deps=false
           iac_security=false
+          sam_lint=false
           workflow=false
+          tests_workflow=false
 
           while IFS= read -r file; do
             case "$file" in
-              .cfn-lint.yaml|template.yaml|template-govcloud.yaml)
+              .cfnlintrc)
                 cfn_lint=true
+                sam_lint=true
+                ;;
+              template.yaml|template-govcloud.yaml)
+                cfn_lint=true
+                sam_lint=true
                 iac_security=true
                 ;;
               custom-resource/*|custom-resource-govcloud/*)
@@ -60,6 +67,10 @@ jobs:
                 ;;
               .github/workflows/tests.yaml)
                 workflow=true
+                tests_workflow=true
+                ;;
+              .github/workflows/*)
+                workflow=true
                 ;;
               .pre-commit-config.yaml)
                 python=true
@@ -67,13 +78,14 @@ jobs:
             esac
           done < <(git diff --name-only "$BASE_SHA" HEAD)
 
-          # Workflow edits should validate the lint/security wiring without forcing
-          # runtime Rust tests when Rust source did not change.
-          if [ "$workflow" = true ]; then
+          # Editing this workflow should validate the lint/security wiring without
+          # forcing runtime Rust tests when Rust source did not change.
+          if [ "$tests_workflow" = true ]; then
             cfn_lint=true
             python=true
             rust_deps=true
             iac_security=true
+            sam_lint=true
           fi
 
           {
@@ -82,6 +94,8 @@ jobs:
             echo "rust_source=$rust_source"
             echo "rust_deps=$rust_deps"
             echo "iac_security=$iac_security"
+            echo "sam_lint=$sam_lint"
+            echo "workflow=$workflow"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -91,7 +105,35 @@ jobs:
             echo "- Rust source checks: $rust_source"
             echo "- Rust dependency policy checks: $rust_deps"
             echo "- IaC security checks: $iac_security"
+            echo "- SAM template lint: $sam_lint"
+            echo "- GitHub Actions workflow lint: $workflow"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Go
+        if: ${{ steps.changes.outputs.workflow == 'true' }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: false
+
+      - name: lint GitHub Actions workflows
+        if: ${{ steps.changes.outputs.workflow == 'true' }}
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -color=false
+
+      - name: Set up SAM CLI
+        if: ${{ steps.changes.outputs.sam_lint == 'true' }}
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Run SAM template lint
+        if: ${{ steps.changes.outputs.sam_lint == 'true' }}
+        env:
+          SAM_CLI_TELEMETRY: 0
+        run: |
+          sam validate --template template.yaml --lint
+          sam validate --template template-govcloud.yaml --lint
 
       - name: Set up Python
         if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' || steps.changes.outputs.iac_security == 'true' }}
@@ -108,22 +150,21 @@ jobs:
       - name: Run cfn-lint
         if: ${{ steps.changes.outputs.cfn_lint == 'true' }}
         run: |
-          cfn-lint --template template.yaml --region us-east-1 --config-file .cfn-lint.yaml
-          cfn-lint --template template-govcloud.yaml --region us-gov-west-1 --config-file .cfn-lint.yaml
+          cfn-lint --template template.yaml --region us-east-1 --config-file .cfnlintrc
+          cfn-lint --template template-govcloud.yaml --region us-gov-west-1 --config-file .cfnlintrc
 
       - name: lint Python custom resources
         if: ${{ steps.changes.outputs.python == 'true' }}
         run: |
           ruff check custom-resource/ custom-resource-govcloud/
+          ruff format --check custom-resource/ custom-resource-govcloud/
           mypy --config-file custom-resource/mypy.ini custom-resource/index.py
           mypy --config-file custom-resource-govcloud/mypy.ini custom-resource-govcloud/index.py
 
       - name: Install Rust
         if: ${{ steps.changes.outputs.rust_source == 'true' || steps.changes.outputs.rust_deps == 'true' }}
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@1.93.0
         with:
-          toolchain: 1.93.0
-          override: true
           components: rustfmt, clippy
 
       - name: add github ssh known host
@@ -135,7 +176,7 @@ jobs:
           
       - name: start ssh agent for rust private dependencies
         if: ${{ steps.changes.outputs.rust_source == 'true' || steps.changes.outputs.rust_deps == 'true' }}
-        uses: webfactory/ssh-agent@v0.8.0
+        uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
