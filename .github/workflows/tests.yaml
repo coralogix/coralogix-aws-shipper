@@ -148,6 +148,7 @@ jobs:
         with:
           command: check advisories licenses bans sources
           use-git-cli: true
+          ssh-known-hosts: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 
       - name: checkov IaC scan
         if: ${{ steps.changes.outputs.iac_security == 'true' }}
