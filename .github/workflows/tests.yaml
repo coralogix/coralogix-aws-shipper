@@ -147,6 +147,7 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories licenses bans sources
+          use-git-cli: true
 
       - name: checkov IaC scan
         if: ${{ steps.changes.outputs.iac_security == 'true' }}
