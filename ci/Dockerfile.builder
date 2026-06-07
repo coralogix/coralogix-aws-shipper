@@ -10,13 +10,14 @@
 # so it always honors the repo's rust-toolchain.toml.
 FROM amazonlinux:2023
 
+# hadolint ignore=DL3041
 RUN dnf install -y --setopt=retries=25 --setopt=timeout=60 \
         gcc gcc-c++ make cmake golang perl perl-FindBin perl-IPC-Cmd \
         clang llvm protobuf-compiler openssl-devel \
         python3 python3-pip tar gzip git openssh-clients \
         findutils file binutils \
     && dnf clean all \
-    && pip3 install --quiet cargo-lambda
+    && pip3 install --quiet --no-cache-dir cargo-lambda
 
 ENV RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/usr/local/cargo \

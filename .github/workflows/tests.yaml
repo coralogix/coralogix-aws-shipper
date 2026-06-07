@@ -23,6 +23,8 @@ on:
       - "custom-resource/**"
       - "custom-resource-govcloud/**"
       - "Makefile"
+      - "ci/**"
+      - "scripts/**"
 
 jobs:
   test:
@@ -47,6 +49,8 @@ jobs:
           sam_lint=false
           workflow=false
           tests_workflow=false
+          shell=false
+          dockerfile=false
 
           while IFS= read -r file; do
             case "$file" in
@@ -81,6 +85,12 @@ jobs:
               .pre-commit-config.yaml)
                 python=true
                 ;;
+              ci/*.sh|scripts/*.sh)
+                shell=true
+                ;;
+              ci/Dockerfile*)
+                dockerfile=true
+                ;;
             esac
           done < <(git diff --name-only "$BASE_SHA" HEAD)
 
@@ -91,6 +101,8 @@ jobs:
             python=true
             rust_deps=true
             sam_lint=true
+            shell=true
+            dockerfile=true
           fi
 
           {
@@ -100,6 +112,8 @@ jobs:
             echo "rust_deps=$rust_deps"
             echo "sam_lint=$sam_lint"
             echo "workflow=$workflow"
+            echo "shell=$shell"
+            echo "dockerfile=$dockerfile"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -110,6 +124,8 @@ jobs:
             echo "- Rust dependency policy checks: $rust_deps"
             echo "- SAM template lint: $sam_lint"
             echo "- GitHub Actions workflow lint: $workflow"
+            echo "- Shell script lint: $shell"
+            echo "- Dockerfile lint: $dockerfile"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Go
@@ -200,6 +216,20 @@ jobs:
           curl -L https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz \
             | tar -xz -C "$RUNNER_TEMP/cargo-deny" --strip-components=1
           "$RUNNER_TEMP/cargo-deny/cargo-deny" check advisories licenses bans sources
+
+      - name: shellcheck
+        if: ${{ steps.changes.outputs.shell == 'true' }}
+        run: |
+          shellcheck ci/fips-build.sh scripts/changelog_check.sh
+
+      - name: hadolint
+        if: ${{ steps.changes.outputs.dockerfile == 'true' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/hadolint"
+          curl -sSfL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 \
+            -o "$RUNNER_TEMP/hadolint/hadolint"
+          chmod +x "$RUNNER_TEMP/hadolint/hadolint"
+          "$RUNNER_TEMP/hadolint/hadolint" ci/Dockerfile.builder
 
       - name: run tests
         if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
