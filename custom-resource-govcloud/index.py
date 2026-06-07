@@ -52,6 +52,16 @@ def sanitize_statement_id_prefix(identifier: str) -> str:
 # API key through ResourceProperties.Parameters, so it must be redacted before
 # the event is logged.
 _SENSITIVE_PARAM_KEYS = {"apikey", "coralogixapikey"}
+_CLOUDFORMATION_RESPONSE_URL_PATTERN = (
+    r"https://cloudformation-custom-resource-response-[a-z0-9-]+"
+    r"\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?/.*"
+)
+
+
+def validate_cloudformation_response_url(response_url):
+    if not re.fullmatch(_CLOUDFORMATION_RESPONSE_URL_PATTERN, response_url):
+        raise ValueError("Invalid CloudFormation response URL")
+    return response_url
 
 
 def redact_event(event):
@@ -102,7 +112,7 @@ class CFNResponse:
     def __init__(self, event, context):
         self.event = event
         self.context = context
-        self.response_url = event["ResponseURL"]
+        self.response_url = validate_cloudformation_response_url(event["ResponseURL"])
 
     def send(self, status, response_data=None, physical_resource_id=None, no_echo=False, reason=None):
         if response_data is None:
@@ -124,8 +134,6 @@ class CFNResponse:
             "content-length": str(len(json_response_body)),
         }
         try:
-            # CloudFormation custom resources must send status to this AWS-provided presigned URL.
-            # codeql[py/full-ssrf]
             req = request.Request(
                 self.response_url,
                 data=json_response_body,
