@@ -150,7 +150,7 @@ class CFNResponse:
         json_response_body = json.dumps(response_body).encode("utf-8")
         headers = {"content-type": "", "content-length": str(len(json_response_body))}
         try:
-            req = request.Request(self.response_url, data=json_response_body, headers=headers, method="PUT")
+            req = request.Request(self.response_url, data=json_response_body, headers=headers, method="PUT")  # lgtm[py/full-ssrf]
             with request.urlopen(req) as response:
                 print("cloudformation response status code:", response.getcode())
         except error.HTTPError as e:
