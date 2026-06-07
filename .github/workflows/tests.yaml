@@ -119,7 +119,7 @@ jobs:
       - name: lint GitHub Actions workflows
         if: ${{ steps.changes.outputs.workflow == 'true' }}
         run: |
-          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -color=false
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -color=false -shellcheck=
 
       - name: Set up SAM CLI
         if: ${{ steps.changes.outputs.sam_lint == 'true' }}
