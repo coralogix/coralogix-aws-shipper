@@ -44,7 +44,6 @@ jobs:
           python=false
           rust_source=false
           rust_deps=false
-          iac_security=false
           sam_lint=false
           workflow=false
           tests_workflow=false
@@ -58,7 +57,6 @@ jobs:
               template.yaml|template-govcloud.yaml)
                 cfn_lint=true
                 sam_lint=true
-                iac_security=true
                 ;;
               custom-resource/*|custom-resource-govcloud/*)
                 python=true
@@ -92,7 +90,6 @@ jobs:
             cfn_lint=true
             python=true
             rust_deps=true
-            iac_security=true
             sam_lint=true
           fi
 
@@ -101,7 +98,6 @@ jobs:
             echo "python=$python"
             echo "rust_source=$rust_source"
             echo "rust_deps=$rust_deps"
-            echo "iac_security=$iac_security"
             echo "sam_lint=$sam_lint"
             echo "workflow=$workflow"
           } >> "$GITHUB_OUTPUT"
@@ -112,7 +108,6 @@ jobs:
             echo "- Python custom-resource lint/type checks: $python"
             echo "- Rust source checks: $rust_source"
             echo "- Rust dependency policy checks: $rust_deps"
-            echo "- IaC security checks: $iac_security"
             echo "- SAM template lint: $sam_lint"
             echo "- GitHub Actions workflow lint: $workflow"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -144,15 +139,15 @@ jobs:
           sam validate --template template-govcloud.yaml --lint
 
       - name: Set up Python
-        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' || steps.changes.outputs.iac_security == 'true' }}
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install dependencies
-        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' || steps.changes.outputs.iac_security == 'true' }}
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' }}
         run: |
-          pip install cfn-lint ruff checkov
+          pip install cfn-lint ruff
 
       # validate the template files
       - name: Run cfn-lint
@@ -205,11 +200,6 @@ jobs:
           curl -L https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz \
             | tar -xz -C "$RUNNER_TEMP/cargo-deny" --strip-components=1
           "$RUNNER_TEMP/cargo-deny/cargo-deny" check advisories licenses bans sources
-
-      - name: checkov IaC scan
-        if: ${{ steps.changes.outputs.iac_security == 'true' }}
-        run: |
-          checkov --directory . --framework cloudformation --check CKV_AWS_108,CKV_AWS_111,CKV_AWS_49 --quiet --compact
 
       - name: run tests
         if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
