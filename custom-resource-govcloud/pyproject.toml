@@ -1,0 +1,20 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "B",
+  "SIM",
+  "ARG",
+  "S",
+  "RET",
+  "UP",
+]
+ignore = [
+  "S101",   # allow assert in tests
+  "S310",   # CloudFormation custom resources must PUT to the presigned ResponseURL
+  "SIM112", # preserve the existing lowercase log_groups Lambda environment key
+]

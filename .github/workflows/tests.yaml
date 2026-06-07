@@ -1,15 +1,22 @@
 name: coralogix-aws-shipper tests
 on:
-  pull_request: 
+  pull_request:
     types: [opened, synchronize, reopened, labeled]
     branches:
       - master
       - dev
     paths:
+      - ".cfn-lint.yaml"
+      - ".github/workflows/**"
+      - ".pre-commit-config.yaml"
       - "src/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "deny.toml"
       - "template.yaml"
+      - "template-govcloud.yaml"
+      - "custom-resource/**"
+      - "custom-resource-govcloud/**"
       - "requirements.txt"
       - "Makefile"
 
@@ -24,17 +31,24 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-  
+          python-version: '3.12'
+
       - name: Install dependencies
         run: |
-          pip install cfn-lint
-          
-        # validate the template file 
+          pip install cfn-lint ruff mypy
+
+      # validate the template files
       - name: Run cfn-lint
         run: |
           cfn-lint --template template.yaml --region us-east-1 --config-file .cfn-lint.yaml
-          
+          cfn-lint --template template-govcloud.yaml --region us-gov-west-1 --config-file .cfn-lint.yaml
+
+      - name: lint Python custom resources
+        run: |
+          ruff check custom-resource/ custom-resource-govcloud/
+          mypy --config-file custom-resource/mypy.ini custom-resource/index.py
+          mypy --config-file custom-resource-govcloud/mypy.ini custom-resource-govcloud/index.py
+
       - name: Install latest Rust
         if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
         uses: actions-rs/toolchain@v1
@@ -47,6 +61,30 @@ jobs:
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: rustfmt
+        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
+        run: |
+          cargo fmt --all --check
+
+      - name: clippy
+        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
+        run: |
+          cargo clippy --all-targets -- -D warnings
+
+      - name: cargo deny
+        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories licenses bans sources
+
+      - name: checkov IaC scan
+        uses: bridgecrewio/checkov-action@v2
+        with:
+          directory: .
+          framework: cloudformation
+          check: CKV_AWS_108,CKV_AWS_111,CKV_AWS_49
+          soft_fail: false
 
       - name: run tests
         if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
