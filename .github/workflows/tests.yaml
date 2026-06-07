@@ -61,7 +61,11 @@ jobs:
               src/*|tests/*|benches/*|examples/*|build.rs|rust-toolchain.toml|Makefile)
                 rust_source=true
                 ;;
-              Cargo.toml|Cargo.lock|deny.toml)
+              Cargo.toml|Cargo.lock)
+                rust_deps=true
+                rust_source=true
+                ;;
+              deny.toml)
                 rust_deps=true
                 ;;
               .github/workflows/tests.yaml)
