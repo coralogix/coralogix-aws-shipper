@@ -11,6 +11,7 @@ on:
 jobs:
   trigger_action:
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: trigger  ci action in documentation repo
         run: |
