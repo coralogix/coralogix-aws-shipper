@@ -1,4 +1,8 @@
 # Changelog
+## v1.4.9 / 2026-06-07
+### 🧰 Bug fixes 🧰
+- Update Rust lockfile to consume the Coralogix SDK security fixes and move `quinn-proto` to `0.11.14`, resolving GHSA-6xvm-j4wr-6v98 / CVE-2026-31812.
+
 ## v1.4.8 / 2026-05-28
 ### 💡 Enhancements 💡
 - Added FIPS support for AWS connections on Gov Cloud.
