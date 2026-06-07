@@ -124,6 +124,8 @@ class CFNResponse:
             "content-length": str(len(json_response_body)),
         }
         try:
+            # CloudFormation custom resources must send status to this AWS-provided presigned URL.
+            # codeql[py/full-ssrf]
             req = request.Request(
                 self.response_url,
                 data=json_response_body,
