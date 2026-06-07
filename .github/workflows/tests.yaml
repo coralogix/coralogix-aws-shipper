@@ -102,7 +102,7 @@ jobs:
       - name: Install dependencies
         if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' || steps.changes.outputs.iac_security == 'true' }}
         run: |
-          pip install cfn-lint ruff mypy
+          pip install cfn-lint ruff mypy checkov
 
       # validate the template files
       - name: Run cfn-lint
@@ -119,12 +119,19 @@ jobs:
           mypy --config-file custom-resource-govcloud/mypy.ini custom-resource-govcloud/index.py
 
       - name: Install Rust
-        if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
+        if: ${{ steps.changes.outputs.rust_source == 'true' || steps.changes.outputs.rust_deps == 'true' }}
         uses: actions-rs/toolchain@v1
         with:
           toolchain: 1.93.0
           override: true
           components: rustfmt, clippy
+
+      - name: add github ssh known host
+        if: ${{ steps.changes.outputs.rust_source == 'true' || steps.changes.outputs.rust_deps == 'true' }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
           
       - name: start ssh agent for rust private dependencies
         if: ${{ steps.changes.outputs.rust_source == 'true' || steps.changes.outputs.rust_deps == 'true' }}
@@ -144,20 +151,18 @@ jobs:
 
       - name: cargo deny
         if: ${{ steps.changes.outputs.rust_deps == 'true' }}
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check advisories licenses bans sources
-          use-git-cli: true
-          ssh-known-hosts: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/cargo-deny"
+          curl -L https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/cargo-deny" --strip-components=1
+          "$RUNNER_TEMP/cargo-deny/cargo-deny" check advisories licenses bans sources
 
       - name: checkov IaC scan
         if: ${{ steps.changes.outputs.iac_security == 'true' }}
-        uses: bridgecrewio/checkov-action@v2
-        with:
-          directory: .
-          framework: cloudformation
-          check: CKV_AWS_108,CKV_AWS_111,CKV_AWS_49
-          soft_fail: false
+        run: |
+          checkov --directory . --framework cloudformation --check CKV_AWS_108,CKV_AWS_111,CKV_AWS_49 --quiet --compact
 
       - name: run tests
         if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
