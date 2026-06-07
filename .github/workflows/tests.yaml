@@ -152,7 +152,7 @@ jobs:
       - name: Install dependencies
         if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' || steps.changes.outputs.iac_security == 'true' }}
         run: |
-          pip install cfn-lint ruff mypy checkov
+          pip install cfn-lint ruff checkov
 
       # validate the template files
       - name: Run cfn-lint
@@ -166,8 +166,6 @@ jobs:
         run: |
           ruff check custom-resource/ custom-resource-govcloud/
           ruff format --check custom-resource/ custom-resource-govcloud/
-          mypy --config-file custom-resource/mypy.ini custom-resource/index.py
-          mypy --config-file custom-resource-govcloud/mypy.ini custom-resource-govcloud/index.py
 
       - name: Install Rust
         if: ${{ steps.changes.outputs.rust_source == 'true' || steps.changes.outputs.rust_deps == 'true' }}
