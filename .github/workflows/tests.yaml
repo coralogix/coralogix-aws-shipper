@@ -17,7 +17,6 @@ on:
       - "template-govcloud.yaml"
       - "custom-resource/**"
       - "custom-resource-govcloud/**"
-      - "requirements.txt"
       - "Makefile"
 
 jobs:
@@ -59,7 +58,7 @@ jobs:
               custom-resource/*|custom-resource-govcloud/*)
                 python=true
                 ;;
-              src/*|tests/*|benches/*|examples/*|build.rs|rust-toolchain.toml)
+              src/*|tests/*|benches/*|examples/*|build.rs|rust-toolchain.toml|Makefile)
                 rust_source=true
                 ;;
               Cargo.toml|Cargo.lock|deny.toml)

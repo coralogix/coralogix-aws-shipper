@@ -195,7 +195,7 @@ jobs:
             echo "ERROR: bootstrap binary was not found under .aws-sam"
             exit 1
           fi
-          FOUND=$(readelf -V "$BOOTSTRAP" 2>/dev/null | grep -oP 'GLIBC_\K[\d.]+' | sort -V | tail -1)
+          FOUND=$(readelf -V "$BOOTSTRAP" 2>/dev/null | grep -oP 'GLIBC_\K[\d.]+' | sort -V | tail -1 || true)
           if [ -z "$FOUND" ]; then
             echo "No GLIBC symbol versioning found; OK (statically linked)"
             exit 0

@@ -75,7 +75,7 @@ delete:
 .PHONY: pre-merge-check
 pre-merge-check:
 	@echo "=== [1/5] cfn-lint ==="
-	cfn-lint --template template.yaml --region us-east-1 --config-file .cfn-lint.yaml
+	cfn-lint --template template.yaml --region us-east-1 --config-file .cfnlintrc
 	@echo "=== [2/5] sam validate ==="
 	sam validate
 	@echo "=== [3/5] cargo test ==="
