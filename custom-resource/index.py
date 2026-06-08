@@ -8,31 +8,37 @@ from urllib import request, error
 import functools
 from types import SimpleNamespace
 import traceback
+from collections.abc import Callable, Mapping
+from typing import Any, cast
+
+
+Event = dict[str, Any]
+ResponseData = dict[str, Any]
 
 # Parameter keys whose values are sensitive and must never reach CloudWatch Logs.
 # When StoreAPIKeyInSecretsManager=false the template passes the raw Coralogix
 # API key through ResourceProperties.Parameters, so it must be redacted before
 # the event is logged.
-_SENSITIVE_PARAM_KEYS = {"apikey", "coralogixapikey"}
+_SENSITIVE_PARAM_KEYS: set[str] = {"apikey", "coralogixapikey"}
 _CLOUDFORMATION_RESPONSE_URL_PATTERN = (
     r"https://cloudformation-custom-resource-response-[a-z0-9-]+"
     r"\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?/.*"
 )
 
 
-def validate_cloudformation_response_url(response_url):
+def validate_cloudformation_response_url(response_url: str) -> str:
     if not re.fullmatch(_CLOUDFORMATION_RESPONSE_URL_PATTERN, response_url):
         raise ValueError("Invalid CloudFormation response URL")
     return response_url
 
 
-def redact_event(event):
+def redact_event(event: Mapping[str, Any]) -> Event:
     """
     Return a deep copy of the CloudFormation custom-resource event with
     sensitive parameter values redacted, so the raw API key is never logged.
     """
     try:
-        redacted = copy.deepcopy(event)
+        redacted = cast(Event, copy.deepcopy(event))
     except Exception:
         return {"_redaction_error": "unable to copy event for safe logging"}
     # Redact sensitive parameters in both the current and previous property
@@ -48,7 +54,7 @@ def redact_event(event):
     return redacted
 
 
-def sanitize_statement_id_prefix(identifier):
+def sanitize_statement_id_prefix(identifier: str) -> str:
     """
     Sanitize an identifier for use in Lambda permission statement IDs.
     Ensures only AWS-compatible characters remain using regex.
@@ -61,13 +67,13 @@ def sanitize_statement_id_prefix(identifier):
     return re.sub(r"[^a-zA-Z0-9\-_]", "_", updated_prefix)
 
 
-def handle_exceptions(func):
+def handle_exceptions[**P](func: Callable[P, Any]) -> Callable[P, Any]:
     """
     A decorator that wraps the passed in function and prints exceptions should one occur.
     """
 
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
         try:
             return func(*args, **kwargs)
         except Exception as e:
@@ -79,7 +85,7 @@ def handle_exceptions(func):
 
 
 @handle_exceptions
-def configure_dlq(event):
+def configure_dlq(event: Event) -> None:
     """
     configure_dlq function used to configure Dead Letter Queue
     """
@@ -87,7 +93,7 @@ def configure_dlq(event):
     if event["RequestType"] == "Delete":
         return
 
-    aws_lambda = boto3.client("lambda")
+    aws_lambda: Any = boto3.client("lambda")
     lambda_arn = event["ResourceProperties"]["LambdaArn"]
     dlq_arn = event["ResourceProperties"]["DLQ"]["DLQArn"]
 
@@ -128,12 +134,19 @@ class CFNResponse:
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
 
-    def __init__(self, event, context):
+    def __init__(self, event: Event, context: Any) -> None:
         self.event = event
         self.context = context
-        self.response_url = validate_cloudformation_response_url(event["ResponseURL"])
+        self.response_url = validate_cloudformation_response_url(str(event["ResponseURL"]))
 
-    def send(self, status, response_data=None, physical_resource_id=None, no_echo=False, reason=None):
+    def send(
+        self,
+        status: str,
+        response_data: ResponseData | None = None,
+        physical_resource_id: str | None = None,
+        no_echo: bool = False,
+        reason: str | None = None,
+    ) -> None:
         if response_data is None:
             response_data = {}
         print(f"sending cloudformation response: [{status}]")
@@ -170,16 +183,22 @@ class ConfigureS3Integration:
     ConfigureS3Trigger class used to configure S3 Integration
     """
 
-    def __init__(self, event, context, cfn):
+    def __init__(self, event: Event, context: Any, cfn: CFNResponse) -> None:
         self.context = context
         self.event = event
         self.cfn = cfn
-        self.s3 = boto3.client("s3")
-        self.aws_lambda = boto3.client("lambda")
-        self.params = SimpleNamespace(**event["ResourceProperties"]["Parameters"])
+        self.s3: Any = boto3.client("s3")
+        self.aws_lambda: Any = boto3.client("lambda")
+        self.params: Any = SimpleNamespace(**event["ResourceProperties"]["Parameters"])
 
     @handle_exceptions
-    def handle_lambda_permissions(self, bucket_name_list, lambda_function_arn, function_name, request_type):
+    def handle_lambda_permissions(
+        self,
+        bucket_name_list: str,
+        lambda_function_arn: str,
+        function_name: str,
+        request_type: str,
+    ) -> None:
         for bucket_name in bucket_name_list.split(","):
             sanitized_bucket_name = sanitize_statement_id_prefix(bucket_name)
             statement_id = f"allow-s3-{sanitized_bucket_name}-invoke-{function_name}"
@@ -207,7 +226,7 @@ class ConfigureS3Integration:
             print("Permission added to Lambda function:", response)
 
     @handle_exceptions
-    def create(self):
+    def create(self) -> None:
         print("Request Type:", self.event["RequestType"])
         for bucket in self.params.S3BucketName.split(","):
             function_name = self.event["ResourceProperties"]["LambdaArn"].split(":")[-1]
@@ -245,7 +264,7 @@ class ConfigureS3Integration:
                 BucketNotificationConfiguration.pop("LambdaFunctionConfigurations")
             print(f"nofication configuration: {BucketNotificationConfiguration}")
 
-            err = self.handle_lambda_permissions(
+            err: Any = self.handle_lambda_permissions(
                 bucket, self.event["ResourceProperties"]["LambdaArn"], function_name, self.event["RequestType"]
             )
 
@@ -262,7 +281,7 @@ class ConfigureS3Integration:
         print(self.event["RequestType"], "request completed....")
 
     @handle_exceptions
-    def update(self):
+    def update(self) -> Any:
         err = self.delete()
         if err:
             raise Exception(err)
@@ -271,7 +290,7 @@ class ConfigureS3Integration:
         return self.create()
 
     @handle_exceptions
-    def delete(self):
+    def delete(self) -> None:
         lambda_function_arn = self.event["ResourceProperties"]["LambdaArn"]
         for bucket in self.params.S3BucketName.split(","):
             # Get the current notification configuration for the bucket
@@ -301,7 +320,7 @@ class ConfigureS3Integration:
 
             print(f"Removed Lambda function {lambda_function_arn} trigger from S3 bucket {bucket}.")
 
-    def handle(self):
+    def handle(self) -> None:
         responseStatus = self.cfn.SUCCESS
         on_sns_or_sqs = False
 
@@ -316,7 +335,7 @@ class ConfigureS3Integration:
         ):
             on_sns_or_sqs = True
 
-        err = None
+        err: Any = None
         if not on_sns_or_sqs:
             match self.event["RequestType"]:
                 case "Create":
@@ -343,20 +362,20 @@ class ConfigureKafkaIntegration:
     ConfigureKafkaIntegration
     """
 
-    def __init__(self, event, context, cfn):
+    def __init__(self, event: Event, context: Any, cfn: CFNResponse) -> None:
         self.cfn = cfn
         self.event = event
         self.context = context
-        self.aws_lambda = boto3.client("lambda")
-        self.params = SimpleNamespace(**event["ResourceProperties"]["Parameters"])
+        self.aws_lambda: Any = boto3.client("lambda")
+        self.params: Any = SimpleNamespace(**event["ResourceProperties"]["Parameters"])
         self.integration = self.params.IntegrationType
 
     @handle_exceptions
-    def create(self):
+    def create(self) -> None:
         if self.integration == "Kafka":
             print("creating kafka event source mapping...")
             function_name = self.event["ResourceProperties"]["LambdaArn"].split(":")[-1]
-            response = self.aws_lambda.create_event_source_mapping(
+            kafka_response = self.aws_lambda.create_event_source_mapping(
                 FunctionName=function_name,
                 BatchSize=int(self.params.KafkaBatchSize),
                 StartingPosition="LATEST",
@@ -372,26 +391,27 @@ class ConfigureKafkaIntegration:
                     ]
                 ),
             )
-            print("create kafka event source mapping response:", response)
+            print("create kafka event source mapping response:", kafka_response)
 
         if self.integration == "MSK":
             print("creating msk event source mapping...")
             lambda_name = self.event["ResourceProperties"]["LambdaArn"].split(":")[-1]
             msk_cluster_arn = self.params.MSKClusterArn
             topics = self.params.KafkaTopic.split(",")
+            msk_response: Any = None
             for topic in topics:
-                response = self.aws_lambda.create_event_source_mapping(
+                msk_response = self.aws_lambda.create_event_source_mapping(
                     EventSourceArn=msk_cluster_arn,
                     FunctionName=lambda_name,
                     Topics=[topic],
                     StartingPosition="LATEST",
                     BatchSize=100,
                 )
-
-            print("create msk event source mapping response:", response)
+            if msk_response is not None:
+                print("create msk event source mapping response:", msk_response)
 
     @handle_exceptions
-    def update(self):
+    def update(self) -> Any:
         err = self.delete()
         if err:
             raise Exception(err)
@@ -399,7 +419,7 @@ class ConfigureKafkaIntegration:
         return self.create()
 
     @handle_exceptions
-    def delete(self):
+    def delete(self) -> None:
         print("msk/kafka deleting previous mapping(s)")
         function_name = self.event["ResourceProperties"]["LambdaArn"].split(":")[-1]
         mappings = self.aws_lambda.list_event_source_mappings(
@@ -414,9 +434,10 @@ class ConfigureKafkaIntegration:
             time.sleep(10)  # wait for mapping to be disabled
             self.aws_lambda.delete_event_source_mapping(UUID=mapping["UUID"])
 
-    def handle(self):
+    def handle(self) -> None:
         print(f"configuring {self.integration} Integration")
         responseStatus = self.cfn.SUCCESS
+        err: Any = None
         match self.event["RequestType"]:
             case "Create":
                 err = self.create()
@@ -442,17 +463,17 @@ class ConfigureCloudwatchIntegration:
     ConfigureCloudwatchIntegration handles the configuration of Cloudwatch Integration
     """
 
-    def __init__(self, event, context, cfn):
+    def __init__(self, event: Event, context: Any, cfn: CFNResponse) -> None:
         self.event = event
         self.context = context
         self.cfn = cfn
+        self.aws_lambda: Any = boto3.client("lambda")
+        self.cloudwatch_logs: Any = boto3.client("logs")
         self.aws_lambda = boto3.client("lambda")
-        self.cloudwatch_logs = boto3.client("logs")
-        self.aws_lambda = boto3.client("lambda")
-        self.params = SimpleNamespace(**event["ResourceProperties"]["Parameters"])
+        self.params: Any = SimpleNamespace(**event["ResourceProperties"]["Parameters"])
 
     @handle_exceptions
-    def create(self):
+    def create(self) -> None:
         lambda_arn = self.event["ResourceProperties"]["LambdaArn"]
         custom_lambda_arn = os.environ["AWS_LAMBDA_FUNCTION_NAME"]
         region = self.context.invoked_function_arn.split(":")[3]
@@ -511,12 +532,16 @@ class ConfigureCloudwatchIntegration:
                 logGroupName=log_group,
             )
 
-    def update_custom_lambda_environment_variables(self, function_name, new_environment_variables):
+    def update_custom_lambda_environment_variables(
+        self,
+        function_name: str,
+        new_environment_variables: dict[str, str],
+    ) -> None:
         self.aws_lambda.update_function_configuration(
             FunctionName=function_name, Environment={"Variables": new_environment_variables}
         )
 
-    def remove_subscription_filter(self, log_group, lambda_arn):
+    def remove_subscription_filter(self, log_group: str, lambda_arn: str) -> None:
         response = self.cloudwatch_logs.describe_subscription_filters(logGroupName=log_group)
         lambda_arn = self.event["ResourceProperties"]["LambdaArn"]
         LambdaPremissionPrefix = self.params.CloudWatchLogGroupPrefix.split(",")
@@ -535,7 +560,7 @@ class ConfigureCloudwatchIntegration:
                 )
 
     @handle_exceptions
-    def update(self):
+    def update(self) -> Any:
         custom_lambda_name = os.environ["AWS_LAMBDA_FUNCTION_NAME"]
         new_log_group_names = self.params.CloudWatchLogGroupName.split(",")
         new_environment_variables = {"log_groups": self.params.CloudWatchLogGroupName}
@@ -555,14 +580,15 @@ class ConfigureCloudwatchIntegration:
         return self.create()
 
     @handle_exceptions
-    def delete(self):
+    def delete(self) -> None:
         lambda_arn = self.event["ResourceProperties"]["LambdaArn"]
         logGroupNames = self.params.CloudWatchLogGroupName.split(",")
         for log_group in logGroupNames:
             self.remove_subscription_filter(log_group, lambda_arn)
 
-    def handle(self):
+    def handle(self) -> None:
         responseStatus = self.cfn.SUCCESS
+        err: Any = None
         match self.event["RequestType"]:
             case "Create":
                 err = self.create()
@@ -589,17 +615,17 @@ class ConfigureMetricsIntegration:
         - Create CloudWatch Metric Stream
     """
 
-    def __init__(self, event, context, cfn):
+    def __init__(self, event: Event, context: Any, cfn: CFNResponse) -> None:
         self.event = event
         self.context = context
         self.cfn = cfn
-        self.params = SimpleNamespace(**self.event["ResourceProperties"]["Parameters"])
-        self.cloudwatch_metrics = boto3.client("cloudwatch")
+        self.params: Any = SimpleNamespace(**self.event["ResourceProperties"]["Parameters"])
+        self.cloudwatch_metrics: Any = boto3.client("cloudwatch")
 
     @handle_exceptions
-    def create(self):
+    def create(self) -> None:
         print("creating cloudwatch metric stream...")
-        stream_params = {
+        stream_params: dict[str, Any] = {
             "Name": self.params.CWMetricStreamName,
             "FirehoseArn": self.params.CWStreamFirehoseDestinationARN,
             "RoleArn": self.params.CWStreamFirehoseAccessRoleARN,
@@ -616,7 +642,7 @@ class ConfigureMetricsIntegration:
         print("create cloudwatch metric stream response:", response)
 
     @handle_exceptions
-    def update(self):
+    def update(self) -> Any:
         err = self.delete()
         if err:
             raise Exception(err)
@@ -624,15 +650,16 @@ class ConfigureMetricsIntegration:
         return self.create()
 
     @handle_exceptions
-    def delete(self):
+    def delete(self) -> None:
         print(f"deleting cloudwatch metric stream... {self.params.CWMetricStreamName}")
         response = self.cloudwatch_metrics.delete_metric_stream(
             Name=self.params.CWMetricStreamName,
         )
         print("delete cloudwatch metric stream response:", response)
 
-    def handle(self):
+    def handle(self) -> None:
         responseStatus = self.cfn.SUCCESS
+        err: Any = None
         match self.event["RequestType"]:
             case "Create":
                 err = self.create()
@@ -653,7 +680,7 @@ class ConfigureMetricsIntegration:
         )
 
 
-def lambda_handler(event, context):
+def lambda_handler(event: Event, context: Any) -> None:
     """
     AWS Lambda handler function
     """

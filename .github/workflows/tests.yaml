@@ -165,7 +165,7 @@ jobs:
       - name: Install dependencies
         if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' }}
         run: |
-          pip install cfn-lint ruff
+          pip install cfn-lint ruff mypy
 
       # validate the template files
       - name: Run cfn-lint
@@ -179,6 +179,12 @@ jobs:
         run: |
           ruff check custom-resource/ custom-resource-govcloud/
           ruff format --check custom-resource/ custom-resource-govcloud/
+
+      - name: mypy type check custom resources
+        if: ${{ steps.changes.outputs.python == 'true' }}
+        run: |
+          mypy --config-file custom-resource/mypy.ini custom-resource/index.py
+          mypy --config-file custom-resource-govcloud/mypy.ini custom-resource-govcloud/index.py
 
       - name: Install Rust
         if: ${{ (steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test')) || steps.changes.outputs.rust_deps == 'true' }}
