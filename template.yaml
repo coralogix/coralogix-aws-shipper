@@ -711,6 +711,11 @@ Resources:
     Condition: StoreAPIKeyInSecretsManager
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_149
+            comment: "Uses Secrets Manager default encryption to avoid forcing every deployment to provide a customer-managed KMS key."
     Properties:
       Description: Coralogix API Key Secret
       SecretString: !Ref ApiKey
@@ -979,6 +984,12 @@ Resources:
     Metadata:
       SamResourceId: LambdaFunction
       BuildMethod: makefile
+      checkov:
+        skip:
+          - id: CKV_AWS_116
+            comment: "The shipper supports multiple event-source modes; Lambda async DLQ is not applicable to every mode and DLQ behavior is controlled by template parameters."
+          - id: CKV_AWS_173
+            comment: "A customer-managed environment KMS key is not required by default to keep the public template deployable without additional KMS setup."
     Properties:
       Description: Send logs to Coralogix.
       Handler: bootstrap
@@ -1255,6 +1266,11 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Type: 'AWS::Logs::LogGroup'
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_158
+            comment: "The template does not require a customer-managed KMS key for CloudWatch Logs so default deployments work without extra KMS grants."
     Properties:
       LogGroupName: !Sub '/aws/lambda/${LambdaFunction}'
       RetentionInDays: !Ref LambdaLogRetention
@@ -1521,6 +1537,14 @@ Resources:
     Type: AWS::Serverless::Function
     Metadata:
       SamResourceId: CustomResourceFunction
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: "This CloudFormation custom resource must run without requiring customer VPC subnet and security group parameters."
+          - id: CKV_AWS_116
+            comment: "CloudFormation custom resources report failures synchronously to the response URL; Lambda async DLQ is not used for this path."
+          - id: CKV_AWS_115
+            comment: "A fixed reserved concurrency limit can block parallel stack operations for this stack-scoped custom resource."
     Properties:
       Handler: index.lambda_handler
       Runtime: python3.12
@@ -1608,6 +1632,14 @@ Resources:
       Description: |
         Custom Resource used to introduce a delay in the stack 
         creation process for specific components
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: "This waiter custom resource has no customer VPC dependency and must be deployable in default stacks."
+          - id: CKV_AWS_116
+            comment: "The waiter responds synchronously to CloudFormation and does not use Lambda async DLQ behavior."
+          - id: CKV_AWS_115
+            comment: "A fixed reserved concurrency limit can block parallel stack operations for this stack-scoped waiter."
     Properties:
       Handler: index.lambda_handler
       Runtime: python3.12

@@ -2,6 +2,10 @@
 
 ## v1.4.9 / 2026-06-07
 
+### 💡 Enhancements 💡
+
+- Enable full Checkov CloudFormation scanning in PR tests with documented resource-level baseline skips and GovCloud SNS topic encryption.
+
 ### 🧰 Bug fixes 🧰
 
 - Update Rust lockfile to consume the Coralogix SDK security fixes and move `quinn-proto` to `0.11.14`, resolving GHSA-6xvm-j4wr-6v98 / CVE-2026-31812.

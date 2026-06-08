@@ -49,6 +49,7 @@ jobs:
           rust_source=false
           rust_deps=false
           sam_lint=false
+          terraform=false
           workflow=false
           tests_workflow=false
           shell=false
@@ -66,6 +67,9 @@ jobs:
                 ;;
               custom-resource/*|custom-resource-govcloud/*)
                 python=true
+                ;;
+              examples/*/terraform/*.tf|examples/*/terraform/**/*.tf)
+                terraform=true
                 ;;
               src/*|tests/*|benches/*|examples/*|build.rs|rust-toolchain.toml|Makefile)
                 rust_source=true
@@ -103,6 +107,7 @@ jobs:
             python=true
             rust_deps=true
             sam_lint=true
+            terraform=true
             shell=true
             dockerfile=true
           fi
@@ -113,6 +118,7 @@ jobs:
             echo "rust_source=$rust_source"
             echo "rust_deps=$rust_deps"
             echo "sam_lint=$sam_lint"
+            echo "terraform=$terraform"
             echo "workflow=$workflow"
             echo "shell=$shell"
             echo "dockerfile=$dockerfile"
@@ -125,6 +131,7 @@ jobs:
             echo "- Rust source checks: $rust_source"
             echo "- Rust dependency policy checks: $rust_deps"
             echo "- SAM template lint: $sam_lint"
+            echo "- Terraform Checkov: $terraform"
             echo "- GitHub Actions workflow lint: $workflow"
             echo "- Shell script lint: $shell"
             echo "- Dockerfile lint: $dockerfile"
@@ -157,15 +164,15 @@ jobs:
           sam validate --template template-govcloud.yaml --lint
 
       - name: Set up Python
-        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' }}
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' || steps.changes.outputs.terraform == 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install dependencies
-        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' }}
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' || steps.changes.outputs.terraform == 'true' }}
         run: |
-          pip install cfn-lint ruff mypy
+          pip install cfn-lint checkov ruff mypy
 
       # validate the template files
       - name: Run cfn-lint
@@ -173,6 +180,16 @@ jobs:
         run: |
           cfn-lint --template template.yaml --region us-east-1 --config-file .cfnlintrc
           cfn-lint --template template-govcloud.yaml --region us-gov-west-1 --config-file .cfnlintrc
+
+      - name: Run Checkov (CloudFormation)
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' }}
+        run: |
+          checkov --directory . --framework cloudformation --skip-download --quiet --compact
+
+      - name: Run Checkov (Terraform)
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.terraform == 'true' }}
+        run: |
+          checkov --directory . --framework terraform --skip-download --quiet --compact --soft-fail
 
       - name: lint Python custom resources
         if: ${{ steps.changes.outputs.python == 'true' }}

@@ -695,6 +695,11 @@ Resources:
     Condition: StoreAPIKeyInSecretsManager
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_149
+            comment: "Uses Secrets Manager default encryption to avoid forcing every GovCloud deployment to provide a customer-managed KMS key."
     Properties:
       Description: Coralogix API Key Secret
       SecretString: !Ref ApiKey
@@ -921,6 +926,21 @@ Resources:
                 - !Sub 'arn:${AWS::Partition}:s3:::${DLQS3Bucket}/*'
             - !Ref AWS::NoValue
 
+          # KMS access for the encrypted failure-notification SNS topic.
+          # Resource must be '*' because AWS-managed key ARNs are not known at
+          # deploy time; kms:ViaService restricts this to SNS-originated calls only.
+          - !If
+            - IsNotificationEnabled
+            - Effect: Allow
+              Action:
+                - 'kms:GenerateDataKey*'
+                - 'kms:Decrypt'
+              Resource: '*'
+              Condition:
+                StringEquals:
+                  'kms:ViaService': !Sub 'sns.${AWS::Region}.amazonaws.com'
+            - !Ref AWS::NoValue
+
   ##################################
   # -- IAM propagation waiter     -#
   ##################################
@@ -942,6 +962,15 @@ Resources:
 
   WaitAfterRoleUpdateFunction:
     Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: "This waiter custom resource has no customer VPC dependency and must be deployable in default stacks."
+          - id: CKV_AWS_116
+            comment: "The waiter responds synchronously to CloudFormation and does not use Lambda async DLQ behavior."
+          - id: CKV_AWS_115
+            comment: "A fixed reserved concurrency limit can block parallel stack operations for this stack-scoped waiter."
     Properties:
       FunctionName: !Sub '${AWS::StackName}-iam-waiter'
       Handler: index.lambda_handler
@@ -1005,6 +1034,13 @@ Resources:
   LambdaFunction:
     Type: AWS::Lambda::Function
     DependsOn: WaitAfterRoleUpdate
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_116
+            comment: "The shipper supports multiple event-source modes; Lambda async DLQ is not applicable to every mode and DLQ behavior is controlled by template parameters."
+          - id: CKV_AWS_173
+            comment: "A customer-managed environment KMS key is not required by default to keep the public GovCloud template deployable without additional KMS setup."
     Properties:
       Description: Send logs to Coralogix (GovCloud).
       Handler: bootstrap
@@ -1103,6 +1139,11 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Type: 'AWS::Logs::LogGroup'
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_158
+            comment: "The template does not require a customer-managed KMS key for CloudWatch Logs so default GovCloud deployments work without extra KMS grants."
     Properties:
       LogGroupName: !Sub '/aws/lambda/${LambdaFunction}'
       RetentionInDays: !Ref LambdaLogRetention
@@ -1115,6 +1156,7 @@ Resources:
     Type: AWS::SNS::Topic
     Condition: IsNotificationEnabled
     Properties:
+      KmsMasterKeyId: alias/aws/sns
       Subscription:
         - Protocol: email
           Endpoint: !Ref NotificationEmail
@@ -1481,6 +1523,15 @@ Resources:
 
   CustomResourceFunction:
     Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: "This CloudFormation custom resource must run without requiring customer VPC subnet and security group parameters."
+          - id: CKV_AWS_116
+            comment: "CloudFormation custom resources report failures synchronously to the response URL; Lambda async DLQ is not used for this path."
+          - id: CKV_AWS_115
+            comment: "A fixed reserved concurrency limit can block parallel stack operations for this stack-scoped custom resource."
     Properties:
       FunctionName: !Sub '${AWS::StackName}-custom-resource'
       Handler: index.lambda_handler
