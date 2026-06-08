@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # Cargo updates require the private coralogix-sdk-rust git dependency to be
+  # accessible. Configure SSH_PRIVATE_KEY as a Dependabot secret (repo or org
+  # level) with access to github.com/coralogix/coralogix-sdk-rust; without it
+  # Dependabot cannot resolve the dependency graph and will not open PRs.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - skip-changelog
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - skip-changelog
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - skip-changelog

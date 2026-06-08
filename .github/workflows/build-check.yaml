@@ -15,6 +15,9 @@ on:
       - "Cargo.lock"
       - "requirements.txt"
       - "Makefile"
+      # Dependabot PRs for this file require a Dependabot secret named
+      # SSH_PRIVATE_KEY so the FIPS build can resolve private SDK git deps.
+      - "requirements.txt"
       - "template.yaml"
       - "ci/**"
       - ".github/workflows/build-check.yaml"
@@ -39,6 +42,16 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
+
+      - name: verify private dependency SSH key is available
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "::error::SSH_PRIVATE_KEY is required for the FIPS build because Cargo resolves private SDK git dependencies."
+            echo "::error::For Dependabot PRs, configure SSH_PRIVATE_KEY as a repository or organization Dependabot secret with access to coralogix-sdk-rust."
+            exit 1
+          fi
 
       - name: start ssh agent for rust private dependencies
         uses: webfactory/ssh-agent@v0.9.0
