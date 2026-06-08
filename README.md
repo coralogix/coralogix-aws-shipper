@@ -19,7 +19,7 @@
    - [Terraform Module](#terraform-module)
 4. [Configuration Parameters](#configuration-parameters)
    - [Universal Configuration](#universal-configuration)
-   - [S3/CloudTrail/VpcFlow/S3Csv Configuration](#s3cloudtrailvpcflows3csv-configuration)
+   - [S3, CloudTrail, VpcFlow, S3Csv and CloudFront Configuration](#s3-cloudtrail-vpcflow-s3csv-cloudfront-configuration)
    - [CloudWatch Configuration](#cloudwatch-configuration)
    - [SNS Configuration](#sns-configuration)
    - [SQS Configuration](#sqs-configuration)
@@ -157,7 +157,7 @@ This is the most flexible type of integration, as it is based on receiving log f
 > [!NOTE]
 > The S3 integration supports generic data. You can ingest any generic text, JSON, and CSV data stored in your S3 bucket.
 
-**Maintain S3 notifications via SNS or SQS**
+#### Maintain S3 notifications via SNS or SQS
 
 If you don’t want to send data directly as it enters S3, you can also use SNS/SQS to maintain notifications before any data is sent from your bucket to Coralogix. For this, you need to set the `SNSTopicArn` or `SQSTopicArn` parameters.
 
@@ -190,12 +190,12 @@ Coralogix can be configured to receive data directly from your CloudWatch log gr
 If your log group name is longer than 70, the Lambda function you will see the permission for that log group as: `allow-trigger-from-<the log group first 65 characters and the last 5 characters>`. This is because of length limit in AWS for permission name.
 
 > [!NOTE]
-> The `CloudWatchLogGroupName` parameter will get a list of log groups and then add them to the Lambda as triggers, each log group will also add permission to the Lambda, in some cases when there are a lot of log groups this will cause an error because the code 
-> tries to create too many permissions for the Lambda (AWS have a limitation for the number of permission that you can have for a Lambda), and this is why we have the CloudWatchLogGroupPrefix parameter, this parameter will add only permission to the Lambda 
-> using a wildcard( * ).for example, in case I have the log groups: log1,log2,log3 instead that the code will create for each of the log group permission to trigger the shipper Lambda then you can set `CloudWatchLogGroupPrefix = log`, and then it will create 
+> The `CloudWatchLogGroupName` parameter will get a list of log groups and then add them to the Lambda as triggers, each log group will also add permission to the Lambda, in some cases when there are a lot of log groups this will cause an error because the code
+> tries to create too many permissions for the Lambda (AWS have a limitation for the number of permission that you can have for a Lambda), and this is why we have the CloudWatchLogGroupPrefix parameter, this parameter will add only permission to the Lambda
+> using a wildcard( * ).for example, in case I have the log groups: log1,log2,log3 instead that the code will create for each of the log group permission to trigger the shipper Lambda then you can set `CloudWatchLogGroupPrefix = log`, and then it will create
 > only 1 permission for all of the log groups to trigger the shipper Lambda, but you will still need to set `CloudWatchLogGroupName = log1,log2,log3`. When using this parameter, you will not be able to see the log groups as triggers for the Lambda.
 
-    If you need to add multiple log groups to the Lambda function using regex, refer to our [Lambda manager](https://github.com/coralogix/coralogix-aws-serverless/tree/master/src/lambda-manager#coralogix-lambda-manager)
+If you need to add multiple log groups to the Lambda function using regex, refer to our [Lambda manager](https://github.com/coralogix/coralogix-aws-serverless/tree/master/src/lambda-manager#coralogix-lambda-manager).
 
 ### SNS configuration
 
@@ -317,31 +317,31 @@ The `AddMetadata` parameter allows you to add metadata to the log message. The m
 > Metadata is not added by default. You must specify the metadata keys you want in the `AddMetadata` parameter. For example, if you want to add the bucket name and key name to the log message, set the `AddMetadata` parameter to `s3.object.key,s3.bucket`.
 > Some metadata keys will overlap as some integrations share the same metadata. For example, both Kafka and MSK have the same metadata key `kafka.topic` or both Kinesis and CloudWatch metadata will be included when a CloudWatch log stream is ingested from a Kinesis stream.
 
-##### Dynamic subsystem or application name
+#### Dynamic subsystem or application name
 
 As of `v1.1.0`, you can use dynamic values for the application and subsystem name parameters based on the internal metadata defined above.
 
 To do this, use the following syntax:
 
-```
+```text
 {{ metadata.key | r'regex' }}
 ```
 
 For example, if you want to use the bucket name as the subsystem name, set the `SubsystemName` parameter to:
 
-```
+```text
 {{ s3.bucket }}
 ```
 
 If you want to use the log group name as the application name, set the `ApplicationName` parameter to:
 
-```
+```text
 {{ cw.log.group }}
 ```
 
 To extract only a specific portion of the metadata value, you can utilize a regular expression. For example, if there is `s3.object.key` value in the `AWSLogs/112322232/ELB1/elb.log` and we want to extract the last part as the subsystem name, we would set the `SubsystemName` parameter to:
 
-```
+```text
 {{ s3.object.key | r'AWSLogs\/.+\/(.*)$' }}
 ```
 
@@ -349,37 +349,39 @@ This would result in a SubsystemName value of `elb.log` as this is the part of t
 
 If you want to use a json key value as the application name, you would set the `ApplicationName` parameter to:
 
-```
+```text
 {{ $.eventSource }}
 ```
+
 Assume the log is a CloudTrail log and the eventSource is `s3.amazonaws.com` then the application name will be `s3.amazonaws.com`.
 
 > [!IMPORTANT]
->  The regex must be a valid regex pattern.
->  The regex must define a capture group for part of the string that you want to use as the value.
->  The metadata key must exist in the list defined above and be a part of the integration type that is deployed.
->  Dynamic values are only supported for the `ApplicationName` and `SubsystemName` parameters, the `CustomMetadata` parameter is not supported.
+> The regex must be a valid regex pattern.
+> The regex must define a capture group for part of the string that you want to use as the value.
+> The metadata key must exist in the list defined above and be a part of the integration type that is deployed.
+> Dynamic values are only supported for the `ApplicationName` and `SubsystemName` parameters, the `CustomMetadata` parameter is not supported.
 
 #### Fallback Behavior
 
 The dynamic metadata system follows predictable fallback rules:
 
 **Template Values (e.g., `{{ cw.log.group | r'...' }}`):**
+
 - If the metadata key exists and regex matches → uses the captured group
 - If the metadata key exists but regex fails → uses the raw metadata value
 - If the metadata key doesn't exist → uses defaults (`unknown-application`/`unknown-subsystem`)
 
 **Non-Template Values (e.g., `"MyStaticApp"`):**
-- Always uses the exact configured value, regardless of available metadata
 
+- Always uses the exact configured value, regardless of available metadata
 
 ### Advanced configuration
 
-**AWS PrivateLink**
+#### AWS PrivateLink
 
 If you want to bypass using the public internet, you can use AWS PrivateLink to facilitate secure connections between your VPCs and AWS. This option is available under the [VPC Configuration](#vpc-configuration-optional) tab. To turn it on, either unselect the **Use Private Link** checkbox in the Coralogix UI or set the parameter to `true`. For additional instructions on AWS PrivateLink, please [follow our dedicated tutorial](https://coralogix.com/docs/coralogix-amazon-web-services-aws-privatelink-endpoints/).
 
-**Dynamic values**
+#### Dynamic values
 
 > [!NOTE]
 > The following method for using dynamic values will change to the method defined above in `coralogix-aws-shipper v1.1.0` and later. This approach will no longer be supported. Please check the new method in the [Metadata](#metadata) section.
@@ -409,9 +411,8 @@ To enable the DLQ, provide the following parameters.
 | DLQRetryLimit | The number of times a failed event should be retried before being saved in S3. | 3             | :heavy_check_mark: |
 | DLQRetryDelay | The delay in seconds between retries of failed events.                         | 900           | :heavy_check_mark: |
 
-
 > [!NOTE]
-> In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the Lambda is created you can manually change the permissions to only allow 
+> In the template we use `arn:aws:s3:::*` for the S3 integration because of CF limitation. It is not an option to loop through the s3 bucket and specify permissions to each one. After the Lambda is created you can manually change the permissions to only allow
 > access to your S3 buckets.
 
 ## Log Transformation (Starlark)
@@ -430,6 +431,7 @@ Starlark is a Python-like configuration language. For the complete language spec
 - [Starlark Language Specification](https://github.com/bazelbuild/starlark/blob/master/spec.md)
 
 **Quick reference for log transformation scripts:**
+
 - **Data types:** `None`, `bool`, `int`, `float`, `string`, `list`, `dict`, `tuple`
 - **String methods:** `split()`, `strip()`, `lower()`, `upper()`, `replace()`, `startswith()`, `endswith()`, `find()`, `format()`
 - **List methods:** `append()`, `extend()`, `insert()`, `pop()`, `remove()`, `clear()`
@@ -452,6 +454,7 @@ The system automatically detects which type you're using, so you only need to se
 ### Writing a Transform Script
 
 Your script must define a `transform(event)` function that:
+
 - Takes a single `event` argument (a parsed JSON object or string)
 - Returns a **list** of events (can be empty, single, or multiple)
 
@@ -509,20 +512,23 @@ def transform(event):
 > [!TIP]
 > To inspect the exact shape of your events, use `print(event)` in your script and set the `LogLevel` parameter to `DEBUG`. The event will appear in CloudWatch Logs for the Lambda function.
 
-**Example: Simple passthrough**
+#### Example: Simple passthrough
+
 ```python
 def transform(event):
     return [event]
 ```
 
-**Example: Unnest a JSON array**
+#### Example: Unnest a JSON array
 
 If your logs arrive as batched JSON with a nested array:
+
 ```json
 {"logs": [{"msg": "log1"}, {"msg": "log2"}, {"msg": "log3"}]}
 ```
 
 Use this script to unnest them into individual log entries:
+
 ```python
 def transform(event):
     if "logs" in event and type(event["logs"]) == "list":
@@ -530,7 +536,8 @@ def transform(event):
     return [event]
 ```
 
-**Example: Filter out debug logs**
+#### Example: Filter out debug logs
+
 ```python
 def transform(event):
     if event.get("level") == "DEBUG":
@@ -538,7 +545,8 @@ def transform(event):
     return [event]
 ```
 
-**Example: Enrich logs with metadata**
+#### Example: Enrich logs with metadata
+
 ```python
 def transform(event):
     event["processed"] = True
@@ -559,7 +567,7 @@ The following helper functions are available in your Starlark scripts:
 
 When the `StarlarkScript` value starts with `s3://`, the Lambda function automatically fetches the script from S3. The CloudFormation template automatically adds the necessary permissions when `StarlarkScript` is set.
 
-```
+```yaml
 StarlarkScript: s3://my-config-bucket/starlark/transform.star
 ```
 
@@ -567,7 +575,7 @@ StarlarkScript: s3://my-config-bucket/starlark/transform.star
 
 You can host your script on any HTTP/HTTPS endpoint:
 
-```
+```yaml
 StarlarkScript: https://raw.githubusercontent.com/myorg/scripts/main/transform.star
 ```
 
@@ -599,7 +607,7 @@ AWS Firehose does not support PrivateLink endpoints as a destination because Fir
 
 ### When to use this workflow
 
-This workflow is designed to bypass the limitations of using Firehose with the Coralogix PrivateLink endpoint. If PrivateLink is not required, we recommend using the default Firehose integration for CloudWatch Stream Metrics, available [here](https://coralogix.com/docs/integrations/aws/amazon-data-firehose/aws-cloudwatch-metric-streams-with-amazon-data-firehose/).
+This workflow is designed to bypass the limitations of using Firehose with the Coralogix PrivateLink endpoint. If PrivateLink is not required, we recommend using the default [Firehose CloudWatch metrics stream integration](https://coralogix.com/docs/integrations/aws/amazon-data-firehose/aws-cloudwatch-metric-streams-with-amazon-data-firehose/).
 
 ### How does it work?
 
@@ -742,33 +750,32 @@ Change `IntegrationType` and add the parameters required for that integration (r
 
 ## Troubleshooting
 
-**Parameter max value**
+### Parameter max value
 
 If you tried to deploy the integration and received the `length is greater than 4094` error, you can upload the value of the parameter to an S3 bucket as txt. Then, pass the file URL as the parameter value (this option is available for `KafkaTopic` and `CloudWatchLogGroupName` parameters).
 
-**Timeout errors**
+### Timeout errors
 
 If you receive the `Task timed out after` message, increase the Lambda timeout value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
 
-**Not enough memory**
+### Not enough memory
 
 If you receive the `Task out of memory` message, increase the Lambda maximum צemory value. You can do this from the AWS Lambda function settings under **Configuration** > **General Configuration**.
 
-**Verbose logs**
+### Verbose logs
 
 To add more verbosity to your function logs, set the `RUST_LOG` parameter to `DEBUG`.
 
-**Trigger failed on deployment** 
+### Trigger failed on deployment
 
 If the deployment fails while assigning the trigger, ensure that no notifications are enabled for the S3 bucket. For CloudWatch, note that the maximum number of notifications per Log Group is 2.
 
 > [!WARNING]
 > Don't forget to revert it to `WARN` after troubleshooting.
 
-**Changing defaults**
+### Changing defaults
 
 Set the `MAX_ELAPSED_TIME` variable for the default change (default = 250). The `BATCHES_MAX_SIZE` (in MB) defines the maximum batch size before sending data to Coralogix. This value is limited by the maximum payload accepted by the Coralogix endpoint (default = 4). The `BATCHES_MAX_CONCURRENCY` sets the maximum number of concurrent batches that can be sent.
-
 
 ## Support
 
