@@ -1,17 +1,32 @@
 name: coralogix-aws-shipper tests
 on:
-  pull_request: 
+  pull_request:
     types: [opened, synchronize, reopened, labeled]
     branches:
       - master
       - dev
     paths:
+      - ".cfnlintrc"
+      - ".github/workflows/**"
+      - ".pre-commit-config.yaml"
       - "src/**"
+      - "tests/**"
+      - "benches/**"
+      - "examples/**"
+      - "build.rs"
+      - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "template.yaml"
       - "requirements.txt"
+      - "deny.toml"
+      - "template.yaml"
+      - "template-govcloud.yaml"
+      - "custom-resource/**"
+      - "custom-resource-govcloud/**"
       - "Makefile"
+      - "ci/*.sh"
+      - "ci/Dockerfile*"
+      - "scripts/*.sh"
 
 jobs:
   test:
@@ -20,35 +35,213 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: classify changed files
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          cfn_lint=false
+          python=false
+          rust_source=false
+          rust_deps=false
+          sam_lint=false
+          workflow=false
+          tests_workflow=false
+          shell=false
+          dockerfile=false
+
+          while IFS= read -r file; do
+            case "$file" in
+              .cfnlintrc)
+                cfn_lint=true
+                sam_lint=true
+                ;;
+              template.yaml|template-govcloud.yaml)
+                cfn_lint=true
+                sam_lint=true
+                ;;
+              custom-resource/*|custom-resource-govcloud/*)
+                python=true
+                ;;
+              src/*|tests/*|benches/*|examples/*|build.rs|rust-toolchain.toml|Makefile)
+                rust_source=true
+                ;;
+              Cargo.toml|Cargo.lock)
+                rust_deps=true
+                rust_source=true
+                ;;
+              deny.toml)
+                rust_deps=true
+                ;;
+              .github/workflows/tests.yaml)
+                workflow=true
+                tests_workflow=true
+                ;;
+              .github/workflows/*)
+                workflow=true
+                ;;
+              .pre-commit-config.yaml)
+                python=true
+                ;;
+              ci/*.sh|scripts/*.sh)
+                shell=true
+                ;;
+              requirements.txt|ci/Dockerfile*)
+                dockerfile=true
+                ;;
+            esac
+          done < <(git diff --name-only "$BASE_SHA" HEAD)
+
+          # Editing this workflow should validate the lint/security wiring without
+          # forcing runtime Rust tests when Rust source did not change.
+          if [ "$tests_workflow" = true ]; then
+            cfn_lint=true
+            python=true
+            rust_deps=true
+            sam_lint=true
+            shell=true
+            dockerfile=true
+          fi
+
+          {
+            echo "cfn_lint=$cfn_lint"
+            echo "python=$python"
+            echo "rust_source=$rust_source"
+            echo "rust_deps=$rust_deps"
+            echo "sam_lint=$sam_lint"
+            echo "workflow=$workflow"
+            echo "shell=$shell"
+            echo "dockerfile=$dockerfile"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Changed-file check selection"
+            echo "- cfn-lint: $cfn_lint"
+            echo "- Python custom-resource lint/type checks: $python"
+            echo "- Rust source checks: $rust_source"
+            echo "- Rust dependency policy checks: $rust_deps"
+            echo "- SAM template lint: $sam_lint"
+            echo "- GitHub Actions workflow lint: $workflow"
+            echo "- Shell script lint: $shell"
+            echo "- Dockerfile lint: $dockerfile"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Go
+        if: ${{ steps.changes.outputs.workflow == 'true' }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: false
+
+      - name: lint GitHub Actions workflows
+        if: ${{ steps.changes.outputs.workflow == 'true' }}
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -color=false -shellcheck=
+
+      - name: Set up SAM CLI
+        if: ${{ steps.changes.outputs.sam_lint == 'true' }}
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Run SAM template lint
+        if: ${{ steps.changes.outputs.sam_lint == 'true' }}
+        env:
+          SAM_CLI_TELEMETRY: 0
+        run: |
+          sam validate --template template.yaml --lint
+          sam validate --template template-govcloud.yaml --lint
 
       - name: Set up Python
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-  
+          python-version: '3.12'
+
       - name: Install dependencies
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' }}
         run: |
-          pip install cfn-lint
-          
-        # validate the template file 
+          pip install cfn-lint ruff
+
+      # validate the template files
       - name: Run cfn-lint
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' }}
         run: |
-          cfn-lint --template template.yaml --region us-east-1 --config-file .cfn-lint.yaml
-          
-      - name: Install latest Rust
-        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
-        uses: actions-rs/toolchain@v1
+          cfn-lint --template template.yaml --region us-east-1 --config-file .cfnlintrc
+          cfn-lint --template template-govcloud.yaml --region us-gov-west-1 --config-file .cfnlintrc
+
+      - name: lint Python custom resources
+        if: ${{ steps.changes.outputs.python == 'true' }}
+        run: |
+          ruff check custom-resource/ custom-resource-govcloud/
+          ruff format --check custom-resource/ custom-resource-govcloud/
+
+      - name: Install Rust
+        if: ${{ (steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test')) || steps.changes.outputs.rust_deps == 'true' }}
+        uses: dtolnay/rust-toolchain@1.93.0
         with:
-          toolchain: stable
-          override: true
-          
+          components: rustfmt, clippy
+
+      - name: add github ssh known host
+        if: ${{ (steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test')) || steps.changes.outputs.rust_deps == 'true' }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
+
       - name: start ssh agent for rust private dependencies
-        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
-        uses: webfactory/ssh-agent@v0.8.0
+        if: ${{ (steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test')) || steps.changes.outputs.rust_deps == 'true' }}
+        uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      - name: rustfmt
+        if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
+        run: |
+          cargo fmt --all --check
+
+      - name: clippy
+        if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
+        run: |
+          cargo clippy --all-targets -- -D warnings
+
+      - name: cargo deny
+        if: ${{ steps.changes.outputs.rust_deps == 'true' }}
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/cargo-deny"
+          curl -L https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/cargo-deny" --strip-components=1
+          "$RUNNER_TEMP/cargo-deny/cargo-deny" check advisories licenses bans sources
+
+      - name: shellcheck
+        if: ${{ steps.changes.outputs.shell == 'true' }}
+        run: |
+          shellcheck ci/*.sh scripts/*.sh
+
+      - name: hadolint
+        if: ${{ steps.changes.outputs.dockerfile == 'true' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/hadolint"
+          curl -sSfL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 \
+            -o "$RUNNER_TEMP/hadolint/hadolint"
+          chmod +x "$RUNNER_TEMP/hadolint/hadolint"
+          dockerfiles=()
+          while IFS= read -r dockerfile; do
+            dockerfiles+=("$dockerfile")
+          done < <(find ci -maxdepth 1 -type f -name 'Dockerfile*' -print | sort)
+          if [ "${#dockerfiles[@]}" -eq 0 ]; then
+            echo "No Dockerfiles found under ci/"
+            exit 0
+          fi
+          "$RUNNER_TEMP/hadolint/hadolint" "${dockerfiles[@]}"
+
       - name: run tests
-        if: "!contains(github.event.pull_request.labels.*.name, 'skip-test')"
+        if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
         run: |
           cargo test --all -- --nocapture

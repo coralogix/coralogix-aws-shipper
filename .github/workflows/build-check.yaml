@@ -13,6 +13,7 @@ on:
       - "src/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "requirements.txt"
       - "Makefile"
       - "template.yaml"
       - "ci/**"
@@ -21,8 +22,9 @@ on:
 jobs:
   fips-build:
     name: fips build (${{ matrix.arch }}, provided.al2023)
-    # Allow skipping with a label, mirroring the tests.yaml `skip-test` pattern.
-    if: "!contains(github.event.pull_request.labels.*.name, 'skip-build-check')"
+    # Allow skipping with the existing skip-test label, or the build-specific
+    # skip-build-check label if it is added to the repo later.
+    if: "!contains(github.event.pull_request.labels.*.name, 'skip-test') && !contains(github.event.pull_request.labels.*.name, 'skip-build-check')"
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read

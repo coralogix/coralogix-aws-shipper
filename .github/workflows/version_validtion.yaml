@@ -26,11 +26,12 @@ jobs:
           echo pull
           git fetch origin
           echo fetch
-          branch_name=${{ github.head_ref }}
-          git checkout ${{ github.head_ref }}
+          branch_name="$HEAD_REF"
+          git checkout "$HEAD_REF"
           echo "branch_name=$branch_name" >> $GITHUB_ENV
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          HEAD_REF: ${{ github.head_ref }}
 
       - name: check template and cargo version
         run: |

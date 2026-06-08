@@ -187,6 +187,25 @@ jobs:
           PREBUILT_BOOTSTRAP: ${{ github.workspace }}/.build-artifacts/bootstrap
         run: sam build
 
+      - name: verify glibc compatibility
+        run: |
+          MAX_GLIBC="2.34"
+          BOOTSTRAP=$(find .aws-sam -name bootstrap -type f | head -1)
+          if [ -z "$BOOTSTRAP" ]; then
+            echo "ERROR: bootstrap binary was not found under .aws-sam"
+            exit 1
+          fi
+          FOUND=$(readelf -V "$BOOTSTRAP" 2>/dev/null | grep -oP 'GLIBC_\K[\d.]+' | sort -V | tail -1 || true)
+          if [ -z "$FOUND" ]; then
+            echo "No GLIBC symbol versioning found; OK (statically linked)"
+            exit 0
+          fi
+          if [ "$(printf '%s\n' "$MAX_GLIBC" "$FOUND" | sort -V | tail -1)" != "$MAX_GLIBC" ]; then
+            echo "ERROR: binary requires GLIBC $FOUND but Lambda maximum is $MAX_GLIBC"
+            exit 1
+          fi
+          echo "OK: max GLIBC requirement is $FOUND (<= $MAX_GLIBC)"
+
       - name: package
         run: |
           sam package \
