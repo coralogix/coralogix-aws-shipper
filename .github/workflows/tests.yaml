@@ -151,7 +151,7 @@ jobs:
 
       - name: Set up SAM CLI
         if: ${{ steps.changes.outputs.sam_lint == 'true' }}
-        uses: aws-actions/setup-sam@v2
+        uses: aws-actions/setup-sam@v3
         with:
           use-installer: true
 
