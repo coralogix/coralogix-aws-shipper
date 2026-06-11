@@ -72,7 +72,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
       - name: cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo-registry
           key: cargo-registry-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
