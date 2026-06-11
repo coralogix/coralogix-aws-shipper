@@ -49,7 +49,7 @@ jobs:
 
 
       - name: update the version
-        uses: planetscale/ghcommit-action@v0.1.19
+        uses: planetscale/ghcommit-action@v0.2.22
         with:
           commit_message: "align cargo.toml version with template version"
           repo: coralogix/coralogix-aws-shipper
