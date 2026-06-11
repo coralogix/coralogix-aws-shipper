@@ -142,7 +142,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: build AL2023 builder image (cached, native ${{ matrix.target }})
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ci/Dockerfile.builder
