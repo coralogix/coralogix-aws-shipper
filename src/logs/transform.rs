@@ -25,6 +25,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use regex::Regex;
+
 use crate::logs::config::Config;
 use aws_config::SdkConfig;
 use starlark::collections::SmallMap;
@@ -337,6 +339,18 @@ fn starlark_extras(builder: &mut GlobalsBuilder) {
     fn to_json(v: Value) -> anyhow::Result<String> {
         let json = starlark_to_json(v).map_err(|e| anyhow::anyhow!(e))?;
         Ok(serde_json::to_string(&json)?)
+    }
+
+    /// Return true if `pattern` matches anywhere in `text`.
+    fn re_match(pattern: &str, text: &str) -> anyhow::Result<bool> {
+        let re = Regex::new(pattern)?;
+        Ok(re.is_match(text))
+    }
+
+    /// Replace all non-overlapping matches of `pattern` in `text` with `replacement`.
+    fn re_sub(pattern: &str, replacement: &str, text: &str) -> anyhow::Result<String> {
+        let re = Regex::new(pattern)?;
+        Ok(re.replace_all(text, replacement).into_owned())
     }
 }
 
