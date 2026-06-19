@@ -558,10 +558,12 @@ def transform(event):
 
 The following helper functions are available in your Starlark scripts:
 
-| Function            | Description                                      |
-|---------------------|--------------------------------------------------|
-| `parse_json(str)`   | Parse a JSON string into a Starlark value        |
-| `to_json(value)`    | Convert a Starlark value to a JSON string        |
+| Function                             | Description                                                  |
+|--------------------------------------|--------------------------------------------------------------|
+| `parse_json(str)`                    | Parse a JSON string into a Starlark value                    |
+| `to_json(value)`                     | Convert a Starlark value to a JSON string                    |
+| `re_match(pattern, str)`             | Return `True` if `str` matches the regex `pattern`           |
+| `re_sub(pattern, replacement, str)`  | Replace all matches of `pattern` in `str` with `replacement` |
 
 ### Using S3 for Script Storage
 
