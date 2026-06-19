@@ -234,7 +234,7 @@ impl StarlarkTransformer {
             .map_err(|e| TransformError::ParseError(e.to_string()))?;
 
         // Create globals: standard + print (writes to stderr, captured by Lambda/CloudWatch)
-        // + our custom extras (parse_json, to_json)
+        // + our custom extras (parse_json, to_json, re_match, re_sub)
         let globals = GlobalsBuilder::extended_by(&[LibraryExtension::Print])
             .with(starlark_extras)
             .build();

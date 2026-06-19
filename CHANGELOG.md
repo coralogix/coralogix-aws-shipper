@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.10 / 2026-06-19
+
+### 💡 Enhancements 💡
+
+- **Starlark regex builtins:** Add `re_match` and `re_sub` to `starlark_extras` for pattern matching and replacement in transformation scripts (fixes [#211](https://github.com/coralogix/coralogix-aws-shipper/issues/211)).
+
 ## v1.4.9 / 2026-06-07
 
 ### 💡 Enhancements 💡
