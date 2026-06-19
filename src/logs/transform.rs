@@ -22,7 +22,9 @@
 //!     return [event]
 //! ```
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use regex::Regex;
@@ -323,6 +325,60 @@ impl StarlarkTransformer {
 }
 
 // ============================================================================
+// Regex cache
+// ============================================================================
+
+/// Maximum compiled patterns kept in memory. Typical scripts use a handful of
+/// fixed literals; this bounds growth when patterns are derived per record.
+const REGEX_CACHE_MAX: usize = 64;
+
+struct RegexCache {
+    entries: HashMap<String, Arc<Regex>>,
+    order: Vec<String>,
+}
+
+impl RegexCache {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: Vec::new(),
+        }
+    }
+
+    fn get_or_compile(&mut self, pattern: &str) -> anyhow::Result<Arc<Regex>> {
+        if let Some(re) = self.entries.get(pattern) {
+            return Ok(Arc::clone(re));
+        }
+
+        let re = Arc::new(Regex::new(pattern)?);
+        if self.entries.len() >= REGEX_CACHE_MAX {
+            if let Some(oldest) = self.order.first() {
+                self.entries.remove(oldest);
+                self.order.remove(0);
+            }
+        }
+        self.order.push(pattern.to_owned());
+        self.entries.insert(pattern.to_owned(), Arc::clone(&re));
+        Ok(re)
+    }
+}
+
+/// Process-wide cache shared by the cached Starlark transformer in a Lambda
+/// container. Avoids recompiling the same literal pattern on every log record.
+static REGEX_CACHE: OnceLock<StdMutex<RegexCache>> = OnceLock::new();
+
+fn regex_cache() -> &'static StdMutex<RegexCache> {
+    REGEX_CACHE.get_or_init(|| StdMutex::new(RegexCache::new()))
+}
+
+fn cached_regex(pattern: &str) -> anyhow::Result<Arc<Regex>> {
+    let mut cache = regex_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.get_or_compile(pattern)
+}
+
+// ============================================================================
 // Starlark Built-in Functions
 // ============================================================================
 
@@ -343,13 +399,13 @@ fn starlark_extras(builder: &mut GlobalsBuilder) {
 
     /// Return true if `pattern` matches anywhere in `text`.
     fn re_match(pattern: &str, text: &str) -> anyhow::Result<bool> {
-        let re = Regex::new(pattern)?;
+        let re = cached_regex(pattern)?;
         Ok(re.is_match(text))
     }
 
     /// Replace all non-overlapping matches of `pattern` in `text` with `replacement`.
     fn re_sub(pattern: &str, replacement: &str, text: &str) -> anyhow::Result<String> {
-        let re = Regex::new(pattern)?;
+        let re = cached_regex(pattern)?;
         Ok(re.replace_all(text, replacement).into_owned())
     }
 }
@@ -529,5 +585,31 @@ fn starlark_to_json_strings(value: Value) -> Result<Vec<String>, TransformError>
             value,
             value.get_type()
         )))
+    }
+}
+
+#[cfg(test)]
+mod regex_cache_tests {
+    use super::*;
+
+    #[test]
+    fn cached_regex_reuses_compiled_pattern() {
+        let re1 = cached_regex(r"\d+").unwrap();
+        let re2 = cached_regex(r"\d+").unwrap();
+        assert!(Arc::ptr_eq(&re1, &re2));
+    }
+
+    #[test]
+    fn cached_regex_does_not_cache_invalid_patterns() {
+        let pattern = "[invalid-cache-test-xyz";
+        let err = cached_regex(pattern).unwrap_err();
+        assert!(err.to_string().contains("regex"));
+        assert!(
+            !regex_cache()
+                .lock()
+                .unwrap()
+                .entries
+                .contains_key(pattern)
+        );
     }
 }
