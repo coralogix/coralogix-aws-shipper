@@ -604,12 +604,6 @@ mod regex_cache_tests {
         let pattern = "[invalid-cache-test-xyz";
         let err = cached_regex(pattern).unwrap_err();
         assert!(err.to_string().contains("regex"));
-        assert!(
-            !regex_cache()
-                .lock()
-                .unwrap()
-                .entries
-                .contains_key(pattern)
-        );
+        assert!(!regex_cache().lock().unwrap().entries.contains_key(pattern));
     }
 }
