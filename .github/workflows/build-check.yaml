@@ -3,7 +3,8 @@ name: build check
 # Dry-run build gate: when a PR is opened against master, compile the FIPS-enabled
 # Lambda inside an Amazon Linux 2023 builder (native compiler, glibc 2.34) for BOTH
 # architectures, to catch broken / incompatible dependencies before merge.
-# No publish, no SAR, no S3.
+# No publish, no SAR, no S3. The only persisted output is a short-lived GitHub
+# Actions artifact for the private shipper-e2e suite to verify before use.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
@@ -36,12 +37,16 @@ jobs:
       matrix:
         include:
           - arch: arm64
+            artifact_arch: arm64
             runner: ubuntu-24.04-arm
           - arch: amd64
+            artifact_arch: x86-64
             runner: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: verify private dependency SSH key is available
         env:
@@ -52,6 +57,12 @@ jobs:
             echo "::error::For Dependabot PRs, configure SSH_PRIVATE_KEY as a repository or organization Dependabot secret with access to coralogix-sdk-rust."
             exit 1
           fi
+
+      - name: verify checkout sha
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
       - name: start ssh agent for rust private dependencies
         uses: webfactory/ssh-agent@v0.9.0
@@ -94,3 +105,60 @@ jobs:
         run: |
           file .build-artifacts/bootstrap
           ls -la .build-artifacts/
+
+      - name: package shipper e2e artifact
+        env:
+          ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
+          BUILD_ARCH: ${{ matrix.arch }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          WORKFLOW_PATH: .github/workflows/build-check.yaml
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          artifact_name="coralogix-aws-shipper-${ARTIFACT_ARCH}.zip"
+          metadata_name="coralogix-aws-shipper-${ARTIFACT_ARCH}.metadata.json"
+          output_dir="${RUNNER_TEMP}/shipper-e2e-artifacts"
+
+          test -f .build-artifacts/bootstrap
+          rm -rf "${output_dir}"
+          mkdir -p "${output_dir}"
+
+          zip -j "${output_dir}/${artifact_name}" .build-artifacts/bootstrap
+          artifact_digest="sha256:$(sha256sum "${output_dir}/${artifact_name}" | awk '{print $1}')"
+          artifact_size="$(wc -c < "${output_dir}/${artifact_name}" | tr -d '[:space:]')"
+
+          python3 - <<PY
+          import json
+          from pathlib import Path
+
+          metadata = {
+              "artifact_name": "${artifact_name}",
+              "artifact_digest": "${artifact_digest}",
+              "artifact_size": int("${artifact_size}"),
+              "architecture": "${ARTIFACT_ARCH}",
+              "build_arch": "${BUILD_ARCH}",
+              "source_sha": "${SOURCE_SHA}",
+              "workflow_path": "${WORKFLOW_PATH}",
+              "github_run_id": "${GITHUB_RUN_ID_VALUE}",
+              "github_run_attempt": "${GITHUB_RUN_ATTEMPT_VALUE}",
+              "zip_root": "bootstrap",
+          }
+          Path("${output_dir}/${metadata_name}").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          cat "${output_dir}/${metadata_name}"
+
+      - name: upload shipper e2e artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coralogix-aws-shipper-${{ matrix.artifact_arch }}.zip
+          path: |
+            ${{ runner.temp }}/shipper-e2e-artifacts/coralogix-aws-shipper-${{ matrix.artifact_arch }}.zip
+            ${{ runner.temp }}/shipper-e2e-artifacts/coralogix-aws-shipper-${{ matrix.artifact_arch }}.metadata.json
+          if-no-files-found: error
+          retention-days: 3
