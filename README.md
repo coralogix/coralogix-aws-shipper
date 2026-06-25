@@ -558,10 +558,24 @@ def transform(event):
 
 The following helper functions are available in your Starlark scripts:
 
-| Function            | Description                                      |
-|---------------------|--------------------------------------------------|
-| `parse_json(str)`   | Parse a JSON string into a Starlark value        |
-| `to_json(value)`    | Convert a Starlark value to a JSON string        |
+| Function                             | Description                                                  |
+|--------------------------------------|--------------------------------------------------------------|
+| `parse_json(str)`                    | Parse a JSON string into a Starlark value                    |
+| `to_json(value)`                     | Convert a Starlark value to a JSON string                    |
+| `re_match(pattern, str)`             | Return `True` if `str` matches the regex `pattern`           |
+| `re_sub(pattern, replacement, str)`  | Replace all matches of `pattern` in `str` with `replacement` |
+
+`re_match` and `re_sub` use the Rust [`regex`](https://docs.rs/regex/latest/regex/) crate (not PCRE). Lookahead, lookbehind, and backreferences are not supported. In `re_sub`, capture groups can be referenced in the replacement string with `$1`, `$2`, and so on (`$$` for a literal `$`).
+
+#### Example: Redact sensitive values with regex
+
+```python
+def transform(event):
+    msg = event.get("message", "")
+    if re_match(r"password=\S+", msg):
+        event["message"] = re_sub(r"password=\S+", "password=***", msg)
+    return [event]
+```
 
 ### Using S3 for Script Storage
 

@@ -176,6 +176,39 @@ fn test_starlark_parse_json_invalid() {
 }
 
 #[test]
+fn test_starlark_re_match_builtin() {
+    let script = include_str!("../fixtures/starlark/re_match_builtin.star");
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let input = include_str!("../fixtures/starlark/re_match_builtin.log").trim();
+    let result = transformer.transform(input).unwrap();
+    assert_eq!(result.len(), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+    assert_eq!(parsed["matched"], true);
+    assert_eq!(parsed["unmatched"], false);
+}
+
+#[test]
+fn test_starlark_re_sub_builtin() {
+    let script = include_str!("../fixtures/starlark/re_sub_builtin.star");
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let input = include_str!("../fixtures/starlark/re_sub_builtin.log").trim();
+    let result = transformer.transform(input).unwrap();
+    assert_eq!(result.len(), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+    assert_eq!(parsed["redacted"], "user=admin password=***");
+    assert_eq!(parsed["extracted"], "uid:admin password=secret123");
+}
+
+#[test]
+fn test_starlark_re_match_invalid() {
+    let script = include_str!("../fixtures/starlark/re_match_invalid.star");
+    let transformer = StarlarkTransformer::new(script).unwrap();
+    let result = transformer.transform(r#"{"msg": "test"}"#);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(StarlarkError::EvalError(_))));
+}
+
+#[test]
 fn test_starlark_print_builtin() {
     // Verify that print() works without causing runtime errors.
     // Print output goes to stderr (captured by Lambda/CloudWatch).
