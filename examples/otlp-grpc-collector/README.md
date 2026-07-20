@@ -36,7 +36,9 @@ LambdaSecurityGroupID=<collector-egress-security-group>
 
 Use `http://<collector-private-host>:4317` for the included plaintext receiver.
 For a TLS-enabled listener, use its `https://` origin and trusted certificate.
-The endpoint must be an origin without a path or query string.
+The endpoint must be an origin without a path, query string, or URI userinfo.
+Values such as `http://user:password@collector-private-host:4317` are rejected;
+configure Collector authentication outside the endpoint URI.
 
 Place the Lambda in subnets that can route to the Collector and configure its
 security group to allow egress to the listener. Allow corresponding ingress on

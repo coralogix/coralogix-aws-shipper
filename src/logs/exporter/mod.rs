@@ -12,6 +12,75 @@ use rest::CoralogixRestExporter;
 pub mod otlp;
 pub mod rest;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OtlpFailureClassification {
+    Server,
+    Client,
+    Blocked,
+    Unknown,
+    Unclassified,
+}
+
+impl std::fmt::Display for OtlpFailureClassification {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Server => "server_error",
+            Self::Client => "client_error",
+            Self::Blocked => "blocked",
+            Self::Unknown => "unknown_error",
+            Self::Unclassified => "unclassified_error",
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct OtlpResponseError {
+    classification: OtlpFailureClassification,
+    grpc_status: &'static str,
+}
+
+impl OtlpResponseError {
+    pub(crate) fn new(
+        classification: OtlpFailureClassification,
+        grpc_status: &'static str,
+    ) -> Self {
+        Self {
+            classification,
+            grpc_status,
+        }
+    }
+
+    pub(crate) fn classification(&self) -> OtlpFailureClassification {
+        self.classification
+    }
+
+    pub(crate) fn grpc_status(&self) -> &'static str {
+        self.grpc_status
+    }
+}
+
+impl std::fmt::Debug for OtlpResponseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OtlpResponseError")
+            .field("classification", &self.classification.to_string())
+            .field("grpc_status", &self.grpc_status)
+            .finish()
+    }
+}
+
+impl std::fmt::Display for OtlpResponseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "OTLP log export failed (classification={}, grpc_status={})",
+            self.classification, self.grpc_status
+        )
+    }
+}
+
+impl std::error::Error for OtlpResponseError {}
+
 #[derive(Debug, Error)]
 pub enum LogExportError {
     #[error("REST exporter initialization failed: {0}")]
@@ -20,8 +89,8 @@ pub enum LogExportError {
     Rest(#[from] cx_sdk_rest_logs::Error),
     #[error("OTLP initialization failed: {0}")]
     OtlpInitialization(String),
-    #[error("OTLP log export failed: {0}")]
-    OtlpResponse(String),
+    #[error("{0}")]
+    OtlpResponse(OtlpResponseError),
     #[error("one encoded OTLP log record exceeds the configured request limit")]
     OversizedRecord,
 }
@@ -82,6 +151,26 @@ fn build_exporter_from(
     max_request_bytes: usize,
 ) -> Result<DynLogExporter, LogExportError> {
     let destination = startup_destination(export);
+    let exporter: DynLogExporter = match export {
+        LogExportConfig::CoralogixRest { endpoint, api_key } => Arc::new(
+            CoralogixRestExporter::new(endpoint.clone(), api_key.clone(), max_elapsed_time)?,
+        ),
+        LogExportConfig::CollectorOtlpGrpc { endpoint } => Arc::new(OtlpGrpcExporter::new(
+            endpoint.clone(),
+            AuthData::default(),
+            max_elapsed_time,
+            max_request_bytes,
+        )?),
+        LogExportConfig::CoralogixOtlpGrpc { endpoint, api_key } => {
+            Arc::new(OtlpGrpcExporter::new(
+                endpoint.clone(),
+                AuthData::from(api_key),
+                max_elapsed_time,
+                max_request_bytes,
+            )?)
+        }
+    };
+
     tracing::info!(
         protocol = destination.protocol,
         destination_type = destination.destination_type,
@@ -89,25 +178,7 @@ fn build_exporter_from(
         "Configured log export destination"
     );
 
-    match export {
-        LogExportConfig::CoralogixRest { endpoint, api_key } => Ok(Arc::new(
-            CoralogixRestExporter::new(endpoint.clone(), api_key.clone(), max_elapsed_time)?,
-        )),
-        LogExportConfig::CollectorOtlpGrpc { endpoint } => Ok(Arc::new(OtlpGrpcExporter::new(
-            endpoint.clone(),
-            AuthData::default(),
-            max_elapsed_time,
-            max_request_bytes,
-        )?)),
-        LogExportConfig::CoralogixOtlpGrpc { endpoint, api_key } => {
-            Ok(Arc::new(OtlpGrpcExporter::new(
-                endpoint.clone(),
-                AuthData::from(api_key),
-                max_elapsed_time,
-                max_request_bytes,
-            )?))
-        }
-    }
+    Ok(exporter)
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@ use cx_sdk_otlp::{
 use prost_014::Message;
 
 use crate::logs::{
-    exporter::{LogExportError, LogExporter},
+    exporter::{LogExportError, LogExporter, OtlpFailureClassification, OtlpResponseError},
     model::{LogSeverity, ProcessedLog},
 };
 
@@ -75,34 +75,64 @@ impl OtlpTransport for SdkOtlpTransport {
                 attempt_count,
             }),
             Err(error) => {
-                let (sdk_status, grpc_status) = otlp_error_status(&error);
+                let error = sanitized_otlp_error(&error);
                 tracing::error!(
-                    sdk_status,
-                    grpc_status = %grpc_status,
+                    sdk_status = %error.classification(),
+                    grpc_status = error.grpc_status(),
                     attempt_count,
                     elapsed_ms = started.elapsed().as_millis(),
                     "OTLP/gRPC log export failed"
                 );
-                Err(LogExportError::OtlpResponse(error.to_string()))
+                Err(LogExportError::OtlpResponse(error))
             }
         }
     }
 }
 
-fn otlp_error_status(error: &ResponseError) -> (&'static str, String) {
-    match error {
-        ResponseError::Server(error) => ("server_error", error.status.code().to_string()),
-        ResponseError::Client(error) => ("client_error", error.status.code().to_string()),
-        ResponseError::Blocked => ("blocked", "resource_exhausted".to_string()),
+fn sanitized_otlp_error(error: &ResponseError) -> OtlpResponseError {
+    let (classification, grpc_status) = match error {
+        ResponseError::Server(error) => (
+            OtlpFailureClassification::Server,
+            grpc_status_name(&format!("{:?}", error.status.code())),
+        ),
+        ResponseError::Client(error) => (
+            OtlpFailureClassification::Client,
+            grpc_status_name(&format!("{:?}", error.status.code())),
+        ),
+        ResponseError::Blocked => (OtlpFailureClassification::Blocked, "resource_exhausted"),
         ResponseError::Unknown(error) => (
-            "unknown_error",
+            OtlpFailureClassification::Unknown,
             error
                 .status
                 .as_ref()
-                .map(|status| status.code().to_string())
-                .unwrap_or_else(|| "unavailable".to_string()),
+                .map(|status| grpc_status_name(&format!("{:?}", status.code())))
+                .unwrap_or("unavailable"),
         ),
-        _ => ("unclassified_error", "unavailable".to_string()),
+        _ => (OtlpFailureClassification::Unclassified, "unavailable"),
+    };
+    OtlpResponseError::new(classification, grpc_status)
+}
+
+fn grpc_status_name(code: &str) -> &'static str {
+    match code {
+        "Ok" => "ok",
+        "Cancelled" => "cancelled",
+        "Unknown" => "unknown",
+        "InvalidArgument" => "invalid_argument",
+        "DeadlineExceeded" => "deadline_exceeded",
+        "NotFound" => "not_found",
+        "AlreadyExists" => "already_exists",
+        "PermissionDenied" => "permission_denied",
+        "ResourceExhausted" => "resource_exhausted",
+        "FailedPrecondition" => "failed_precondition",
+        "Aborted" => "aborted",
+        "OutOfRange" => "out_of_range",
+        "Unimplemented" => "unimplemented",
+        "Internal" => "internal",
+        "Unavailable" => "unavailable",
+        "DataLoss" => "data_loss",
+        "Unauthenticated" => "unauthenticated",
+        _ => "unavailable",
     }
 }
 
@@ -368,9 +398,10 @@ mod tests {
             &self,
             _request: ExportLogsServiceRequest,
         ) -> Result<OtlpTransportResponse, LogExportError> {
-            Err(LogExportError::OtlpResponse(
-                "transport failure".to_string(),
-            ))
+            Err(LogExportError::OtlpResponse(OtlpResponseError::new(
+                OtlpFailureClassification::Unclassified,
+                "unavailable",
+            )))
         }
     }
 
@@ -664,8 +695,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(
-            matches!(error, LogExportError::OtlpResponse(message) if message == "transport failure")
+        assert!(matches!(error, LogExportError::OtlpResponse(_)));
+        assert_eq!(
+            error.to_string(),
+            "OTLP log export failed (classification=unclassified_error, grpc_status=unavailable)"
         );
     }
 }

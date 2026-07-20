@@ -34,6 +34,21 @@ impl LogsService for CaptureService {
     }
 }
 
+const SENTINEL_SECRET: &str = "sentinel-server-controlled-secret";
+
+#[derive(Clone)]
+struct FailingService;
+
+#[tonic::async_trait]
+impl LogsService for FailingService {
+    async fn export(
+        &self,
+        _request: Request<ExportLogsServiceRequest>,
+    ) -> Result<Response<ExportLogsServiceResponse>, Status> {
+        Err(Status::permission_denied(SENTINEL_SECRET))
+    }
+}
+
 async fn start_collector() -> (
     String,
     Arc<Captured>,
@@ -60,6 +75,27 @@ async fn start_collector() -> (
     });
 
     (format!("http://{address}"), captured, shutdown_tx, server)
+}
+
+async fn start_failing_collector() -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let incoming = TcpListenerStream::new(listener);
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+
+    let server = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(
+                LogsServiceServer::new(FailingService).accept_compressed(CompressionEncoding::Gzip),
+            )
+            .serve_with_incoming_shutdown(incoming, async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+
+    (format!("http://{address}"), shutdown_tx, server)
 }
 
 async fn stop_collector(shutdown: oneshot::Sender<()>, server: tokio::task::JoinHandle<()>) {
@@ -169,5 +205,27 @@ async fn sends_bearer_authorization_for_direct_coralogix_otlp() {
             .collect();
         assert_eq!(authorization, ["Bearer direct-secret"]);
     }
+    stop_collector(shutdown, server).await;
+}
+
+#[tokio::test]
+async fn propagated_otlp_failure_excludes_server_message() {
+    use coralogix_aws_shipper::logs::exporter::{otlp::OtlpGrpcExporter, LogExporter};
+    use cx_sdk_otlp::auth::AuthData;
+
+    let (endpoint, shutdown, server) = start_failing_collector().await;
+    let exporter =
+        OtlpGrpcExporter::new(endpoint, AuthData::default(), 2, 4 * 1024 * 1024).unwrap();
+
+    let error = exporter.export(vec![test_log()]).await.unwrap_err();
+    let display = error.to_string();
+    let debug = format!("{error:?}");
+
+    assert!(display.contains("client_error"));
+    assert!(display.contains("permission_denied"));
+    assert!(debug.contains("client_error"));
+    assert!(debug.contains("permission_denied"));
+    assert!(!display.contains(SENTINEL_SECRET));
+    assert!(!debug.contains(SENTINEL_SECRET));
     stop_collector(shutdown, server).await;
 }

@@ -91,3 +91,52 @@ the SDK retry attempts that produced an outcome.
 
 None. No deployment or live external Collector test was performed; wire
 behavior is covered by the local Tonic OTLP integration tests.
+
+## Propagated OTLP failure sanitization follow-up
+
+### Security fix
+
+- Replaced the raw `String` payload of `LogExportError::OtlpResponse` with an
+  opaque `OtlpResponseError` containing only a controlled classification and
+  sanitized gRPC status-code name.
+- `SdkOtlpTransport` no longer calls `ResponseError::to_string()` when
+  propagating failures. Raw SDK/server status messages are discarded after the
+  dedicated structured event records `sdk_status`, `grpc_status`,
+  `attempt_count`, and `elapsed_ms`.
+- Both `Display` and `Debug` for the propagated error format only the sanitized
+  classification and status code. This covers the outer pipeline's
+  `?error`/Debug formatting path.
+- Added a real local gRPC server regression that returns
+  `PermissionDenied` with sentinel message
+  `sentinel-server-controlled-secret`. The test verifies propagated Display
+  and Debug contain `client_error` and `permission_denied`, and neither
+  contains the sentinel.
+- Moved the configured-destination startup event after successful exporter
+  construction.
+- Updated the Collector example to state that endpoint URI userinfo is
+  forbidden.
+- The test-only failing exporter now uses an existing generic failure variant;
+  no production constructor was exposed solely for tests.
+
+### Regression evidence
+
+- Before the fix,
+  `cargo test --test otlp_logs propagated_otlp_failure_excludes_server_message -- --nocapture`
+  failed (`0 passed, 1 failed`) against the raw propagated SDK error.
+- After the fix, the same test passed (`1 passed, 2 filtered out`), and the
+  focused unit propagation test passed (`1 passed, 75 filtered out`).
+
+### Verification results
+
+- `cargo test logs::exporter::otlp::tests --lib`: 14 passed, 62 filtered out.
+- `cargo test destination_config_tests --lib`: 11 passed, 65 filtered out.
+- `cargo test logs::exporter::tests --lib`: 4 passed, 72 filtered out.
+- `cargo test --test otlp_logs`: 3 passed.
+- `cargo test --lib`: 76 passed.
+- `cargo test --test logs`: 45 passed.
+- `cargo fmt --all --check`: passed.
+- `cargo clippy --all-targets -- -D warnings`: passed with no issues.
+- `git diff --check`: passed.
+
+Oversized-record behavior, authentication precedence, the exact encoded-size
+boundary, and external-gate status were not changed.

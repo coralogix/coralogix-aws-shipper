@@ -231,9 +231,7 @@ pub struct FailingLogExporter;
 #[async_trait]
 impl LogExporter for FailingLogExporter {
     async fn export(&self, _: Vec<ProcessedLog>) -> Result<(), LogExportError> {
-        Err(LogExportError::OtlpResponse(
-            "FailingLogExporter always fails".to_string(),
-        ))
+        Err(LogExportError::OversizedRecord)
     }
 }
 
