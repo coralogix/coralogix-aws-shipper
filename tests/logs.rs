@@ -11,7 +11,7 @@ use coralogix_aws_shipper::clients::AwsClients;
 use coralogix_aws_shipper::events::Combined;
 use coralogix_aws_shipper::logs::config::Config;
 use coralogix_aws_shipper::logs::exporter::{LogExportError, LogExporter};
-use coralogix_aws_shipper::logs::model::{LogSeverity, ProcessedLog};
+use coralogix_aws_shipper::logs::model::ProcessedLog;
 use lambda_runtime::{Context, LambdaEvent};
 use serde_json::Value;
 
