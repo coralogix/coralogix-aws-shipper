@@ -61,6 +61,8 @@ serial_test = "3.2"
 criterion = "0.5"
 proptest = "1.4"
 temp-env = { version = "0.3.6", features = ["async_closure"] }
+tonic = { version = "0.12.3", features = ["gzip", "transport"] }
+tokio-stream = { version = "0.1.18", features = ["net"] }
 
 [[bench]]
 name = "starlark"
