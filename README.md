@@ -110,7 +110,12 @@ Use the tables below as a guide to configure your deployment. The configuration 
 
 ### Universal configuration
 
-Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/send-your-data-management-api/) to make the connection or create one as you fill our pre-made template. Additionally, make sure your integration is [Region-specific](https://coralogix.com/docs/coralogix-domain/).
+Metrics delivery, REST log delivery, and direct Coralogix OTLP log delivery
+require an existing Coralogix
+[Send-Your-Data API key](https://coralogix.com/docs/send-your-data-management-api/)
+and the appropriate [region](https://coralogix.com/docs/coralogix-domain/).
+Collector OTLP log delivery does not use Coralogix authentication: leave
+`ApiKey` empty and provide `OTLPEndpoint`.
 
 > [!NOTE]
 > Always deploy the AWS Lambda function in the same AWS region as your resource, such as the S3 bucket.
@@ -157,12 +162,12 @@ and verify REST delivery before removing Collector networking.
 | IntegrationType              | Choose the AWS service that you wish to integrate with Coralogix. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, SNS, SQS, CloudFront, Kinesis, Kafka, MSK, EcrScan.                                                                                                                                                   | S3            | :heavy_check_mark: |
 | LogExportProtocol            | Log delivery protocol: `coralogix_rest` or `otlp_grpc`.                                                                                                                                                                                                                                                                            | coralogix_rest | :heavy_check_mark: |
 | OTLPEndpoint                 | Optional Collector `http://` or `https://` origin for `otlp_grpc`. A non-empty value selects unauthenticated Collector delivery; an empty value selects direct Coralogix OTLP.                                                                                                                                                      |               |                    |
-| CoralogixRegion              | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, AP3, US1, US2]. If this value is set to Custom, you must specify the Custom Domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
+| CoralogixRegion              | Coralogix region used by metrics, REST logs, and direct Coralogix OTLP. Choose from [Custom, EU1, EU2, AP1, AP2, AP3, US1, US2]. If set to Custom, specify `CustomDomain`. Ignored for Collector OTLP.                                                                                                                                | Custom        | Metrics, REST logs, direct OTLP |
 | CustomDomain                 | If you choose a custom domain name for your private cluster, Coralogix will send telemetry from the specified address (e.g. custom.coralogix.com).                                                                                                                                                                                 |               |                    |
 | ApplicationName              | The name of the application for which the integration is configured. [Advanced configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
 | SubsystemName                | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
-| ApiKey                       | The Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API key or an AWS Secret Manager ARN containing the API Key.<br>*Note that the parameter expects the API key in plain text or stored in a secret manager.*                          |               | :heavy_check_mark: |
-| StoreAPIKeyInSecretsManager  | Enable this to store your API key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          | :heavy_check_mark: |
+| ApiKey                       | Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) or AWS Secrets Manager ARN. Required for metrics, REST logs, and direct Coralogix OTLP; leave empty for Collector OTLP because that route sends no Coralogix authentication.                                                                            |               | Metrics, REST logs, direct OTLP |
+| StoreAPIKeyInSecretsManager  | When `ApiKey` is used, enable this to store the key securely instead of exposing it as a Lambda environment variable. Not used for Collector OTLP.                                                                                                                                                                                   | True          | When `ApiKey` is used |
 | ReservedConcurrentExecutions | The number of concurrent executions that are reserved for the function, leave empty so the Lambda will use unreserved account. concurrency.                                                                                                                                                                                         | n/a           |                    |
 | LambdaAssumeRoleARN          | A role that the Lambda will assume, leave empty to use the default permissions.<br> Note that if this parameter is used, all **S3** and **ECR** API calls from the Lambda will be made with the permissions of the assumed role.                                                                                                   |               |                    |
 | ExecutionRoleARN             | The ARN of a user defined role that will be used as the execution role for the Lambda function.                                                                                                                                                                                                                                     |               |                    |
@@ -718,7 +723,10 @@ If Terraform is not an option, you can deploy `template-govcloud.yaml` directly.
 
 - AWS CLI configured for **GovCloud** (`aws-us-gov`) with the correct region (e.g. `us-gov-west-1` or `us-gov-east-1`).
 - An **S3 bucket in that GovCloud region** for Lambda deployment packages.
-- Coralogix ingress domain (`CustomDomain`, e.g. `cx….coralogix.com`) and **API key** (or Secrets Manager ARN).
+- For metrics, REST logs, or direct Coralogix OTLP: Coralogix ingress domain
+  (`CustomDomain`, e.g. `cx….coralogix.com`) and **API key** (or Secrets
+  Manager ARN). For Collector OTLP, use `OTLPEndpoint` and leave `ApiKey`
+  empty.
 - Integration parameters ready (e.g. `IntegrationType`, `S3BucketName`, SNS/SQS ARNs, CloudWatch log groups) for your use case.
 
 #### Step 1 — Download the shipper Lambda (`bootstrap.zip`)

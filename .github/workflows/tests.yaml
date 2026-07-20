@@ -267,6 +267,5 @@ jobs:
       - name: run tests
         if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
         run: |
-          cargo test --test otlp_logs -- --nocapture
           cargo bench --bench log_export --no-run
           cargo test --all -- --nocapture
