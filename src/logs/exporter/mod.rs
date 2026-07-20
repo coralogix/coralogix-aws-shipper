@@ -5,6 +5,7 @@ use thiserror::Error;
 
 use super::model::ProcessedLog;
 
+pub mod otlp;
 pub mod rest;
 
 #[derive(Debug, Error)]
