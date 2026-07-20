@@ -4,6 +4,7 @@ use opentelemetry_proto::tonic::collector::logs::v1::{
     logs_service_server::{LogsService, LogsServiceServer},
     ExportLogsServiceRequest, ExportLogsServiceResponse,
 };
+use opentelemetry_proto::tonic::{common::v1::any_value, logs::v1::SeverityNumber};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{codec::CompressionEncoding, metadata::MetadataMap, Request, Response, Status};
@@ -84,11 +85,48 @@ fn assert_standard_otlp_payload(captured: &Captured) {
 
     let resource_logs = &requests[0].resource_logs;
     assert_eq!(resource_logs.len(), 1);
+    let resource = resource_logs[0]
+        .resource
+        .as_ref()
+        .expect("resource must be present");
+    assert_eq!(resource.attributes.len(), 2);
+    assert_eq!(resource.attributes[0].key, "cx.application.name");
+    assert!(matches!(
+        resource.attributes[0]
+            .value
+            .as_ref()
+            .and_then(|value| value.value.as_ref()),
+        Some(any_value::Value::StringValue(value)) if value == "application"
+    ));
+    assert_eq!(resource.attributes[1].key, "cx.subsystem.name");
+    assert!(matches!(
+        resource.attributes[1]
+            .value
+            .as_ref()
+            .and_then(|value| value.value.as_ref()),
+        Some(any_value::Value::StringValue(value)) if value == "subsystem"
+    ));
+
     assert_eq!(resource_logs[0].scope_logs.len(), 1);
     let records = &resource_logs[0].scope_logs[0].log_records;
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].time_unix_nano, 0);
+    assert_eq!(records[0].observed_time_unix_nano, 0);
+    assert_eq!(records[0].severity_number, SeverityNumber::Info as i32);
     assert_eq!(records[0].severity_text, "Info");
+    let body = records[0].body.as_ref().expect("log body must be present");
+    let Some(any_value::Value::KvlistValue(body)) = body.value.as_ref() else {
+        panic!("log body must preserve its structured JSON object");
+    };
+    assert_eq!(body.values.len(), 1);
+    assert_eq!(body.values[0].key, "message");
+    assert!(matches!(
+        body.values[0]
+            .value
+            .as_ref()
+            .and_then(|value| value.value.as_ref()),
+        Some(any_value::Value::StringValue(value)) if value == "hello"
+    ));
 }
 
 #[tokio::test]
@@ -122,13 +160,13 @@ async fn sends_bearer_authorization_for_direct_coralogix_otlp() {
     exporter.export(vec![test_log()]).await.unwrap();
 
     assert_standard_otlp_payload(&captured);
-    assert_eq!(
-        captured.metadata.lock().unwrap()[0]
-            .get("authorization")
-            .unwrap()
-            .to_str()
-            .unwrap(),
-        "Bearer direct-secret"
-    );
+    let metadata = captured.metadata.lock().unwrap();
+    let authorization: Vec<_> = metadata[0]
+        .get_all("authorization")
+        .iter()
+        .map(|value| value.to_str().unwrap())
+        .collect();
+    assert_eq!(authorization, ["Bearer direct-secret"]);
+    drop(metadata);
     stop_collector(shutdown, server).await;
 }
