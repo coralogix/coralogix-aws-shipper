@@ -160,13 +160,14 @@ async fn sends_bearer_authorization_for_direct_coralogix_otlp() {
     exporter.export(vec![test_log()]).await.unwrap();
 
     assert_standard_otlp_payload(&captured);
-    let metadata = captured.metadata.lock().unwrap();
-    let authorization: Vec<_> = metadata[0]
-        .get_all("authorization")
-        .iter()
-        .map(|value| value.to_str().unwrap())
-        .collect();
-    assert_eq!(authorization, ["Bearer direct-secret"]);
-    drop(metadata);
+    {
+        let metadata = captured.metadata.lock().unwrap();
+        let authorization: Vec<_> = metadata[0]
+            .get_all("authorization")
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect();
+        assert_eq!(authorization, ["Bearer direct-secret"]);
+    }
     stop_collector(shutdown, server).await;
 }

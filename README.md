@@ -115,10 +115,48 @@ Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/se
 > [!NOTE]
 > Always deploy the AWS Lambda function in the same AWS region as your resource, such as the S3 bucket.
 
+#### Log export routes
+
+The shipper supports two `LogExportProtocol` values and three effective log
+routes:
+
+1. **Coralogix REST (default):** `coralogix_rest` preserves the existing
+   direct-delivery behavior and credentials. Existing deployments remain
+   backward compatible because this is the default.
+2. **Direct Coralogix OTLP/gRPC:** set `otlp_grpc` and leave `OTLPEndpoint`
+   empty. The shipper derives `https://ingress.<domain>:443` from the bare
+   domain selected by `CoralogixRegion` or `CustomDomain` and authenticates
+   with the existing Send-Your-Data API key as Bearer authorization.
+3. **Collector OTLP/gRPC:** set `otlp_grpc` and provide a non-empty
+   `OTLPEndpoint`. The Collector endpoint takes precedence over
+   `CORALOGIX_DOMAIN`; the shipper sends no Coralogix API key or authorization
+   metadata on this route. This is the only route without application-layer
+   authentication.
+
+`OTLPEndpoint` must be an `http://` or `https://` origin without a path or
+query. Plaintext `http://` is intended only for a private network.
+`https://` validates the listener certificate against the Lambda runtime's
+trusted roots. An unauthenticated Collector must remain private; attach the
+Lambda to appropriate VPC subnets and security groups. See the
+[Collector enrichment example](examples/otlp-grpc-collector/) for a generic
+transform processor that adds `gateway.enriched=true`.
+
+OTLP requests group records with the same application and subsystem into one
+resource while keeping multiple resources in shared, size-limited requests.
+The configured Collector can perform additional gateway enrichment before
+forwarding logs.
+
+There is no automatic fallback between Collector OTLP, direct Coralogix OTLP,
+and REST. To roll back, set `LogExportProtocol=coralogix_rest`, clear
+`OTLPEndpoint`, restore the Coralogix REST API key and region/domain settings,
+and verify REST delivery before removing Collector networking.
+
 | Parameter                    | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
 |------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
 | Application name             | This will also be the name of the CloudFormation stack that creates your integration. It can include letters (A–Z and a–z), numbers (0–9) and dashes (-).                                                                                                                                                                          |               | :heavy_check_mark: |
 | IntegrationType              | Choose the AWS service that you wish to integrate with Coralogix. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, SNS, SQS, CloudFront, Kinesis, Kafka, MSK, EcrScan.                                                                                                                                                   | S3            | :heavy_check_mark: |
+| LogExportProtocol            | Log delivery protocol: `coralogix_rest` or `otlp_grpc`.                                                                                                                                                                                                                                                                            | coralogix_rest | :heavy_check_mark: |
+| OTLPEndpoint                 | Optional Collector `http://` or `https://` origin for `otlp_grpc`. A non-empty value selects unauthenticated Collector delivery; an empty value selects direct Coralogix OTLP.                                                                                                                                                      |               |                    |
 | CoralogixRegion              | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, AP3, US1, US2]. If this value is set to Custom, you must specify the Custom Domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
 | CustomDomain                 | If you choose a custom domain name for your private cluster, Coralogix will send telemetry from the specified address (e.g. custom.coralogix.com).                                                                                                                                                                                 |               |                    |
 | ApplicationName              | The name of the application for which the integration is configured. [Advanced configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |

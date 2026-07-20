@@ -68,3 +68,8 @@ tokio-stream = { version = "0.1.18", features = ["net"] }
 name = "starlark"
 path = "tests/starlark/benches.rs"
 harness = false
+
+[[bench]]
+name = "log_export"
+path = "benches/log_export.rs"
+harness = false

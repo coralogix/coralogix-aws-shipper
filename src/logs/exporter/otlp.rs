@@ -187,6 +187,8 @@ fn otlp_severity(severity: LogSeverity) -> (SeverityNumber, &'static str) {
     }
 }
 
+/// Builds an OTLP export request for exporter delivery, request-building tests,
+/// and Criterion mapping benchmarks.
 pub fn build_export_request(logs: &[ProcessedLog]) -> ExportLogsServiceRequest {
     let mut groups: BTreeMap<(&str, &str), Vec<&ProcessedLog>> = BTreeMap::new();
     for log in logs {
