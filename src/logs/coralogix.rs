@@ -610,6 +610,7 @@ fn get_severity_level(message: &str) -> LogSeverity {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logs::config::LogExportConfig;
 
     fn test_config() -> Config {
         Config {
@@ -621,8 +622,10 @@ mod tests {
             integration_type: IntegrationType::S3,
             app_name: None,
             sub_name: None,
-            api_key: "test".to_string().into(),
-            endpoint: "test".to_string(),
+            export: LogExportConfig::CoralogixRest {
+                endpoint: "test".to_string(),
+                api_key: "test".to_string().into(),
+            },
             max_elapsed_time: 250,
             csv_delimiter: ",".to_string(),
             batches_max_size: 4,

@@ -66,8 +66,7 @@ impl LogExportConfig {
             || domain.chars().any(char::is_whitespace)
         {
             return Err(
-                "CORALOGIX_DOMAIN must be a bare domain without scheme, path, or port"
-                    .to_string(),
+                "CORALOGIX_DOMAIN must be a bare domain without scheme, path, or port".to_string(),
             );
         }
         Ok(format!("https://ingress.{domain}:443"))
@@ -116,8 +115,7 @@ pub struct Config {
     pub integration_type: IntegrationType,
     pub app_name: Option<String>,
     pub sub_name: Option<String>,
-    pub api_key: ApiKey,
-    pub endpoint: String,
+    pub export: LogExportConfig,
     pub max_elapsed_time: u64,
     pub csv_delimiter: String,
     pub batches_max_size: usize,
@@ -205,11 +203,7 @@ impl Config {
                 .map_err(|e| format!("INTEGRATION_TYPE not set - {}", e))
                 .and_then(|s| s.parse::<IntegrationType>())?,
 
-            api_key: env::var("CORALOGIX_API_KEY")
-                .map_err(|e| format!("CORALOGIX_API_KEY not set - {}", e))?
-                .into(),
-            endpoint: env::var("CORALOGIX_ENDPOINT")
-                .map_err(|e| format!("CORALOGIX_ENDPOINT not set - {}", e))?,
+            export: LogExportConfig::load_from_env()?,
 
             app_name: env::var("APP_NAME").ok(),
             sub_name: env::var("SUB_NAME").ok(),
@@ -251,6 +245,14 @@ impl Config {
         };
 
         Ok(conf)
+    }
+
+    pub fn coralogix_api_key_mut(&mut self) -> Option<&mut ApiKey> {
+        match &mut self.export {
+            LogExportConfig::CoralogixRest { api_key, .. } => Some(api_key),
+            LogExportConfig::CoralogixOtlpGrpc { api_key, .. } => Some(api_key),
+            LogExportConfig::CollectorOtlpGrpc { .. } => None,
+        }
     }
 }
 
@@ -743,7 +745,10 @@ mod destination_config_tests {
         temp_env::with_vars(
             [
                 ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
-                ("OTLP_ENDPOINT", Some("https://collector.internal:4317/v1/logs")),
+                (
+                    "OTLP_ENDPOINT",
+                    Some("https://collector.internal:4317/v1/logs"),
+                ),
             ],
             || {
                 let error = LogExportConfig::load_from_env().unwrap_err();
@@ -757,7 +762,10 @@ mod destination_config_tests {
         temp_env::with_vars(
             [
                 ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
-                ("OTLP_ENDPOINT", Some("https://collector.internal:4317?foo=bar")),
+                (
+                    "OTLP_ENDPOINT",
+                    Some("https://collector.internal:4317?foo=bar"),
+                ),
             ],
             || {
                 let error = LogExportConfig::load_from_env().unwrap_err();

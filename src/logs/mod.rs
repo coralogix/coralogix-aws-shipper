@@ -10,10 +10,8 @@ use aws_sdk_sqs::types::MessageAttributeValue;
 // use http::header::USER_AGENT;
 use lambda_runtime::{Context, Error, LambdaEvent};
 // use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::{debug, error, info};
 
-use crate::logs::exporter::rest::CoralogixRestExporter;
 use crate::logs::exporter::DynLogExporter;
 
 pub mod config;
@@ -23,14 +21,6 @@ pub mod exporter;
 pub mod model;
 pub mod process;
 pub mod transform;
-
-pub fn set_up_coralogix_exporter(config: &config::Config) -> Result<DynLogExporter, Error> {
-    Ok(Arc::new(CoralogixRestExporter::new(
-        config.endpoint.clone(),
-        config.api_key.clone(),
-        config.max_elapsed_time,
-    )?))
-}
 
 #[async_recursion]
 // lambda handler

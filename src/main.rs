@@ -82,26 +82,26 @@ async fn main() -> Result<(), Error> {
         _ => {
             info!("Running in logs telemetry mode");
             let mut conf = crate::logs::config::Config::load_from_env()?;
-            let api_key_value = conf.api_key.token().to_string();
-            if api_key_value.starts_with("arn:aws") && api_key_value.contains(":secretsmanager") {
-                conf.api_key = crate::logs::config::get_api_key_from_secrets_manager(
-                    &aws_config,
-                    api_key_value,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            };
+            if let Some(api_key) = conf.coralogix_api_key_mut() {
+                let value = api_key.token().to_string();
+                if value.starts_with("arn:aws") && value.contains(":secretsmanager") {
+                    *api_key =
+                        crate::logs::config::get_api_key_from_secrets_manager(&aws_config, value)
+                            .await
+                            .map_err(|error| error.to_string())?;
+                }
+            }
 
             // override config if using assume role
             if let Some(role_arn) = conf.lambda_assume_role.as_ref() {
                 aws_clients = clients::AwsClients::new_assume_role(&aws_config, role_arn).await?;
             }
 
-            let coralogix_exporter = crate::logs::set_up_coralogix_exporter(&conf)?;
+            let log_exporter = crate::logs::exporter::build_exporter(&conf)?;
             run(service_fn(|request: LambdaEvent<Combined>| {
                 logs::handler(
                     &aws_clients,
-                    coralogix_exporter.clone(),
+                    log_exporter.clone(),
                     &conf,
                     &aws_config,
                     request,
