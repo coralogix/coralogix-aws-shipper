@@ -19,6 +19,8 @@ use tracing::{debug, error, info};
 pub mod config;
 pub mod coralogix;
 pub mod ecr;
+pub mod exporter;
+pub mod model;
 pub mod process;
 pub mod transform;
 
