@@ -1,13 +1,142 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
+use async_trait::async_trait;
 use cx_sdk_otlp::otlp::proto::{
-    collector::logs::v1::ExportLogsServiceRequest,
     common::v1::{any_value, AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList},
     logs::v1::{LogRecord, ResourceLogs, ScopeLogs, SeverityNumber},
     resource::v1::Resource,
 };
+use cx_sdk_otlp::{
+    auth::AuthData,
+    config::{BackoffConfig, ChannelConfig},
+    logs::OtlpLogExporterGrpc,
+    otlp::proto::collector::logs::v1::{ExportLogsServiceRequest, ExportLogsServiceResponse},
+    OtlpExporter,
+};
+use prost_014::Message;
 
-use crate::logs::model::{LogSeverity, ProcessedLog};
+use crate::logs::{
+    exporter::{LogExportError, LogExporter},
+    model::{LogSeverity, ProcessedLog},
+};
+
+#[async_trait]
+trait OtlpTransport: Send + Sync {
+    async fn send(
+        &self,
+        request: ExportLogsServiceRequest,
+    ) -> Result<ExportLogsServiceResponse, LogExportError>;
+}
+
+struct SdkOtlpTransport {
+    exporter: OtlpLogExporterGrpc,
+    auth: AuthData,
+}
+
+#[async_trait]
+impl OtlpTransport for SdkOtlpTransport {
+    async fn send(
+        &self,
+        request: ExportLogsServiceRequest,
+    ) -> Result<ExportLogsServiceResponse, LogExportError> {
+        self.exporter
+            .export(request, &self.auth)
+            .await
+            .map_err(|error| LogExportError::OtlpResponse(error.to_string()))
+    }
+}
+
+pub struct OtlpGrpcExporter {
+    transport: Arc<dyn OtlpTransport>,
+    max_request_bytes: usize,
+}
+
+impl OtlpGrpcExporter {
+    pub fn new(
+        endpoint: String,
+        auth: AuthData,
+        max_elapsed_time: u64,
+        max_request_bytes: usize,
+    ) -> Result<Self, LogExportError> {
+        let exporter = OtlpLogExporterGrpc::builder()
+            .with_channel_config(ChannelConfig::new(endpoint))
+            .with_backoff_config(BackoffConfig {
+                initial_delay: Duration::from_millis(100),
+                max_delay: Duration::from_secs(10),
+                max_elapsed_time: Duration::from_secs(max_elapsed_time),
+            })
+            .with_gzip_compression(true)
+            .try_build()
+            .map_err(|error| LogExportError::OtlpInitialization(error.to_string()))?;
+
+        Ok(Self {
+            transport: Arc::new(SdkOtlpTransport { exporter, auth }),
+            max_request_bytes,
+        })
+    }
+
+    #[cfg(test)]
+    fn with_transport(transport: Arc<dyn OtlpTransport>, max_request_bytes: usize) -> Self {
+        Self {
+            transport,
+            max_request_bytes,
+        }
+    }
+}
+
+#[async_trait]
+impl LogExporter for OtlpGrpcExporter {
+    async fn export(&self, logs: Vec<ProcessedLog>) -> Result<(), LogExportError> {
+        if logs.is_empty() {
+            return Ok(());
+        }
+
+        let mut pending = VecDeque::from([logs]);
+        while let Some(mut batch) = pending.pop_front() {
+            let request = build_export_request(&batch);
+            let encoded_bytes = request.encoded_len();
+            if encoded_bytes > self.max_request_bytes {
+                if batch.len() == 1 {
+                    return Err(LogExportError::OversizedRecord);
+                }
+
+                let right = batch.split_off(batch.len() / 2);
+                pending.push_front(right);
+                pending.push_front(batch);
+                continue;
+            }
+
+            let record_count = batch.len();
+            let resource_count = request.resource_logs.len();
+            let started = Instant::now();
+            let response = self.transport.send(request).await?;
+
+            if let Some(partial) = response.partial_success {
+                if partial.rejected_log_records > 0 || !partial.error_message.is_empty() {
+                    tracing::warn!(
+                        rejected_log_records = partial.rejected_log_records,
+                        error_message_present = !partial.error_message.is_empty(),
+                        "OTLP collector partially accepted a log request"
+                    );
+                }
+            }
+
+            tracing::info!(
+                record_count,
+                resource_count,
+                encoded_bytes,
+                elapsed_ms = started.elapsed().as_millis(),
+                "Delivered log records through OTLP/gRPC"
+            );
+        }
+
+        Ok(())
+    }
+}
 
 fn json_to_any_value(value: serde_json::Value) -> AnyValue {
     let value = match value {
@@ -126,9 +255,56 @@ pub fn build_export_request(logs: &[ProcessedLog]) -> ExportLogsServiceRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logs::model::{LogSeverity, ProcessedLog};
-    use cx_sdk_otlp::otlp::proto::common::v1::any_value;
+    use crate::logs::{
+        exporter::{LogExportError, LogExporter},
+        model::{LogSeverity, ProcessedLog},
+    };
+    use async_trait::async_trait;
+    use cx_sdk_otlp::otlp::proto::{
+        collector::logs::v1::{ExportLogsPartialSuccess, ExportLogsServiceResponse},
+        common::v1::any_value,
+    };
+    use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
+
+    struct RecordingTransport {
+        requests: Mutex<Vec<ExportLogsServiceRequest>>,
+        response: ExportLogsServiceResponse,
+    }
+
+    impl Default for RecordingTransport {
+        fn default() -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                response: ExportLogsServiceResponse::default(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl OtlpTransport for RecordingTransport {
+        async fn send(
+            &self,
+            request: ExportLogsServiceRequest,
+        ) -> Result<ExportLogsServiceResponse, LogExportError> {
+            self.requests.lock().unwrap().push(request);
+            Ok(self.response.clone())
+        }
+    }
+
+    struct FailingTransport;
+
+    #[async_trait]
+    impl OtlpTransport for FailingTransport {
+        async fn send(
+            &self,
+            _request: ExportLogsServiceRequest,
+        ) -> Result<ExportLogsServiceResponse, LogExportError> {
+            Err(LogExportError::OtlpResponse(
+                "transport failure".to_string(),
+            ))
+        }
+    }
 
     fn log(app: &str, sub: &str, body: serde_json::Value) -> ProcessedLog {
         ProcessedLog {
@@ -170,5 +346,119 @@ mod tests {
             value.value,
             Some(any_value::Value::KvlistValue(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn splits_oversized_batches_without_splitting_by_resource() {
+        let transport = Arc::new(RecordingTransport::default());
+        let logs = vec![
+            log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "a".repeat(180)}),
+            ),
+            log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "b".repeat(180)}),
+            ),
+        ];
+        let exporter = OtlpGrpcExporter::with_transport(
+            transport.clone(),
+            build_export_request(&logs[..1]).encoded_len(),
+        );
+
+        exporter.export(logs).await.unwrap();
+
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests
+            .iter()
+            .all(|request| request.resource_logs.len() == 1));
+    }
+
+    #[tokio::test]
+    async fn rejects_one_record_larger_than_the_limit() {
+        let transport = Arc::new(RecordingTransport::default());
+        let exporter = OtlpGrpcExporter::with_transport(transport, 32);
+
+        let error = exporter
+            .export(vec![log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "too large"}),
+            )])
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, LogExportError::OversizedRecord));
+    }
+
+    #[tokio::test]
+    async fn accepts_a_request_exactly_at_the_encoded_size_limit() {
+        let transport = Arc::new(RecordingTransport::default());
+        let logs = vec![log("app", "sub", serde_json::json!({"message": "hello"}))];
+        let exporter = OtlpGrpcExporter::with_transport(
+            transport.clone(),
+            build_export_request(&logs).encoded_len(),
+        );
+
+        exporter.export(logs).await.unwrap();
+
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn does_not_send_empty_batches() {
+        let transport = Arc::new(RecordingTransport::default());
+        let exporter = OtlpGrpcExporter::with_transport(transport.clone(), 256);
+
+        exporter.export(Vec::new()).await.unwrap();
+
+        assert!(transport.requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn partial_success_does_not_resend_the_complete_request() {
+        let transport = Arc::new(RecordingTransport {
+            requests: Mutex::new(Vec::new()),
+            response: ExportLogsServiceResponse {
+                partial_success: Some(ExportLogsPartialSuccess {
+                    rejected_log_records: 1,
+                    error_message: "one record rejected".to_string(),
+                }),
+            },
+        });
+        let exporter = OtlpGrpcExporter::with_transport(transport.clone(), 4 * 1024 * 1024);
+
+        exporter
+            .export(vec![log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "hello"}),
+            )])
+            .await
+            .unwrap();
+
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn propagates_transport_errors() {
+        let exporter =
+            OtlpGrpcExporter::with_transport(Arc::new(FailingTransport), 4 * 1024 * 1024);
+
+        let error = exporter
+            .export(vec![log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "hello"}),
+            )])
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, LogExportError::OtlpResponse(message) if message == "transport failure")
+        );
     }
 }
