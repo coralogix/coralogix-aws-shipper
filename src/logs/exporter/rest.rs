@@ -40,7 +40,7 @@ impl CoralogixRestExporter {
                 request_body_size_limit: None,
             })
             .build()
-            .map_err(|error| LogExportError::RestInitialization(error.to_string()))?;
+            .map_err(|error| LogExportError::RestInitialization(Box::new(error)))?;
 
         Ok(Self {
             exporter: Arc::new(exporter),
@@ -84,5 +84,32 @@ impl LogExporter for CoralogixRestExporter {
             .export_singles_jsons(request, &self.auth_data)
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as _;
+
+    use super::*;
+
+    #[test]
+    fn initialization_error_preserves_sdk_source() {
+        let error = CoralogixRestExporter::new(
+            "https://ingress-service.invalid:443".to_string(),
+            ApiKey::from("test"),
+            1,
+        )
+        .err()
+        .expect("deprecated ingress-service endpoint must fail initialization");
+
+        assert!(
+            matches!(error, LogExportError::RestInitialization(_)),
+            "expected REST initialization error, got {error:?}"
+        );
+        assert!(
+            error.source().is_some(),
+            "REST initialization error must retain the SDK builder error as its source"
+        );
     }
 }

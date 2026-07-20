@@ -10,7 +10,7 @@ pub mod rest;
 #[derive(Debug, Error)]
 pub enum LogExportError {
     #[error("REST exporter initialization failed: {0}")]
-    RestInitialization(String),
+    RestInitialization(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
     #[error("REST log export failed: {0}")]
     Rest(#[from] cx_sdk_rest_logs::Error),
     #[error("OTLP initialization failed: {0}")]
