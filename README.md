@@ -138,8 +138,15 @@ routes:
    metadata on this route. This is the only route without application-layer
    authentication.
 
+> [!IMPORTANT]
+> Direct Coralogix OTLP always uses the public
+> `ingress.<domain>:443` endpoint. It does not inherit `UsePrivateLink`.
+> A Lambda in private-only subnets therefore needs public egress (for example,
+> through NAT) or must use `OTLPEndpoint` to send through a reachable
+> Collector.
+
 `OTLPEndpoint` must be an `http://` or `https://` origin without a path or
-query. Plaintext `http://` is intended only for a private network.
+query or URI userinfo. Plaintext `http://` is intended only for a private network.
 `https://` validates the listener certificate against the Lambda runtime's
 trusted roots. An unauthenticated Collector must remain private; attach the
 Lambda to appropriate VPC subnets and security groups. See the
@@ -148,6 +155,8 @@ transform processor that adds `gateway.enriched=true`.
 
 OTLP requests group records with the same application and subsystem into one
 resource while keeping multiple resources in shared, size-limited requests.
+Structured JSON bodies retain nested arrays and objects. Because OTLP
+`AnyValue` has no null variant, JSON `null` maps to the OTLP string `"null"`.
 The configured Collector can perform additional gateway enrichment before
 forwarding logs.
 

@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     collections::{BTreeMap, VecDeque},
     sync::Arc,
     time::{Duration, Instant},
@@ -15,7 +16,7 @@ use cx_sdk_otlp::{
     config::{BackoffConfig, ChannelConfig},
     logs::OtlpLogExporterGrpc,
     otlp::proto::collector::logs::v1::{ExportLogsServiceRequest, ExportLogsServiceResponse},
-    OtlpExporter,
+    OtlpExporter, RequestListener, RequestOutcome, ResponseError,
 };
 use prost_014::Message;
 
@@ -24,12 +25,29 @@ use crate::logs::{
     model::{LogSeverity, ProcessedLog},
 };
 
+tokio::task_local! {
+    static OTLP_ATTEMPT_COUNT: Cell<u64>;
+}
+
+struct AttemptListener;
+
+impl RequestListener for AttemptListener {
+    fn on_request_completed(&self, _outcome: RequestOutcome, _duration: Duration) {
+        let _ = OTLP_ATTEMPT_COUNT.try_with(|count| count.set(count.get() + 1));
+    }
+}
+
+struct OtlpTransportResponse {
+    response: ExportLogsServiceResponse,
+    attempt_count: u64,
+}
+
 #[async_trait]
 trait OtlpTransport: Send + Sync {
     async fn send(
         &self,
         request: ExportLogsServiceRequest,
-    ) -> Result<ExportLogsServiceResponse, LogExportError>;
+    ) -> Result<OtlpTransportResponse, LogExportError>;
 }
 
 struct SdkOtlpTransport {
@@ -42,11 +60,49 @@ impl OtlpTransport for SdkOtlpTransport {
     async fn send(
         &self,
         request: ExportLogsServiceRequest,
-    ) -> Result<ExportLogsServiceResponse, LogExportError> {
-        self.exporter
-            .export(request, &self.auth)
-            .await
-            .map_err(|error| LogExportError::OtlpResponse(error.to_string()))
+    ) -> Result<OtlpTransportResponse, LogExportError> {
+        let started = Instant::now();
+        let (result, attempt_count) = OTLP_ATTEMPT_COUNT
+            .scope(Cell::new(0), async {
+                let result = self.exporter.export(request, &self.auth).await;
+                (result, OTLP_ATTEMPT_COUNT.with(Cell::get))
+            })
+            .await;
+
+        match result {
+            Ok(response) => Ok(OtlpTransportResponse {
+                response,
+                attempt_count,
+            }),
+            Err(error) => {
+                let (sdk_status, grpc_status) = otlp_error_status(&error);
+                tracing::error!(
+                    sdk_status,
+                    grpc_status = %grpc_status,
+                    attempt_count,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "OTLP/gRPC log export failed"
+                );
+                Err(LogExportError::OtlpResponse(error.to_string()))
+            }
+        }
+    }
+}
+
+fn otlp_error_status(error: &ResponseError) -> (&'static str, String) {
+    match error {
+        ResponseError::Server(error) => ("server_error", error.status.code().to_string()),
+        ResponseError::Client(error) => ("client_error", error.status.code().to_string()),
+        ResponseError::Blocked => ("blocked", "resource_exhausted".to_string()),
+        ResponseError::Unknown(error) => (
+            "unknown_error",
+            error
+                .status
+                .as_ref()
+                .map(|status| status.code().to_string())
+                .unwrap_or_else(|| "unavailable".to_string()),
+        ),
+        _ => ("unclassified_error", "unavailable".to_string()),
     }
 }
 
@@ -70,6 +126,7 @@ impl OtlpGrpcExporter {
                 max_elapsed_time: Duration::from_secs(max_elapsed_time),
             })
             .with_gzip_compression(true)
+            .listener(AttemptListener)
             .try_build()
             .map_err(|error| LogExportError::OtlpInitialization(error.to_string()))?;
 
@@ -117,7 +174,8 @@ impl LogExporter for OtlpGrpcExporter {
 
         for (request, record_count, resource_count, encoded_bytes) in requests {
             let started = Instant::now();
-            let response = self.transport.send(request).await?;
+            let transport_response = self.transport.send(request).await?;
+            let response = transport_response.response;
 
             if let Some(partial) = response.partial_success {
                 if partial.rejected_log_records > 0 || !partial.error_message.is_empty() {
@@ -133,6 +191,7 @@ impl LogExporter for OtlpGrpcExporter {
                 record_count,
                 resource_count,
                 encoded_bytes,
+                attempt_count = transport_response.attempt_count,
                 elapsed_ms = started.elapsed().as_millis(),
                 "Delivered log records through OTLP/gRPC"
             );
@@ -292,9 +351,12 @@ mod tests {
         async fn send(
             &self,
             request: ExportLogsServiceRequest,
-        ) -> Result<ExportLogsServiceResponse, LogExportError> {
+        ) -> Result<OtlpTransportResponse, LogExportError> {
             self.requests.lock().unwrap().push(request);
-            Ok(self.response.clone())
+            Ok(OtlpTransportResponse {
+                response: self.response.clone(),
+                attempt_count: 1,
+            })
         }
     }
 
@@ -305,7 +367,7 @@ mod tests {
         async fn send(
             &self,
             _request: ExportLogsServiceRequest,
-        ) -> Result<ExportLogsServiceResponse, LogExportError> {
+        ) -> Result<OtlpTransportResponse, LogExportError> {
             Err(LogExportError::OtlpResponse(
                 "transport failure".to_string(),
             ))
@@ -352,6 +414,110 @@ mod tests {
             value.value,
             Some(any_value::Value::KvlistValue(_))
         ));
+    }
+
+    #[test]
+    fn preserves_nested_arrays_and_objects() {
+        let value = json_to_any_value(serde_json::json!({
+            "items": [
+                {"enabled": true, "labels": ["one", null]},
+                [1, {"nested": "value"}]
+            ]
+        }));
+        let Some(any_value::Value::KvlistValue(root)) = value.value else {
+            panic!("root must be an OTLP key-value list");
+        };
+        let Some(any_value::Value::ArrayValue(items)) = root.values[0]
+            .value
+            .as_ref()
+            .and_then(|value| value.value.as_ref())
+        else {
+            panic!("items must be an OTLP array");
+        };
+        let Some(any_value::Value::KvlistValue(first)) = items.values[0].value.as_ref() else {
+            panic!("first item must be an OTLP key-value list");
+        };
+        let Some(any_value::Value::ArrayValue(labels)) = first.values[1]
+            .value
+            .as_ref()
+            .and_then(|value| value.value.as_ref())
+        else {
+            panic!("labels must be an OTLP array");
+        };
+        assert!(matches!(
+            labels.values[1].value.as_ref(),
+            Some(any_value::Value::StringValue(value)) if value == "null"
+        ));
+    }
+
+    #[test]
+    fn maps_numeric_boundaries_without_loss() {
+        let values = [
+            (
+                serde_json::json!(i64::MIN),
+                any_value::Value::IntValue(i64::MIN),
+            ),
+            (
+                serde_json::json!(i64::MAX),
+                any_value::Value::IntValue(i64::MAX),
+            ),
+            (
+                serde_json::json!(u64::MAX),
+                any_value::Value::StringValue(u64::MAX.to_string()),
+            ),
+        ];
+
+        for (input, expected) in values {
+            assert_eq!(json_to_any_value(input).value, Some(expected));
+        }
+        assert!(matches!(
+            json_to_any_value(serde_json::json!(1.5)).value,
+            Some(any_value::Value::DoubleValue(value)) if value == 1.5
+        ));
+    }
+
+    #[test]
+    fn maps_severity_and_timestamps() {
+        let timestamp = OffsetDateTime::from_unix_timestamp_nanos(1_234_567_890).unwrap();
+        let cases = [
+            (LogSeverity::Verbose, SeverityNumber::Trace, "Verbose"),
+            (LogSeverity::Debug, SeverityNumber::Debug, "Debug"),
+            (LogSeverity::Info, SeverityNumber::Info, "Info"),
+            (LogSeverity::Warn, SeverityNumber::Warn, "Warn"),
+            (LogSeverity::Error, SeverityNumber::Error, "Error"),
+            (LogSeverity::Critical, SeverityNumber::Fatal, "Critical"),
+        ];
+
+        for (severity, expected_number, expected_text) in cases {
+            let mut input = log("app", "sub", serde_json::json!("body"));
+            input.severity = severity;
+            input.timestamp = timestamp;
+            let request = build_export_request(&[input]);
+            let record = &request.resource_logs[0].scope_logs[0].log_records[0];
+            assert_eq!(record.severity_number, expected_number as i32);
+            assert_eq!(record.severity_text, expected_text);
+            assert_eq!(record.time_unix_nano, 1_234_567_890);
+            assert_eq!(record.observed_time_unix_nano, 1_234_567_890);
+        }
+    }
+
+    #[tokio::test]
+    async fn sdk_attempt_listener_counts_attempts_in_the_current_export() {
+        OTLP_ATTEMPT_COUNT
+            .scope(std::cell::Cell::new(0), async {
+                let listener = AttemptListener;
+                listener.on_request_completed(
+                    cx_sdk_otlp::RequestOutcome::Failure,
+                    Duration::from_millis(1),
+                );
+                listener.on_request_completed(
+                    cx_sdk_otlp::RequestOutcome::Success,
+                    Duration::from_millis(1),
+                );
+
+                assert_eq!(OTLP_ATTEMPT_COUNT.with(Cell::get), 2);
+            })
+            .await;
     }
 
     #[tokio::test]

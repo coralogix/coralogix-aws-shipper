@@ -49,6 +49,12 @@ impl LogExportConfig {
         if !matches!(uri.scheme_str(), Some("http" | "https")) || uri.authority().is_none() {
             return Err("OTLP_ENDPOINT must be an absolute http:// or https:// URI".to_string());
         }
+        if uri
+            .authority()
+            .is_some_and(|authority| authority.as_str().contains('@'))
+        {
+            return Err("OTLP_ENDPOINT must not contain userinfo".to_string());
+        }
         if (uri.path() != "/" && !uri.path().is_empty()) || uri.query().is_some() {
             return Err("OTLP_ENDPOINT must not contain path or query components".to_string());
         }
@@ -770,6 +776,23 @@ mod destination_config_tests {
             || {
                 let error = LogExportConfig::load_from_env().unwrap_err();
                 assert!(error.contains("must not contain path or query components"));
+            },
+        );
+    }
+
+    #[test]
+    fn otlp_rejects_endpoint_userinfo() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                (
+                    "OTLP_ENDPOINT",
+                    Some("http://user:password@collector.internal:4317"),
+                ),
+            ],
+            || {
+                let error = LogExportConfig::load_from_env().unwrap_err();
+                assert!(error.contains("must not contain userinfo"));
             },
         );
     }
