@@ -16,6 +16,97 @@ use thiserror::Error;
 /// Maximum allowed size for a downloaded Starlark script (1 MiB).
 const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogExportProtocol {
+    CoralogixRest,
+    OtlpGrpc,
+}
+
+impl FromStr for LogExportProtocol {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "coralogix_rest" => Ok(Self::CoralogixRest),
+            "otlp_grpc" => Ok(Self::OtlpGrpc),
+            _ => Err("LOG_EXPORT_PROTOCOL must be coralogix_rest or otlp_grpc".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogExportConfig {
+    CoralogixRest { endpoint: String, api_key: ApiKey },
+    CollectorOtlpGrpc { endpoint: String },
+    CoralogixOtlpGrpc { endpoint: String, api_key: ApiKey },
+}
+
+impl LogExportConfig {
+    fn validate_collector_endpoint(endpoint: &str) -> Result<(), String> {
+        let uri: http::Uri = endpoint
+            .parse()
+            .map_err(|error| format!("invalid OTLP_ENDPOINT: {error}"))?;
+        if !matches!(uri.scheme_str(), Some("http" | "https")) || uri.authority().is_none() {
+            return Err("OTLP_ENDPOINT must be an absolute http:// or https:// URI".to_string());
+        }
+        if uri.path() != "/" && !uri.path().is_empty() {
+            return Err("OTLP_ENDPOINT must not contain a path".to_string());
+        }
+        Ok(())
+    }
+
+    fn coralogix_otlp_endpoint(domain: &str) -> Result<String, String> {
+        let domain = domain.trim();
+        if domain.is_empty()
+            || domain.contains("://")
+            || domain.contains('/')
+            || domain.contains(':')
+            || domain.contains('?')
+            || domain.contains('#')
+            || domain.chars().any(char::is_whitespace)
+        {
+            return Err(
+                "CORALOGIX_DOMAIN must be a bare domain without scheme, path, or port"
+                    .to_string(),
+            );
+        }
+        Ok(format!("https://ingress.{domain}:443"))
+    }
+
+    fn load_from_env() -> Result<Self, String> {
+        let protocol = env::var("LOG_EXPORT_PROTOCOL")
+            .unwrap_or_else(|_| "coralogix_rest".to_string())
+            .parse::<LogExportProtocol>()?;
+
+        match protocol {
+            LogExportProtocol::CoralogixRest => Ok(Self::CoralogixRest {
+                endpoint: env::var("CORALOGIX_ENDPOINT")
+                    .map_err(|error| format!("CORALOGIX_ENDPOINT not set - {error}"))?,
+                api_key: env::var("CORALOGIX_API_KEY")
+                    .map_err(|error| format!("CORALOGIX_API_KEY not set - {error}"))?
+                    .into(),
+            }),
+            LogExportProtocol::OtlpGrpc => {
+                if let Some(endpoint) = env::var("OTLP_ENDPOINT")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    Self::validate_collector_endpoint(&endpoint)?;
+                    return Ok(Self::CollectorOtlpGrpc { endpoint });
+                }
+
+                let domain = env::var("CORALOGIX_DOMAIN")
+                    .map_err(|error| format!("CORALOGIX_DOMAIN not set - {error}"))?;
+                let endpoint = Self::coralogix_otlp_endpoint(&domain)?;
+                let api_key = env::var("CORALOGIX_API_KEY")
+                    .map_err(|error| format!("CORALOGIX_API_KEY not set - {error}"))?
+                    .into();
+                Ok(Self::CoralogixOtlpGrpc { endpoint, api_key })
+            }
+        }
+    }
+}
+
 pub struct Config {
     pub newline_pattern: String,          // this should be regex
     pub blocking_pattern: String,         // this should be regex
@@ -514,5 +605,158 @@ mod script_loading_tests {
         // Verify it can be decoded correctly
         let decoded = Config::decode_base64(&stripped).unwrap();
         assert_eq!(decoded, script);
+    }
+}
+
+#[cfg(test)]
+mod destination_config_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_to_coralogix_rest() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", None::<&str>),
+                ("CORALOGIX_ENDPOINT", Some("https://ingress.example.com")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("OTLP_ENDPOINT", Some("")),
+            ],
+            || {
+                assert!(matches!(
+                    LogExportConfig::load_from_env().unwrap(),
+                    LogExportConfig::CoralogixRest { .. }
+                ));
+            },
+        );
+    }
+
+    #[test]
+    fn collector_otlp_does_not_require_coralogix_credentials() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", Some("http://collector.internal:4317")),
+                ("CORALOGIX_DOMAIN", None::<&str>),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+                ("CORALOGIX_API_KEY", None::<&str>),
+            ],
+            || {
+                assert_eq!(
+                    LogExportConfig::load_from_env().unwrap(),
+                    LogExportConfig::CollectorOtlpGrpc {
+                        endpoint: "http://collector.internal:4317".to_string(),
+                    }
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn collector_endpoint_wins_over_coralogix_domain() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", Some("http://collector.internal:4317")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_API_KEY", Some("must-not-be-forwarded")),
+            ],
+            || {
+                assert!(matches!(
+                    LogExportConfig::load_from_env().unwrap(),
+                    LogExportConfig::CollectorOtlpGrpc { .. }
+                ));
+            },
+        );
+    }
+
+    #[test]
+    fn direct_coralogix_otlp_derives_public_endpoint() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", Some("")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+            ],
+            || {
+                assert_eq!(
+                    LogExportConfig::load_from_env().unwrap(),
+                    LogExportConfig::CoralogixOtlpGrpc {
+                        endpoint: "https://ingress.eu2.coralogix.com:443".to_string(),
+                        api_key: "secret".to_string().into(),
+                    }
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn direct_coralogix_otlp_requires_api_key() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_API_KEY", None::<&str>),
+            ],
+            || {
+                let error = LogExportConfig::load_from_env().unwrap_err();
+                assert!(error.contains("CORALOGIX_API_KEY not set"));
+            },
+        );
+    }
+
+    #[test]
+    fn otlp_without_collector_endpoint_or_coralogix_domain_fails() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_DOMAIN", None::<&str>),
+                ("CORALOGIX_API_KEY", None::<&str>),
+            ],
+            || {
+                let error = LogExportConfig::load_from_env().unwrap_err();
+                assert!(error.contains("CORALOGIX_DOMAIN not set"));
+            },
+        );
+    }
+
+    #[test]
+    fn direct_coralogix_otlp_rejects_non_bare_domain() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_DOMAIN", Some("https://eu2.coralogix.com")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+            ],
+            || {
+                let error = LogExportConfig::load_from_env().unwrap_err();
+                assert!(error.contains("CORALOGIX_DOMAIN must be a bare domain"));
+            },
+        );
+    }
+
+    #[test]
+    fn otlp_rejects_http_signal_paths() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", Some("https://collector.internal:4317/v1/logs")),
+            ],
+            || {
+                let error = LogExportConfig::load_from_env().unwrap_err();
+                assert!(error.contains("must not contain a path"));
+            },
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_protocol() {
+        temp_env::with_var("LOG_EXPORT_PROTOCOL", Some("grpc"), || {
+            let error = LogExportConfig::load_from_env().unwrap_err();
+            assert!(error.contains("coralogix_rest or otlp_grpc"));
+        });
     }
 }
