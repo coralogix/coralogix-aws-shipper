@@ -954,7 +954,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1521,7 +1521,7 @@ dependencies = [
 [[package]]
 name = "cx_sdk_core"
 version = "0.1.0"
-source = "git+ssh://git@github.com/coralogix/coralogix-sdk-rust#cc60ee9c1a38558b55d0de6d80f016a8f43e93e8"
+source = "git+ssh://git@github.com/coralogix/coralogix-sdk-rust?rev=52aee3bf014ce18b2ac25771ecefbfd25e73bb11#52aee3bf014ce18b2ac25771ecefbfd25e73bb11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1542,7 +1542,7 @@ dependencies = [
 [[package]]
 name = "cx_sdk_otlp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/coralogix/coralogix-sdk-rust#cc60ee9c1a38558b55d0de6d80f016a8f43e93e8"
+source = "git+ssh://git@github.com/coralogix/coralogix-sdk-rust?rev=52aee3bf014ce18b2ac25771ecefbfd25e73bb11#52aee3bf014ce18b2ac25771ecefbfd25e73bb11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1566,7 +1566,7 @@ dependencies = [
 [[package]]
 name = "cx_sdk_rest_logs"
 version = "0.1.0"
-source = "git+ssh://git@github.com/coralogix/coralogix-sdk-rust#cc60ee9c1a38558b55d0de6d80f016a8f43e93e8"
+source = "git+ssh://git@github.com/coralogix/coralogix-sdk-rust?rev=52aee3bf014ce18b2ac25771ecefbfd25e73bb11#52aee3bf014ce18b2ac25771ecefbfd25e73bb11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2022,7 +2022,7 @@ checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3830,7 +3830,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "petgraph 0.8.3",
@@ -3851,7 +3851,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
@@ -3864,7 +3864,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.114",

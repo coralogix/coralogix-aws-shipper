@@ -13,8 +13,8 @@ aws-sdk-s3 = { version = "1.121.0", default-features = false, features = ["rt-to
 aws-sdk-ecr = { version = "1.101.0", default-features = false, features = ["rt-tokio"] }
 aws-sdk-secretsmanager = { version = "1.97.0", default-features = false, features = ["rt-tokio"] }
 aws-sdk-cloudwatchlogs = { version = "1.101.0", default-features = false, features = ["rt-tokio"] }
-cx_sdk_rest_logs = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false, features=["rustls"] }
-cx_sdk_core = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", default-features = false}
+cx_sdk_rest_logs = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", rev = "52aee3bf014ce18b2ac25771ecefbfd25e73bb11", default-features = false, features=["rustls"] }
+cx_sdk_core = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", rev = "52aee3bf014ce18b2ac25771ecefbfd25e73bb11", default-features = false}
 derive_more = { version = "2.0.1", features = ["from", "add"] }
 fancy-regex ="0.14.0"
 flate2 = "1.1.1"
@@ -49,7 +49,7 @@ openssl = { version = "0.10.75", features = ["vendored"] }
 starlark = "0.13.0"
 regex = "1.11.1"
 humantime = "2.1.0"
-cx_sdk_otlp = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", version = "0.1.0", default-features = false, features = ["tls-aws-lc", "tls-webpki-roots"] }
+cx_sdk_otlp = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", rev = "52aee3bf014ce18b2ac25771ecefbfd25e73bb11", version = "0.1.0", default-features = false, features = ["tls-aws-lc", "tls-webpki-roots"] }
 prost_014 = { version = "0.14.1", package = "prost" }
 
 [dev-dependencies]
