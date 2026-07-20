@@ -96,6 +96,7 @@ impl LogExporter for OtlpGrpcExporter {
         }
 
         let mut pending = VecDeque::from([logs]);
+        let mut requests = Vec::new();
         while let Some(mut batch) = pending.pop_front() {
             let request = build_export_request(&batch);
             let encoded_bytes = request.encoded_len();
@@ -110,8 +111,11 @@ impl LogExporter for OtlpGrpcExporter {
                 continue;
             }
 
-            let record_count = batch.len();
             let resource_count = request.resource_logs.len();
+            requests.push((request, batch.len(), resource_count, encoded_bytes));
+        }
+
+        for (request, record_count, resource_count, encoded_bytes) in requests {
             let started = Instant::now();
             let response = self.transport.send(request).await?;
 
@@ -392,6 +396,41 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, LogExportError::OversizedRecord));
+    }
+
+    #[tokio::test]
+    async fn validates_all_partitions_before_sending_any_request() {
+        let transport = Arc::new(RecordingTransport::default());
+        let valid = log("app", "sub", serde_json::json!({"message": "valid"}));
+        let oversized = log(
+            "app",
+            "sub",
+            serde_json::json!({"message": "x".repeat(1_024)}),
+        );
+        let max_request_bytes = build_export_request(std::slice::from_ref(&valid)).encoded_len();
+        let exporter = OtlpGrpcExporter::with_transport(transport.clone(), max_request_bytes);
+
+        let error = exporter.export(vec![valid, oversized]).await.unwrap_err();
+
+        assert!(matches!(error, LogExportError::OversizedRecord));
+        assert!(transport.requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn sends_multiple_resources_in_one_request_when_under_limit() {
+        let transport = Arc::new(RecordingTransport::default());
+        let logs = vec![
+            log("app-a", "sub-a", serde_json::json!({"message": "first"})),
+            log("app-b", "sub-b", serde_json::json!({"message": "second"})),
+        ];
+        let max_request_bytes = build_export_request(&logs).encoded_len();
+        let exporter = OtlpGrpcExporter::with_transport(transport.clone(), max_request_bytes);
+
+        exporter.export(logs).await.unwrap();
+
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].resource_logs.len(), 2);
     }
 
     #[tokio::test]
