@@ -7,14 +7,14 @@ use aws_lambda_events::event::cloudwatch_logs::AwsLogs;
 use aws_lambda_events::event::s3::S3Event;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sqs::types::MessageAttributeValue;
-use cx_sdk_rest_logs::config::{BackoffConfig, LogExporterConfig};
-use cx_sdk_rest_logs::{DynLogExporter, RestLogExporter};
 // use http::header::USER_AGENT;
 use lambda_runtime::{Context, Error, LambdaEvent};
 // use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, error, info};
+
+use crate::logs::exporter::rest::CoralogixRestExporter;
+use crate::logs::exporter::DynLogExporter;
 
 pub mod config;
 pub mod coralogix;
@@ -25,27 +25,11 @@ pub mod process;
 pub mod transform;
 
 pub fn set_up_coralogix_exporter(config: &config::Config) -> Result<DynLogExporter, Error> {
-    let backoff = BackoffConfig {
-        initial_delay: Duration::from_millis(10000),
-        max_delay: Duration::from_millis(60000),
-        max_elapsed_time: Duration::from_secs(config.max_elapsed_time),
-    };
-
-    let config = LogExporterConfig {
-        url: config.endpoint.clone(),
-        request_timeout: Duration::from_secs(30),
-        backoff_config: backoff,
-        user_agent: Some(
-            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),).to_owned(),
-        ),
-        linger: None,
-        strict_mode: None,
-        processing_flow: None,
-        request_body_size_limit: None,
-    };
-    let exporter = Arc::new(RestLogExporter::builder().with_config(config).build()?);
-
-    Ok(exporter)
+    Ok(Arc::new(CoralogixRestExporter::new(
+        config.endpoint.clone(),
+        config.api_key.clone(),
+        config.max_elapsed_time,
+    )?))
 }
 
 #[async_recursion]

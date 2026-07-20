@@ -5,10 +5,12 @@ use thiserror::Error;
 
 use super::model::ProcessedLog;
 
+pub mod rest;
+
 #[derive(Debug, Error)]
 pub enum LogExportError {
     #[error("REST exporter initialization failed: {0}")]
-    RestInitialization(#[from] cx_sdk_rest_logs::InitializationError),
+    RestInitialization(String),
     #[error("REST log export failed: {0}")]
     Rest(#[from] cx_sdk_rest_logs::Error),
     #[error("OTLP initialization failed: {0}")]

@@ -7,7 +7,6 @@ use aws_sdk_cloudwatchlogs::Client as LogsClient;
 use aws_sdk_ecr::Client as EcrClient;
 use aws_sdk_s3::Client;
 use base64::prelude::*;
-use cx_sdk_rest_logs::DynLogExporter;
 use fancy_regex::Regex;
 use flate2::read::MultiGzDecoder;
 use itertools::Itertools;
@@ -27,6 +26,7 @@ use tracing::{debug, info, warn};
 use crate::logs::config::{Config, IntegrationType};
 use crate::logs::coralogix;
 use crate::logs::ecr;
+use crate::logs::exporter::DynLogExporter;
 use crate::logs::transform;
 
 // Type alias for the error type returned by list_tags_for_resource

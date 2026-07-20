@@ -10,11 +10,9 @@ use aws_sdk_sqs::Client as SqsClient;
 use coralogix_aws_shipper::clients::AwsClients;
 use coralogix_aws_shipper::events::Combined;
 use coralogix_aws_shipper::logs::config::Config;
-use cx_sdk_core::auth::AuthData;
-use cx_sdk_rest_logs::model::{LogBulkRequest, LogSinglesRequest};
-use cx_sdk_rest_logs::LogExporter;
+use coralogix_aws_shipper::logs::exporter::{LogExportError, LogExporter};
+use coralogix_aws_shipper::logs::model::{LogSeverity, ProcessedLog};
 use lambda_runtime::{Context, LambdaEvent};
-use serde::Serialize;
 use serde_json::Value;
 
 use std::string::String;
@@ -196,9 +194,13 @@ fn test_sdk_config() -> SdkConfig {
 }
 
 #[derive(Default, Debug, Clone)]
+pub struct CapturedRequest {
+    pub entries: Vec<ProcessedLog>,
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct FakeLogExporter {
-    bulks: Arc<Mutex<Vec<LogBulkRequest<serde_json::Value>>>>,
-    singles: Arc<Mutex<Vec<LogSinglesRequest<serde_json::Value>>>>,
+    requests: Arc<Mutex<Vec<CapturedRequest>>>,
 }
 
 impl FakeLogExporter {
@@ -206,44 +208,18 @@ impl FakeLogExporter {
         Self::default()
     }
 
-    pub fn take_bulks(&self) -> Vec<LogBulkRequest<serde_json::Value>> {
-        std::mem::take(&mut self.bulks.lock().unwrap())
-    }
-
-    pub fn take_singles(&self) -> Vec<LogSinglesRequest<serde_json::Value>> {
-        std::mem::take(&mut self.singles.lock().unwrap())
+    pub fn take_singles(&self) -> Vec<CapturedRequest> {
+        std::mem::take(&mut self.requests.lock().unwrap())
     }
 }
 
 #[async_trait]
 impl LogExporter for FakeLogExporter {
-    async fn export_bulk<B>(
-        &self,
-        request: LogBulkRequest<B>,
-        _: &AuthData,
-    ) -> Result<(), cx_sdk_rest_logs::Error>
-    where
-        B: Serialize + Send + Sync,
-    {
-        self.bulks
+    async fn export(&self, logs: Vec<ProcessedLog>) -> Result<(), LogExportError> {
+        self.requests
             .lock()
             .unwrap()
-            .push(request.try_map_body(serde_json::to_value)?);
-        Ok(())
-    }
-
-    async fn export_singles<B>(
-        &self,
-        request: LogSinglesRequest<B>,
-        _: &AuthData,
-    ) -> Result<(), cx_sdk_rest_logs::Error>
-    where
-        B: Serialize + Send + Sync,
-    {
-        self.singles
-            .lock()
-            .unwrap()
-            .push(request.try_map_body(serde_json::to_value)?);
+            .push(CapturedRequest { entries: logs });
         Ok(())
     }
 }
@@ -254,31 +230,10 @@ pub struct FailingLogExporter;
 
 #[async_trait]
 impl LogExporter for FailingLogExporter {
-    async fn export_bulk<B>(
-        &self,
-        _: LogBulkRequest<B>,
-        _: &AuthData,
-    ) -> Result<(), cx_sdk_rest_logs::Error>
-    where
-        B: Serialize + Send + Sync,
-    {
-        Err(cx_sdk_rest_logs::Error::Server {
-            source: anyhow::Error::msg("FailingLogExporter always fails..."),
-        })
-    }
-
-    async fn export_singles<B>(
-        &self,
-        _: LogSinglesRequest<B>,
-        _: &AuthData,
-    ) -> Result<(), cx_sdk_rest_logs::Error>
-    where
-        B: Serialize + Send + Sync,
-    {
-        println!("called");
-        Err(cx_sdk_rest_logs::Error::Server {
-            source: anyhow::Error::msg("FailingLogExporter always fails..."),
-        })
+    async fn export(&self, _: Vec<ProcessedLog>) -> Result<(), LogExportError> {
+        Err(LogExportError::OtlpResponse(
+            "FailingLogExporter always fails".to_string(),
+        ))
     }
 }
 
@@ -307,9 +262,6 @@ async fn run_test_s3_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -360,9 +312,6 @@ async fn run_test_s3_event_with_periods_in_bucket_name() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -447,9 +396,6 @@ async fn run_test_folder_s3_event() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
@@ -524,9 +470,6 @@ async fn run_cloudtraillogs_s3_event() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 20);
@@ -599,9 +542,6 @@ async fn run_cloudtraillogs_s3_event_starlark() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -681,9 +621,6 @@ async fn run_csv_s3_event() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
@@ -754,9 +691,6 @@ async fn run_vpcflowlgos_s3_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -831,9 +765,6 @@ async fn run_vpcflowlgos_s3_event_starlark() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -926,9 +857,6 @@ async fn run_sns_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -1030,9 +958,6 @@ async fn run_test_s3_event_large() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
 
     println!("singles --> {}", singles.len());
@@ -1114,9 +1039,6 @@ async fn run_test_s3_event_large_with_sampling() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
 
     assert!(singles.len() == 1);
@@ -1184,9 +1106,6 @@ async fn run_cloudwatchlogs_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -1370,9 +1289,6 @@ async fn run_cloudwatchlogs_event_starlark() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
@@ -1455,9 +1371,6 @@ async fn run_cloudwatchlogs_event_with_tags() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
@@ -1525,9 +1438,6 @@ async fn run_cloudwatchlogs_event_without_tags_enabled() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 2);
@@ -1590,9 +1500,6 @@ async fn run_blocking_and_newline_pattern() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -1666,9 +1573,6 @@ async fn run_test_empty_s3_event() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert!(singles.is_empty());
 }
@@ -1735,9 +1639,6 @@ async fn run_sqs_s3_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -1820,9 +1721,6 @@ async fn run_sqs_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -1971,9 +1869,6 @@ async fn run_sqs_multiple_records_batched() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
 
     // Key assertion: All 3 records should be batched into a SINGLE API call
@@ -2062,9 +1957,6 @@ async fn run_kinesis_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -2178,9 +2070,6 @@ async fn run_kinesis_with_cloudwatch_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -2300,9 +2189,6 @@ async fn run_kinesis_multiple_records_batched() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
 
@@ -2630,9 +2516,6 @@ async fn run_cloudfront_s3_event() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
@@ -2700,9 +2583,6 @@ async fn run_test_s3_event_with_metadata() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -2773,9 +2653,6 @@ async fn run_test_s3_event_elb() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
 
@@ -2885,9 +2762,6 @@ async fn run_kafka_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -3003,9 +2877,6 @@ async fn run_kafka_event_with_base64() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -3142,9 +3013,6 @@ async fn run_test_ecrscan_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
@@ -3663,9 +3531,6 @@ async fn run_dlq_success_msg() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
@@ -3762,9 +3627,6 @@ async fn run_test_s3_event_with_custom_metadata() {
     .await
     .unwrap();
 
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
-
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 4);
@@ -3833,9 +3695,6 @@ async fn run_csv_s3_custom_headers_event() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -3908,9 +3767,6 @@ async fn run_csv_s3_event_starlark() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
@@ -3993,9 +3849,6 @@ async fn run_test_s3_event_starlark_unnest() {
     )
     .await
     .unwrap();
-
-    let bulks = exporter.take_bulks();
-    assert!(bulks.is_empty());
 
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
