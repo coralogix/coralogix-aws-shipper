@@ -49,8 +49,8 @@ impl LogExportConfig {
         if !matches!(uri.scheme_str(), Some("http" | "https")) || uri.authority().is_none() {
             return Err("OTLP_ENDPOINT must be an absolute http:// or https:// URI".to_string());
         }
-        if uri.path() != "/" && !uri.path().is_empty() {
-            return Err("OTLP_ENDPOINT must not contain a path".to_string());
+        if (uri.path() != "/" && !uri.path().is_empty()) || uri.query().is_some() {
+            return Err("OTLP_ENDPOINT must not contain path or query components".to_string());
         }
         Ok(())
     }
@@ -747,7 +747,21 @@ mod destination_config_tests {
             ],
             || {
                 let error = LogExportConfig::load_from_env().unwrap_err();
-                assert!(error.contains("must not contain a path"));
+                assert!(error.contains("must not contain path or query components"));
+            },
+        );
+    }
+
+    #[test]
+    fn otlp_rejects_query_components() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", Some("https://collector.internal:4317?foo=bar")),
+            ],
+            || {
+                let error = LogExportConfig::load_from_env().unwrap_err();
+                assert!(error.contains("must not contain path or query components"));
             },
         );
     }
