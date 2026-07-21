@@ -310,6 +310,8 @@ class ConfigureS3Integration:
                 "TopicConfigurations": response.get("TopicConfigurations", []),
                 "QueueConfigurations": response.get("QueueConfigurations", []),
             }
+            if "EventBridgeConfiguration" in response:
+                updated_configuration["EventBridgeConfiguration"] = response["EventBridgeConfiguration"]
 
             print("Updated Configuration:", updated_configuration)
 
