@@ -143,6 +143,8 @@ Parameters:
     Type: String
     Description: The Custom Domain. If set, will be the domain used to send telemetry (e.g. cx123.coralogix.com)
     Default: ''
+    AllowedPattern: '^$|^(?=.{1,245}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$'
+    ConstraintDescription: Must be empty or a valid ASCII DNS hostname of at most 245 characters.
 
   ApiKey:
     Type: String

@@ -132,6 +132,11 @@ routes:
    empty. The shipper derives `https://ingress.<domain>:443` from the bare
    domain selected by `CoralogixRegion` or `CustomDomain` and authenticates
    with the existing Send-Your-Data API key as Bearer authorization.
+
+`CustomDomain` must be an ASCII DNS hostname. Each label may contain letters,
+digits, and internal hyphens only; schemes, ports, paths, URI userinfo, and
+leading or trailing hyphens are rejected.
+
 3. **Collector OTLP/gRPC:** set `otlp_grpc` and provide a non-empty
    `OTLPEndpoint`. The Collector endpoint takes precedence over
    `CORALOGIX_DOMAIN`; the shipper sends no Coralogix API key or authorization
@@ -147,8 +152,8 @@ routes:
 
 `OTLPEndpoint` must be an `http://` or `https://` origin without a path or
 query or URI userinfo. Plaintext `http://` is intended only for a private network.
-`https://` validates the listener certificate against the Lambda runtime's
-trusted roots. An unauthenticated Collector must remain private; attach the
+`https://` validates the listener certificate against bundled WebPKI roots.
+An unauthenticated Collector must remain private; attach the
 Lambda to appropriate VPC subnets and security groups. See the
 [Collector enrichment example](examples/otlp-grpc-collector/) for a generic
 transform processor that adds `gateway.enriched=true`.
@@ -159,6 +164,9 @@ Structured JSON bodies retain nested arrays and objects. Because OTLP
 `AnyValue` has no null variant, JSON `null` maps to the OTLP string `"null"`.
 The configured Collector can perform additional gateway enrichment before
 forwarding logs.
+
+Direct Coralogix OTLP requests use gzip compression. Collector OTLP requests
+are sent without compression so collectors are not required to enable gzip.
 
 There is no automatic fallback between Collector OTLP, direct Coralogix OTLP,
 and REST. To roll back, set `LogExportProtocol=coralogix_rest`, clear

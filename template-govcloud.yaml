@@ -137,6 +137,8 @@ Parameters:
       The Coralogix ingress domain to use (e.g. cx123.coralogix.com).
       Required in GovCloud – there is no pre-defined region mapping.
     Default: ''
+    AllowedPattern: '^$|^(?=.{1,245}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$'
+    ConstraintDescription: Must be empty or a valid ASCII DNS hostname of at most 245 characters.
 
   ApiKey:
     Type: String
