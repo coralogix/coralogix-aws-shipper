@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.11 / 2026-07-20
+
+### 🧰 Bug fixes 🧰
+
+- **S3 custom resource — preserve EventBridge notifications:** Stack updates and deletion now retain the bucket's EventBridge notification setting while removing or replacing the shipper Lambda notification.
+
 ## v1.4.10 / 2026-06-19
 
 ### 💡 Enhancements 💡

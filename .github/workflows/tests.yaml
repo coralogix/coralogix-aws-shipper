@@ -68,6 +68,9 @@ jobs:
               custom-resource/*|custom-resource-govcloud/*)
                 python=true
                 ;;
+              tests/python/*)
+                python=true
+                ;;
               examples/*/terraform/*.tf|examples/*/terraform/**/*.tf)
                 terraform=true
                 ;;
@@ -194,14 +197,19 @@ jobs:
       - name: lint Python custom resources
         if: ${{ steps.changes.outputs.python == 'true' }}
         run: |
-          ruff check custom-resource/ custom-resource-govcloud/
-          ruff format --check custom-resource/ custom-resource-govcloud/
+          ruff check --config custom-resource/pyproject.toml custom-resource/ custom-resource-govcloud/ tests/python/
+          ruff format --check --config custom-resource/pyproject.toml custom-resource/ custom-resource-govcloud/ tests/python/
 
       - name: mypy type check custom resources
         if: ${{ steps.changes.outputs.python == 'true' }}
         run: |
           mypy --config-file custom-resource/mypy.ini custom-resource/index.py
           mypy --config-file custom-resource-govcloud/mypy.ini custom-resource-govcloud/index.py
+
+      - name: Test Python custom resources
+        if: ${{ steps.changes.outputs.python == 'true' }}
+        run: |
+          python -m unittest discover --start-directory tests/python --pattern 'test_*.py'
 
       - name: Install Rust
         if: ${{ (steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test')) || steps.changes.outputs.rust_deps == 'true' }}
