@@ -1,4 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    convert::Infallible,
+    sync::{Arc, Mutex},
+    task::{Context, Poll},
+};
 
 use opentelemetry_proto::tonic::collector::logs::v1::{
     logs_service_server::{LogsService, LogsServiceServer},
@@ -7,12 +11,69 @@ use opentelemetry_proto::tonic::collector::logs::v1::{
 use opentelemetry_proto::tonic::{common::v1::any_value, logs::v1::SeverityNumber};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{codec::CompressionEncoding, metadata::MetadataMap, Request, Response, Status};
+use tonic::{
+    body::BoxBody, codec::CompressionEncoding, codegen::Service, metadata::MetadataMap,
+    server::NamedService, Request, Response, Status,
+};
+
+const GRPC_ENCODING_HEADER: &str = "grpc-encoding";
 
 #[derive(Default)]
 struct Captured {
     requests: Mutex<Vec<ExportLogsServiceRequest>>,
     metadata: Mutex<Vec<MetadataMap>>,
+    wire_grpc_encodings: Mutex<Vec<Option<String>>>,
+}
+
+/// Observes inbound `grpc-encoding` on the raw HTTP/2 request before Tonic decodes it.
+#[derive(Clone)]
+struct WireEncodingCaptureService<S> {
+    inner: S,
+    captured: Arc<Captured>,
+}
+
+impl<S> WireEncodingCaptureService<S> {
+    fn new(inner: S, captured: Arc<Captured>) -> Self {
+        Self { inner, captured }
+    }
+}
+
+impl<S> NamedService for WireEncodingCaptureService<S>
+where
+    S: NamedService,
+{
+    const NAME: &'static str = S::NAME;
+}
+
+impl<S> Service<http::Request<BoxBody>> for WireEncodingCaptureService<S>
+where
+    S: Service<http::Request<BoxBody>, Response = http::Response<BoxBody>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: http::Request<BoxBody>) -> Self::Future {
+        let encoding = req
+            .headers()
+            .get(GRPC_ENCODING_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        self.captured
+            .wire_grpc_encodings
+            .lock()
+            .unwrap()
+            .push(encoding);
+        self.inner.call(req)
+    }
 }
 
 #[derive(Clone)]
@@ -67,6 +128,7 @@ async fn start_collector(
     } else {
         service
     };
+    let service = WireEncodingCaptureService::new(service, captured.clone());
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     let server = tokio::spawn(async move {
@@ -151,6 +213,27 @@ fn exporter_config(
     }
 }
 
+fn assert_wire_grpc_encoding_gzip(captured: &Captured) {
+    let encodings = captured.wire_grpc_encodings.lock().unwrap();
+    assert_eq!(encodings.len(), 1);
+    assert_eq!(
+        encodings[0].as_deref(),
+        Some("gzip"),
+        "direct Coralogix route must send grpc-encoding: gzip before Tonic decodes the body"
+    );
+}
+
+fn assert_wire_grpc_encoding_uncompressed(captured: &Captured) {
+    let encodings = captured.wire_grpc_encodings.lock().unwrap();
+    assert_eq!(encodings.len(), 1);
+    match encodings[0].as_deref() {
+        None | Some("identity") => {}
+        Some(other) => panic!(
+            "collector route must not send compressed grpc-encoding at the wire level, got: {other:?}"
+        ),
+    }
+}
+
 fn assert_standard_otlp_payload(captured: &Captured) {
     let requests = captured.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
@@ -214,6 +297,7 @@ async fn collector_route_succeeds_without_gzip_support() {
     exporter.export(vec![test_log()]).await.unwrap();
 
     assert_standard_otlp_payload(&captured);
+    assert_wire_grpc_encoding_uncompressed(&captured);
     assert!(captured.metadata.lock().unwrap()[0]
         .get("authorization")
         .is_none());
@@ -234,6 +318,7 @@ async fn sends_bearer_authorization_for_direct_coralogix_otlp() {
     exporter.export(vec![test_log()]).await.unwrap();
 
     assert_standard_otlp_payload(&captured);
+    assert_wire_grpc_encoding_gzip(&captured);
     {
         let metadata = captured.metadata.lock().unwrap();
         let authorization: Vec<_> = metadata[0]

@@ -19,8 +19,9 @@ docker run --rm \
 Pin the image to an approved version or digest for a production deployment.
 The included receiver is plaintext. Keep it on a private network; do not expose
 this unauthenticated listener to the public internet. For TLS, terminate HTTPS
-on a private listener with a certificate trusted by the Lambda runtime and
-forward OTLP/gRPC to this receiver, or configure TLS on the Collector receiver.
+on a private listener with a certificate that chains to a bundled public WebPKI
+root. Private or custom CA roots are not currently supported. Forward OTLP/gRPC
+to this receiver, or configure TLS on the Collector receiver.
 
 ## Deploy the shipper
 
@@ -35,7 +36,8 @@ LambdaSecurityGroupID=<collector-egress-security-group>
 ```
 
 Use `http://<collector-private-host>:4317` for the included plaintext receiver.
-For a TLS-enabled listener, use its `https://` origin and trusted certificate.
+For a TLS-enabled listener, use its `https://` origin with a certificate that
+chains to a bundled public WebPKI root.
 The endpoint must be an origin without a path, query string, or URI userinfo.
 Values such as `http://user:password@collector-private-host:4317` are rejected;
 configure Collector authentication outside the endpoint URI.
