@@ -136,6 +136,10 @@ fn grpc_status_name(code: &str) -> &'static str {
     }
 }
 
+fn otlp_channel_config(endpoint: String) -> ChannelConfig {
+    ChannelConfig::new(endpoint).with_webpki_roots()
+}
+
 pub struct OtlpGrpcExporter {
     transport: Arc<dyn OtlpTransport>,
     max_request_bytes: usize,
@@ -149,7 +153,7 @@ impl OtlpGrpcExporter {
         max_request_bytes: usize,
     ) -> Result<Self, LogExportError> {
         let exporter = OtlpLogExporterGrpc::builder()
-            .with_channel_config(ChannelConfig::new(endpoint))
+            .with_channel_config(otlp_channel_config(endpoint))
             .with_backoff_config(BackoffConfig {
                 initial_delay: Duration::from_millis(100),
                 max_delay: Duration::from_secs(10),
@@ -413,6 +417,16 @@ mod tests {
             severity: LogSeverity::Info,
             timestamp: OffsetDateTime::UNIX_EPOCH,
         }
+    }
+
+    #[test]
+    fn otlp_channel_config_uses_webpki_roots() {
+        let config = otlp_channel_config("https://collector.example.com:443".to_string());
+
+        assert_eq!(
+            config.tls_roots,
+            Some(cx_sdk_core::channel::TlsRoots::WebPki)
+        );
     }
 
     #[test]
