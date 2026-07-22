@@ -49,7 +49,9 @@ impl LogsService for FailingService {
     }
 }
 
-async fn start_collector() -> (
+async fn start_collector(
+    accept_gzip: bool,
+) -> (
     String,
     Arc<Captured>,
     oneshot::Sender<()>,
@@ -59,14 +61,17 @@ async fn start_collector() -> (
     let address = listener.local_addr().unwrap();
     let incoming = TcpListenerStream::new(listener);
     let captured = Arc::new(Captured::default());
-    let service = CaptureService(captured.clone());
+    let service = LogsServiceServer::new(CaptureService(captured.clone()));
+    let service = if accept_gzip {
+        service.accept_compressed(CompressionEncoding::Gzip)
+    } else {
+        service
+    };
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     let server = tokio::spawn(async move {
         tonic::transport::Server::builder()
-            .add_service(
-                LogsServiceServer::new(service).accept_compressed(CompressionEncoding::Gzip),
-            )
+            .add_service(service)
             .serve_with_incoming_shutdown(incoming, async {
                 let _ = shutdown_rx.await;
             })
@@ -112,6 +117,37 @@ fn test_log() -> coralogix_aws_shipper::logs::model::ProcessedLog {
         body: serde_json::json!({"message": "hello"}),
         severity: LogSeverity::Info,
         timestamp: time::OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+fn exporter_config(
+    export: coralogix_aws_shipper::logs::config::LogExportConfig,
+) -> coralogix_aws_shipper::logs::config::Config {
+    use coralogix_aws_shipper::logs::config::{Config, IntegrationType};
+
+    Config {
+        newline_pattern: String::new(),
+        blocking_pattern: String::new(),
+        log_stream_filter: None,
+        sampling: 1,
+        logs_per_batch: 500,
+        integration_type: IntegrationType::S3,
+        app_name: None,
+        sub_name: None,
+        export,
+        max_elapsed_time: 2,
+        csv_delimiter: ",".to_string(),
+        batches_max_size: 4,
+        batches_max_concurrency: 1,
+        add_metadata: String::new(),
+        dlq_arn: None,
+        dlq_url: None,
+        dlq_retry_limit: None,
+        dlq_s3_bucket: None,
+        lambda_assume_role: None,
+        starlark_script: None,
+        enable_log_group_tags: false,
+        log_group_tags_cache_ttl_seconds: 300,
     }
 }
 
@@ -166,13 +202,17 @@ fn assert_standard_otlp_payload(captured: &Captured) {
 }
 
 #[tokio::test]
-async fn sends_standard_otlp_logs_without_authorization() {
-    use coralogix_aws_shipper::logs::exporter::{otlp::OtlpGrpcExporter, LogExporter};
-    use cx_sdk_otlp::auth::AuthData;
+async fn collector_route_succeeds_without_gzip_support() {
+    use coralogix_aws_shipper::logs::{
+        config::LogExportConfig,
+        exporter::build_exporter,
+    };
 
-    let (endpoint, captured, shutdown, server) = start_collector().await;
-    let exporter =
-        OtlpGrpcExporter::new(endpoint, AuthData::default(), 2, 4 * 1024 * 1024).unwrap();
+    let (endpoint, captured, shutdown, server) = start_collector(false).await;
+    let exporter = build_exporter(&exporter_config(LogExportConfig::CollectorOtlpGrpc {
+        endpoint,
+    }))
+    .unwrap();
 
     exporter.export(vec![test_log()]).await.unwrap();
 
@@ -185,26 +225,29 @@ async fn sends_standard_otlp_logs_without_authorization() {
 
 #[tokio::test]
 async fn sends_bearer_authorization_for_direct_coralogix_otlp() {
-    use coralogix_aws_shipper::logs::exporter::{otlp::OtlpGrpcExporter, LogExporter};
-    use cx_sdk_otlp::{auth::AuthData, ApiKey};
+    use coralogix_aws_shipper::logs::{
+        config::LogExportConfig,
+        exporter::build_exporter,
+    };
 
-    let (endpoint, captured, shutdown, server) = start_collector().await;
-    let api_key = ApiKey::from("direct-secret");
-    let exporter =
-        OtlpGrpcExporter::new(endpoint, AuthData::from(&api_key), 2, 4 * 1024 * 1024).unwrap();
+    let (endpoint, captured, shutdown, server) = start_collector(true).await;
+    let exporter = build_exporter(&exporter_config(LogExportConfig::CoralogixOtlpGrpc {
+        endpoint,
+        api_key: "direct-secret".to_string().into(),
+    }))
+    .unwrap();
 
     exporter.export(vec![test_log()]).await.unwrap();
 
     assert_standard_otlp_payload(&captured);
-    {
-        let metadata = captured.metadata.lock().unwrap();
-        let authorization: Vec<_> = metadata[0]
-            .get_all("authorization")
-            .iter()
-            .map(|value| value.to_str().unwrap())
-            .collect();
-        assert_eq!(authorization, ["Bearer direct-secret"]);
-    }
+    let metadata = captured.metadata.lock().unwrap();
+    let authorization: Vec<_> = metadata[0]
+        .get_all("authorization")
+        .iter()
+        .map(|value| value.to_str().unwrap())
+        .collect();
+    assert_eq!(authorization, ["Bearer direct-secret"]);
+    drop(metadata);
     stop_collector(shutdown, server).await;
 }
 

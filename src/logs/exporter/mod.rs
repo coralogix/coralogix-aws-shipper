@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use super::config::{Config, LogExportConfig};
 use super::model::ProcessedLog;
-use otlp::OtlpGrpcExporter;
+use otlp::{OtlpCompression, OtlpGrpcExporter};
 use rest::CoralogixRestExporter;
 
 pub mod otlp;
@@ -155,12 +155,15 @@ fn build_exporter_from(
         LogExportConfig::CoralogixRest { endpoint, api_key } => Arc::new(
             CoralogixRestExporter::new(endpoint.clone(), api_key.clone(), max_elapsed_time)?,
         ),
-        LogExportConfig::CollectorOtlpGrpc { endpoint } => Arc::new(OtlpGrpcExporter::new(
-            endpoint.clone(),
-            AuthData::default(),
-            max_elapsed_time,
-            max_request_bytes,
-        )?),
+        LogExportConfig::CollectorOtlpGrpc { endpoint } => {
+            Arc::new(OtlpGrpcExporter::new_with_compression(
+                endpoint.clone(),
+                AuthData::default(),
+                max_elapsed_time,
+                max_request_bytes,
+                OtlpCompression::None,
+            )?)
+        }
         LogExportConfig::CoralogixOtlpGrpc { endpoint, api_key } => {
             Arc::new(OtlpGrpcExporter::new(
                 endpoint.clone(),

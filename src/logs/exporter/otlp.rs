@@ -140,6 +140,18 @@ fn otlp_channel_config(endpoint: String) -> ChannelConfig {
     ChannelConfig::new(endpoint).with_webpki_roots()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OtlpCompression {
+    None,
+    Gzip,
+}
+
+impl OtlpCompression {
+    fn gzip_enabled(self) -> bool {
+        matches!(self, Self::Gzip)
+    }
+}
+
 pub struct OtlpGrpcExporter {
     transport: Arc<dyn OtlpTransport>,
     max_request_bytes: usize,
@@ -152,6 +164,22 @@ impl OtlpGrpcExporter {
         max_elapsed_time: u64,
         max_request_bytes: usize,
     ) -> Result<Self, LogExportError> {
+        Self::new_with_compression(
+            endpoint,
+            auth,
+            max_elapsed_time,
+            max_request_bytes,
+            OtlpCompression::Gzip,
+        )
+    }
+
+    pub(crate) fn new_with_compression(
+        endpoint: String,
+        auth: AuthData,
+        max_elapsed_time: u64,
+        max_request_bytes: usize,
+        compression: OtlpCompression,
+    ) -> Result<Self, LogExportError> {
         let exporter = OtlpLogExporterGrpc::builder()
             .with_channel_config(otlp_channel_config(endpoint))
             .with_backoff_config(BackoffConfig {
@@ -159,7 +187,7 @@ impl OtlpGrpcExporter {
                 max_delay: Duration::from_secs(10),
                 max_elapsed_time: Duration::from_secs(max_elapsed_time),
             })
-            .with_gzip_compression(true)
+            .with_gzip_compression(compression.gzip_enabled())
             .listener(AttemptListener)
             .try_build()
             .map_err(|error| LogExportError::OtlpInitialization(error.to_string()))?;
