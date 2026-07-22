@@ -41,6 +41,9 @@ pub enum LogExportConfig {
     CoralogixOtlpGrpc { endpoint: String, api_key: ApiKey },
 }
 
+/// Maximum allowed byte length for a direct Coralogix OTLP domain hostname.
+const MAX_CORALOGIX_DOMAIN_BYTES: usize = 245;
+
 impl LogExportConfig {
     fn validate_collector_endpoint(endpoint: &str) -> Result<(), String> {
         let uri: http::Uri = endpoint
@@ -61,21 +64,54 @@ impl LogExportConfig {
         Ok(())
     }
 
-    fn coralogix_otlp_endpoint(domain: &str) -> Result<String, String> {
-        let domain = domain.trim();
-        if domain.is_empty()
-            || domain.contains("://")
-            || domain.contains('/')
-            || domain.contains(':')
-            || domain.contains('?')
-            || domain.contains('#')
-            || domain.chars().any(char::is_whitespace)
-        {
-            return Err(
-                "CORALOGIX_DOMAIN must be a bare domain without scheme, path, or port".to_string(),
-            );
+    fn validate_coralogix_domain(domain: &str) -> Result<(), String> {
+        let valid = !domain.is_empty()
+            && domain == domain.trim()
+            && domain.len() <= MAX_CORALOGIX_DOMAIN_BYTES
+            && domain.split('.').all(|label| {
+                !label.is_empty()
+                    && label.len() <= 63
+                    && label
+                        .as_bytes()
+                        .first()
+                        .is_some_and(|byte| byte.is_ascii_alphanumeric())
+                    && label
+                        .as_bytes()
+                        .last()
+                        .is_some_and(|byte| byte.is_ascii_alphanumeric())
+                    && label
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            });
+
+        if valid {
+            Ok(())
+        } else {
+            Err("CORALOGIX_DOMAIN must be a valid ASCII DNS hostname".to_string())
         }
-        Ok(format!("https://ingress.{domain}:443"))
+    }
+
+    fn coralogix_otlp_endpoint(domain: &str) -> Result<String, String> {
+        Self::validate_coralogix_domain(domain)?;
+
+        let expected_host = format!("ingress.{domain}");
+        let endpoint = format!("https://{expected_host}:443");
+        let uri: http::Uri = endpoint
+            .parse()
+            .map_err(|_| "CORALOGIX_DOMAIN must be a valid ASCII DNS hostname".to_string())?;
+        let has_userinfo = uri
+            .authority()
+            .is_some_and(|authority| authority.as_str().contains('@'));
+
+        if uri.scheme_str() != Some("https")
+            || uri.host() != Some(expected_host.as_str())
+            || uri.port_u16() != Some(443)
+            || has_userinfo
+        {
+            return Err("CORALOGIX_DOMAIN must be a valid ASCII DNS hostname".to_string());
+        }
+
+        Ok(endpoint)
     }
 
     fn load_from_env() -> Result<Self, String> {
@@ -731,6 +767,62 @@ mod destination_config_tests {
     }
 
     #[test]
+    fn direct_coralogix_otlp_accepts_valid_dns_domains() {
+        for domain in [
+            "eu2.coralogix.com",
+            "cx-123.coralogix.com",
+            "custom.internal",
+        ] {
+            let endpoint = LogExportConfig::coralogix_otlp_endpoint(domain).unwrap();
+            let uri: http::Uri = endpoint.parse().unwrap();
+            let expected_host = format!("ingress.{domain}");
+
+            assert_eq!(uri.scheme_str(), Some("https"));
+            assert_eq!(uri.host(), Some(expected_host.as_str()));
+            assert_eq!(uri.port_u16(), Some(443));
+            assert!(!uri.authority().unwrap().as_str().contains('@'));
+        }
+    }
+
+    #[test]
+    fn direct_coralogix_otlp_rejects_malformed_dns_domains() {
+        let mut invalid = vec![
+            "".to_string(),
+            " eu2.coralogix.com".to_string(),
+            "eu2.coralogix.com ".to_string(),
+            "@attacker.example".to_string(),
+            "user@attacker.example".to_string(),
+            "example..com".to_string(),
+            ".example.com".to_string(),
+            "example.com.".to_string(),
+            "-example.com".to_string(),
+            "example-.com".to_string(),
+            "exa_mple.com".to_string(),
+            "https://example.com".to_string(),
+            "example.com/path".to_string(),
+            "example.com:443".to_string(),
+            "example.com?key=value".to_string(),
+            "example.com#fragment".to_string(),
+            "example%2ecom".to_string(),
+        ];
+        invalid.push(format!("{}.example.com", "a".repeat(64)));
+        invalid.push(format!(
+            "{}.{}.{}.{}",
+            "a".repeat(63),
+            "b".repeat(63),
+            "c".repeat(63),
+            "d".repeat(54)
+        ));
+
+        for domain in invalid {
+            assert!(
+                LogExportConfig::coralogix_otlp_endpoint(&domain).is_err(),
+                "unexpectedly accepted {domain:?}"
+            );
+        }
+    }
+
+    #[test]
     fn direct_coralogix_otlp_rejects_non_bare_domain() {
         temp_env::with_vars(
             [
@@ -741,7 +833,7 @@ mod destination_config_tests {
             ],
             || {
                 let error = LogExportConfig::load_from_env().unwrap_err();
-                assert!(error.contains("CORALOGIX_DOMAIN must be a bare domain"));
+                assert!(error.contains("CORALOGIX_DOMAIN must be a valid ASCII DNS hostname"));
             },
         );
     }
