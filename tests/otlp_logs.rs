@@ -203,10 +203,7 @@ fn assert_standard_otlp_payload(captured: &Captured) {
 
 #[tokio::test]
 async fn collector_route_succeeds_without_gzip_support() {
-    use coralogix_aws_shipper::logs::{
-        config::LogExportConfig,
-        exporter::build_exporter,
-    };
+    use coralogix_aws_shipper::logs::{config::LogExportConfig, exporter::build_exporter};
 
     let (endpoint, captured, shutdown, server) = start_collector(false).await;
     let exporter = build_exporter(&exporter_config(LogExportConfig::CollectorOtlpGrpc {
@@ -225,10 +222,7 @@ async fn collector_route_succeeds_without_gzip_support() {
 
 #[tokio::test]
 async fn sends_bearer_authorization_for_direct_coralogix_otlp() {
-    use coralogix_aws_shipper::logs::{
-        config::LogExportConfig,
-        exporter::build_exporter,
-    };
+    use coralogix_aws_shipper::logs::{config::LogExportConfig, exporter::build_exporter};
 
     let (endpoint, captured, shutdown, server) = start_collector(true).await;
     let exporter = build_exporter(&exporter_config(LogExportConfig::CoralogixOtlpGrpc {
