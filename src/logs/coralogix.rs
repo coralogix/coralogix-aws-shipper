@@ -485,7 +485,11 @@ fn convert_to_processed_log(
 
     tracing::debug!("App Name: {}", &application_name);
     tracing::debug!("Sub Name: {}", &subsystem_name);
-    let severity = get_severity_level(&log);
+    let severity = if config.disable_log_severity_detection {
+        LogSeverity::Info
+    } else {
+        get_severity_level(&log)
+    };
     // let stream_name = metadata_instance.stream_name.clone();
     // let topic_name = metadata_instance.topic_name.clone();
     // let loggroup_name = metadata_instance.log_group.clone();
@@ -640,6 +644,41 @@ mod tests {
             enable_log_group_tags: false,
             log_group_tags_cache_ttl_seconds: 300,
             disable_log_severity_detection: false,
+        }
+    }
+
+    #[test]
+    fn severity_detection_can_be_disabled_without_changing_the_log_body() {
+        let log = r#"{"message":"critical failure","severity":"ERROR"}"#;
+        let mctx = process::MetadataContext::default();
+
+        let enabled =
+            convert_to_processed_log(log.to_string(), "app", "sub", &mctx, &test_config());
+        assert_eq!(enabled.severity, LogSeverity::Critical);
+
+        let mut disabled_config = test_config();
+        disabled_config.disable_log_severity_detection = true;
+        let disabled =
+            convert_to_processed_log(log.to_string(), "app", "sub", &mctx, &disabled_config);
+
+        assert_eq!(disabled.severity, LogSeverity::Info);
+        assert_eq!(
+            disabled.body,
+            serde_json::json!({"message":"critical failure","severity":"ERROR"})
+        );
+    }
+
+    #[test]
+    fn enabled_severity_detection_preserves_existing_keyword_mapping() {
+        for (message, expected) in [
+            ("debug", LogSeverity::Debug),
+            ("trace", LogSeverity::Verbose),
+            ("info", LogSeverity::Info),
+            ("warning", LogSeverity::Warn),
+            ("error", LogSeverity::Error),
+            ("panic", LogSeverity::Critical),
+        ] {
+            assert_eq!(get_severity_level(message), expected);
         }
     }
 

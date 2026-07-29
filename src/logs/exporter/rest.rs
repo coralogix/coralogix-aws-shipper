@@ -112,4 +112,9 @@ mod tests {
             "REST initialization error must retain the SDK builder error as its source"
         );
     }
+
+    #[test]
+    fn maps_info_to_rest_info() {
+        assert_eq!(rest_severity(LogSeverity::Info), Severity::Info);
+    }
 }
