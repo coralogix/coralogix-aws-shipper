@@ -34,7 +34,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -142,7 +142,7 @@ jobs:
 
       - name: Set up Go
         if: ${{ steps.changes.outputs.workflow == 'true' }}
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: stable
           cache: false
@@ -168,7 +168,7 @@ jobs:
 
       - name: Set up Python
         if: ${{ steps.changes.outputs.cfn_lint == 'true' || steps.changes.outputs.python == 'true' || steps.changes.outputs.terraform == 'true' }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 

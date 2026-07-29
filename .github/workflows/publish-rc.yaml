@@ -30,7 +30,7 @@ jobs:
             runner: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: dev
 
@@ -43,7 +43,7 @@ jobs:
       # python is still needed so `sam build` can package the python
       # CustomResourceFunction (runtime python3.12); cargo-lambda is no longer
       # installed on the host because the Rust build happens in the AL2023 container.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -70,7 +70,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=publish-${{ matrix.target }}
 
       - name: cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo-registry
           key: cargo-registry-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
