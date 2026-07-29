@@ -45,6 +45,7 @@ fn create_test_config(starlark_script: Option<String>) -> Config {
         starlark_script,
         enable_log_group_tags: false,
         log_group_tags_cache_ttl_seconds: 300,
+        disable_log_severity_detection: false,
     }
 }
 

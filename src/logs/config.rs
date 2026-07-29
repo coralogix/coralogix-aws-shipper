@@ -15,6 +15,23 @@ use thiserror::Error;
 
 /// Maximum allowed size for a downloaded Starlark script (1 MiB).
 const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
+const DISABLE_LOG_SEVERITY_DETECTION_ENV: &str = "DISABLE_LOG_SEVERITY_DETECTION";
+
+fn load_disable_log_severity_detection() -> bool {
+    match env::var(DISABLE_LOG_SEVERITY_DETECTION_ENV) {
+        Ok(value) => match value.parse::<bool>() {
+            Ok(value) => value,
+            Err(_) => {
+                tracing::warn!(
+                    environment_variable = DISABLE_LOG_SEVERITY_DETECTION_ENV,
+                    "Invalid boolean value; using default false"
+                );
+                false
+            }
+        },
+        Err(_) => false,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogExportProtocol {
@@ -171,6 +188,7 @@ pub struct Config {
     pub starlark_script: Option<String>,
     pub enable_log_group_tags: bool,
     pub log_group_tags_cache_ttl_seconds: u64,
+    pub disable_log_severity_detection: bool,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -284,6 +302,7 @@ impl Config {
                         e
                     )
                 })?,
+            disable_log_severity_detection: load_disable_log_severity_detection(),
         };
 
         Ok(conf)
@@ -655,6 +674,29 @@ mod script_loading_tests {
 #[cfg(test)]
 mod destination_config_tests {
     use super::*;
+
+    #[test]
+    fn severity_detection_is_enabled_when_disable_flag_is_missing() {
+        temp_env::with_var("DISABLE_LOG_SEVERITY_DETECTION", None::<&str>, || {
+            assert!(!load_disable_log_severity_detection())
+        });
+    }
+
+    #[test]
+    fn severity_detection_disable_flag_accepts_true_and_false() {
+        for (value, expected) in [("true", true), ("false", false)] {
+            temp_env::with_var("DISABLE_LOG_SEVERITY_DETECTION", Some(value), || {
+                assert_eq!(load_disable_log_severity_detection(), expected);
+            });
+        }
+    }
+
+    #[test]
+    fn invalid_severity_detection_disable_flag_uses_default_behavior() {
+        temp_env::with_var("DISABLE_LOG_SEVERITY_DETECTION", Some("yes"), || {
+            assert!(!load_disable_log_severity_detection())
+        });
+    }
 
     #[test]
     fn defaults_to_coralogix_rest() {
