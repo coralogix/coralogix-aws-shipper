@@ -23,7 +23,7 @@ jobs:
       template_updated: ${{ env.updated }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 2 # Fetches the last two commits for comparison
 
@@ -78,7 +78,7 @@ jobs:
       contents: read
     steps:
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -114,7 +114,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -125,7 +125,7 @@ jobs:
       # python is still needed so `sam build` can package the python
       # CustomResourceFunction (runtime python3.12); cargo-lambda is no longer
       # installed on the host because the Rust build happens in the AL2023 container.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -152,7 +152,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=publish-${{ matrix.target }}
 
       - name: cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo-registry
           key: cargo-registry-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
