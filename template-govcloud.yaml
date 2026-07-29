@@ -18,6 +18,7 @@ Metadata:
           - ApiKey
           - StoreAPIKeyInSecretsManager
           - LogExportProtocol
+          - DisableLogSeverityDetection
           - OTLPEndpoint
       - Label:
           default: GovCloud artifact locations
@@ -518,6 +519,14 @@ Parameters:
       - coralogix_rest
       - otlp_grpc
     Default: coralogix_rest
+
+  DisableLogSeverityDetection:
+    Type: String
+    Description: When true, skip keyword-based severity detection and send every log with protocol-level Info severity. The original log body is unchanged.
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
 
   OTLPEndpoint:
     Type: String
@@ -1164,6 +1173,7 @@ Resources:
               - !Ref ApiKey
             - !Ref AWS::NoValue
           LOG_EXPORT_PROTOCOL: !Ref LogExportProtocol
+          DISABLE_LOG_SEVERITY_DETECTION: !Ref DisableLogSeverityDetection
           OTLP_ENDPOINT: !If
             - UseCollectorOtlpLogs
             - !Ref OTLPEndpoint
@@ -1665,6 +1675,7 @@ Resources:
         LambdaAssumeRoleARN: !Ref LambdaAssumeRoleARN
         CustomDomain: !Ref CustomDomain
         LogExportProtocol: !Ref LogExportProtocol
+        DisableLogSeverityDetection: !Ref DisableLogSeverityDetection
         OTLPEndpoint: !Ref OTLPEndpoint
         ApiKey: !If
           - NeedsCoralogixApiKey
