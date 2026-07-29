@@ -31,6 +31,7 @@ allow = [
   "Unlicense",
   "Zlib",
   "OpenSSL",
+  "CDLA-Permissive-2.0",
 ]
 
 [[licenses.clarify]]
@@ -42,6 +43,13 @@ license-files = [
 
 [[licenses.clarify]]
 crate = "cx_sdk_rest_logs"
+expression = "MIT"
+license-files = [
+  { path = "../LICENSE", hash = 0x9e7164c8 },
+]
+
+[[licenses.clarify]]
+crate = "cx_sdk_otlp"
 expression = "MIT"
 license-files = [
   { path = "../LICENSE", hash = 0x9e7164c8 },
