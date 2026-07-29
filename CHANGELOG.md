@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.12 / 2026-07-29
+
+### 💡 Enhancements 💡
+
+- **OTLP/gRPC log export:** Add `LogExportProtocol` (`coralogix_rest` default, or `otlp_grpc`) and optional `OTLPEndpoint`. Supports Coralogix REST, direct Coralogix OTLP/gRPC (API key + domain), and unauthenticated Collector OTLP/gRPC. Updates `template.yaml`, `template-govcloud.yaml`, and README.
+
 ## v1.4.11 / 2026-07-20
 
 ### 🧰 Bug fixes 🧰
