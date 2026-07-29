@@ -128,7 +128,7 @@ routes:
 1. **Coralogix REST (default):** `coralogix_rest` preserves the existing
    direct-delivery behavior and credentials. Existing deployments remain
    backward compatible because this is the default.
-2. **Direct Coralogix OTLP/gRPC:** set `otlp_grpc` and leave `OTLPEndpoint`
+1. **Direct Coralogix OTLP/gRPC:** set `otlp_grpc` and leave `OTLPEndpoint`
    empty. The shipper derives `https://ingress.<domain>:443` from the bare
    domain selected by `CoralogixRegion` or `CustomDomain` and authenticates
    with the existing Send-Your-Data API key as Bearer authorization.
@@ -137,7 +137,7 @@ routes:
 digits, and internal hyphens only; schemes, ports, paths, URI userinfo, and
 leading or trailing hyphens are rejected.
 
-3. **Collector OTLP/gRPC:** set `otlp_grpc` and provide a non-empty
+1. **Collector OTLP/gRPC:** set `otlp_grpc` and provide a non-empty
    `OTLPEndpoint`. The Collector endpoint takes precedence over
    `CORALOGIX_DOMAIN`; the shipper sends no Coralogix API key or authorization
    metadata on this route. This is the only route without application-layer
