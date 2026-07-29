@@ -5,6 +5,7 @@
 ### 💡 Enhancements 💡
 
 - **OTLP/gRPC log export:** Add `LogExportProtocol` (`coralogix_rest` default, or `otlp_grpc`) and optional `OTLPEndpoint`. Supports Coralogix REST, direct Coralogix OTLP/gRPC (API key + domain), and unauthenticated Collector OTLP/gRPC. Updates `template.yaml`, `template-govcloud.yaml`, and README.
+- **Optional severity detection:** Add `DisableLogSeverityDetection` (`false` by default). When enabled, keyword detection is skipped and logs use protocol-level `Info` severity without changing the original body. Applies to REST and OTLP/gRPC log delivery.
 
 ## v1.4.11 / 2026-07-20
 
