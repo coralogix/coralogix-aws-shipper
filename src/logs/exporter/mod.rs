@@ -91,6 +91,8 @@ pub enum LogExportError {
     OtlpInitialization(String),
     #[error("{0}")]
     OtlpResponse(OtlpResponseError),
+    #[error("OTLP log export failed: server rejected {rejected_log_records} log record(s)")]
+    PartialRejection { rejected_log_records: i64 },
     #[error("one encoded OTLP log record exceeds the configured request limit")]
     OversizedRecord,
 }

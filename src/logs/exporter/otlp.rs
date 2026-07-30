@@ -240,11 +240,28 @@ impl LogExporter for OtlpGrpcExporter {
             let response = transport_response.response;
 
             if let Some(partial) = response.partial_success {
-                if partial.rejected_log_records > 0 || !partial.error_message.is_empty() {
+                let error_message_present = !partial.error_message.is_empty();
+                if partial.rejected_log_records > 0 {
                     tracing::warn!(
                         rejected_log_records = partial.rejected_log_records,
-                        error_message_present = !partial.error_message.is_empty(),
-                        "OTLP collector partially accepted a log request"
+                        record_count,
+                        resource_count,
+                        encoded_bytes,
+                        error_message_present,
+                        "OTLP collector rejected log records"
+                    );
+                    return Err(LogExportError::PartialRejection {
+                        rejected_log_records: partial.rejected_log_records,
+                    });
+                }
+
+                if error_message_present {
+                    tracing::warn!(
+                        record_count,
+                        resource_count,
+                        encoded_bytes,
+                        error_message_present,
+                        "OTLP collector accepted all log records with a warning"
                     );
                 }
             }
@@ -781,13 +798,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn partial_success_does_not_resend_the_complete_request() {
+    async fn partial_rejection_fails_the_logical_batch_without_exposing_server_message() {
+        const SENTINEL_MESSAGE: &str = "server-controlled-sensitive-detail";
         let transport = Arc::new(RecordingTransport {
             requests: Mutex::new(Vec::new()),
             response: ExportLogsServiceResponse {
                 partial_success: Some(ExportLogsPartialSuccess {
                     rejected_log_records: 1,
-                    error_message: "one record rejected".to_string(),
+                    error_message: SENTINEL_MESSAGE.to_string(),
+                }),
+            },
+        });
+        let exporter = OtlpGrpcExporter::with_transport(transport.clone(), 4 * 1024 * 1024);
+
+        let error = exporter
+            .export(vec![log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "hello"}),
+            )])
+            .await
+            .unwrap_err();
+        let display = error.to_string();
+        let debug = format!("{error:?}");
+
+        assert!(matches!(
+            error,
+            LogExportError::PartialRejection {
+                rejected_log_records: 1
+            }
+        ));
+        assert!(!display.contains(SENTINEL_MESSAGE));
+        assert!(!debug.contains(SENTINEL_MESSAGE));
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn warning_only_partial_success_succeeds() {
+        let transport = Arc::new(RecordingTransport {
+            requests: Mutex::new(Vec::new()),
+            response: ExportLogsServiceResponse {
+                partial_success: Some(ExportLogsPartialSuccess {
+                    rejected_log_records: 0,
+                    error_message: "server warning".to_string(),
                 }),
             },
         });
@@ -803,6 +856,74 @@ mod tests {
             .unwrap();
 
         assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn empty_partial_success_succeeds() {
+        let transport = Arc::new(RecordingTransport {
+            requests: Mutex::new(Vec::new()),
+            response: ExportLogsServiceResponse {
+                partial_success: Some(ExportLogsPartialSuccess {
+                    rejected_log_records: 0,
+                    error_message: String::new(),
+                }),
+            },
+        });
+        let exporter = OtlpGrpcExporter::with_transport(transport.clone(), 4 * 1024 * 1024);
+
+        exporter
+            .export(vec![log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "hello"}),
+            )])
+            .await
+            .unwrap();
+
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn later_split_partial_rejection_fails_the_logical_batch() {
+        let transport = Arc::new(ScriptedTransport::new([
+            ScriptedOutcome::Success(ExportLogsServiceResponse::default()),
+            ScriptedOutcome::Success(ExportLogsServiceResponse {
+                partial_success: Some(ExportLogsPartialSuccess {
+                    rejected_log_records: 1,
+                    error_message: "one record rejected".to_string(),
+                }),
+            }),
+            ScriptedOutcome::Success(ExportLogsServiceResponse::default()),
+        ]));
+        let logs = vec![
+            log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "a".repeat(180)}),
+            ),
+            log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "b".repeat(180)}),
+            ),
+            log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "c".repeat(180)}),
+            ),
+        ];
+        let max_request_bytes = build_export_request(&logs[..1]).encoded_len();
+        let exporter = OtlpGrpcExporter::with_transport(transport.clone(), max_request_bytes);
+
+        let error = exporter.export(logs).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            LogExportError::PartialRejection {
+                rejected_log_records: 1
+            }
+        ));
+        assert_eq!(transport.requests.lock().unwrap().len(), 2);
     }
 
     #[tokio::test]
