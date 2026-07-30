@@ -391,7 +391,10 @@ mod tests {
         collector::logs::v1::{ExportLogsPartialSuccess, ExportLogsServiceResponse},
         common::v1::any_value,
     };
-    use std::sync::{Arc, Mutex};
+    use std::{
+        collections::VecDeque,
+        sync::{Arc, Mutex},
+    };
     use time::OffsetDateTime;
 
     struct RecordingTransport {
@@ -419,6 +422,50 @@ mod tests {
                 response: self.response.clone(),
                 attempt_count: 1,
             })
+        }
+    }
+
+    enum ScriptedOutcome {
+        Success(ExportLogsServiceResponse),
+        TransportFailure,
+    }
+
+    struct ScriptedTransport {
+        requests: Mutex<Vec<ExportLogsServiceRequest>>,
+        outcomes: Mutex<VecDeque<ScriptedOutcome>>,
+    }
+
+    impl ScriptedTransport {
+        fn new(outcomes: impl IntoIterator<Item = ScriptedOutcome>) -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                outcomes: Mutex::new(outcomes.into_iter().collect()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl OtlpTransport for ScriptedTransport {
+        async fn send(
+            &self,
+            request: ExportLogsServiceRequest,
+        ) -> Result<OtlpTransportResponse, LogExportError> {
+            self.requests.lock().unwrap().push(request);
+            match self
+                .outcomes
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("scripted transport outcome")
+            {
+                ScriptedOutcome::Success(response) => Ok(OtlpTransportResponse {
+                    response,
+                    attempt_count: 1,
+                }),
+                ScriptedOutcome::TransportFailure => Err(LogExportError::OtlpResponse(
+                    OtlpResponseError::new(OtlpFailureClassification::Unclassified, "unavailable"),
+                )),
+            }
         }
     }
 
@@ -620,6 +667,41 @@ mod tests {
         assert!(requests
             .iter()
             .all(|request| request.resource_logs.len() == 1));
+    }
+
+    #[tokio::test]
+    async fn later_split_transport_failure_fails_the_logical_batch() {
+        let transport = Arc::new(ScriptedTransport::new([
+            ScriptedOutcome::Success(ExportLogsServiceResponse::default()),
+            ScriptedOutcome::TransportFailure,
+            ScriptedOutcome::Success(ExportLogsServiceResponse::default()),
+        ]));
+        let logs = vec![
+            log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "a".repeat(180)}),
+            ),
+            log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "b".repeat(180)}),
+            ),
+            log(
+                "app",
+                "sub",
+                serde_json::json!({"message": "c".repeat(180)}),
+            ),
+        ];
+        let max_request_bytes = build_export_request(&logs[..1]).encoded_len();
+        let exporter = OtlpGrpcExporter::with_transport(transport.clone(), max_request_bytes);
+
+        let error = exporter.export(logs).await.unwrap_err();
+
+        assert!(matches!(error, LogExportError::OtlpResponse(_)));
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_ne!(requests[0], requests[1]);
     }
 
     #[tokio::test]

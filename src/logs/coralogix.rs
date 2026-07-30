@@ -616,6 +616,18 @@ mod tests {
     use super::*;
     use crate::logs::config::LogExportConfig;
 
+    struct AlwaysFailingExporter;
+
+    #[async_trait::async_trait]
+    impl crate::logs::exporter::LogExporter for AlwaysFailingExporter {
+        async fn export(
+            &self,
+            _logs: Vec<ProcessedLog>,
+        ) -> Result<(), crate::logs::exporter::LogExportError> {
+            Err(crate::logs::exporter::LogExportError::OversizedRecord)
+        }
+    }
+
     fn test_config() -> Config {
         Config {
             newline_pattern: String::new(),
@@ -645,6 +657,30 @@ mod tests {
             log_group_tags_cache_ttl_seconds: 300,
             disable_log_severity_detection: false,
         }
+    }
+
+    #[tokio::test]
+    async fn process_batches_propagates_export_failure() {
+        let config = test_config();
+        let metadata = process::MetadataContext::default();
+        let sdk_config = aws_config::SdkConfig::builder().build();
+
+        let error = process_batches(
+            vec!["one log".to_string()],
+            "app",
+            "sub",
+            &config,
+            &metadata,
+            std::sync::Arc::new(AlwaysFailingExporter),
+            &sdk_config,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "one encoded OTLP log record exceeds the configured request limit"
+        );
     }
 
     #[test]
