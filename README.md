@@ -168,6 +168,13 @@ forwarding logs.
 Direct Coralogix OTLP requests use gzip compression. Collector OTLP requests
 are sent without compression so collectors are not required to enable gzip.
 
+OTLP delivery is at-least-once. If any size-split request fails, or if a
+successful OTLP response reports one or more rejected log records, the logical
+batch fails so existing Lambda retry or DLQ handling can run. A retry may
+duplicate records accepted before the failure. A response with zero rejected
+records is a full success; any accompanying message is logged as a warning
+without exposing its contents.
+
 There is no automatic fallback between Collector OTLP, direct Coralogix OTLP,
 and REST. To roll back, set `LogExportProtocol=coralogix_rest`, clear
 `OTLPEndpoint`, restore the Coralogix REST API key and region/domain settings,
