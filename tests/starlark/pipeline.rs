@@ -7,11 +7,12 @@ use aws_smithy_http_client::test_util::ReplayEvent;
 use aws_smithy_http_client::test_util::StaticReplayClient;
 use aws_smithy_types::body::SdkBody;
 use base64::Engine;
-use coralogix_aws_shipper::logs::config::{Config, IntegrationType, ScriptLoadError};
+use coralogix_aws_shipper::logs::config::{
+    Config, IntegrationType, LogExportConfig, ScriptLoadError,
+};
 use coralogix_aws_shipper::logs::transform::{
     reset_cache, set_retry_interval_secs, transform_logs,
 };
-use cx_sdk_rest_logs::auth::ApiKey;
 use http::Response;
 use serial_test::serial;
 use wiremock::matchers::{method, path};
@@ -27,8 +28,10 @@ fn create_test_config(starlark_script: Option<String>) -> Config {
         integration_type: IntegrationType::S3,
         app_name: None,
         sub_name: None,
-        api_key: ApiKey::from("test-api-key"),
-        endpoint: "https://test.coralogix.com".to_string(),
+        export: LogExportConfig::CoralogixRest {
+            endpoint: "https://test.coralogix.com".to_string(),
+            api_key: "test-api-key".to_string().into(),
+        },
         max_elapsed_time: 250,
         csv_delimiter: ",".to_string(),
         batches_max_size: 4,
@@ -42,6 +45,7 @@ fn create_test_config(starlark_script: Option<String>) -> Config {
         starlark_script,
         enable_log_group_tags: false,
         log_group_tags_cache_ttl_seconds: 300,
+        disable_log_severity_detection: false,
     }
 }
 

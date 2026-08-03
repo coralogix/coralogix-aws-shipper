@@ -230,6 +230,12 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      - name: Install protobuf compiler
+        if: ${{ (steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test')) || steps.changes.outputs.rust_deps == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
       - name: rustfmt
         if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
         run: |
@@ -275,4 +281,5 @@ jobs:
       - name: run tests
         if: ${{ steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test') }}
         run: |
+          cargo bench --bench log_export --no-run
           cargo test --all -- --nocapture

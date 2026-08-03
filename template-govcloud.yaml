@@ -17,6 +17,9 @@ Metadata:
           - SubsystemName
           - ApiKey
           - StoreAPIKeyInSecretsManager
+          - LogExportProtocol
+          - DisableLogSeverityDetection
+          - OTLPEndpoint
       - Label:
           default: GovCloud artifact locations
         Parameters:
@@ -134,14 +137,16 @@ Parameters:
     Description: |
       The Coralogix ingress domain to use (e.g. cx123.coralogix.com).
       Required in GovCloud – there is no pre-defined region mapping.
-    MinLength: 1
+    Default: ''
+    AllowedPattern: '^$|^(?=.{1,245}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$'
+    ConstraintDescription: Must be empty or a valid ASCII DNS hostname of at most 245 characters.
 
   ApiKey:
     Type: String
     Description: |
       Your Coralogix Send Your Data – API Key which is used to validate your authenticity.
       This value can be a Coralogix API Key or an AWS Secrets Manager ARN that holds the API Key.
-    MinLength: 1
+    Default: ''
     NoEcho: true
 
   ApplicationName:
@@ -467,11 +472,10 @@ Parameters:
 
   FunctionRunTime:
     Type: String
-    Description: Type of runtime for the lambda.
+    Description: Lambda runtime. Only provided.al2023 is supported.
     Default: provided.al2023
     AllowedValues:
       - provided.al2023
-      - provided.al2
 
   FunctionArchitectures:
     Type: String
@@ -506,6 +510,27 @@ Parameters:
     AllowedValues:
       - logs
       - metrics
+
+  LogExportProtocol:
+    Type: String
+    Description: Select Coralogix REST or OTLP/gRPC log delivery.
+    AllowedValues:
+      - coralogix_rest
+      - otlp_grpc
+    Default: coralogix_rest
+
+  DisableLogSeverityDetection:
+    Type: String
+    Description: When true, skip keyword-based severity detection and send every log with protocol-level Info severity. The original log body is unchanged.
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+
+  OTLPEndpoint:
+    Type: String
+    Description: OTLP/gRPC Collector origin reachable from the Lambda VPC. Required for log-mode OTLP/gRPC when UsePrivateLink=true. When empty in OTLP mode, CustomDomain selects direct Coralogix OTLP.
+    Default: ''
 
   MetricsFilter:
     Type: String
@@ -569,10 +594,13 @@ Conditions:
 
   # API key handling
   IsApiKeyNotArn: !Equals [ !Ref ApiKey, !Select [ 0, !Split [ ":", !Ref ApiKey ] ] ]
-  ApiKeyIsArn: !Not [ !Condition IsApiKeyNotArn ]
+  ApiKeyIsArn: !And
+    - !Condition NeedsCoralogixApiKey
+    - !Not [ !Condition IsApiKeyNotArn ]
   StoreAPIKeyInSecretsManager: !And
     - !Equals [ !Ref StoreAPIKeyInSecretsManager, 'true' ]
     - !Condition IsApiKeyNotArn
+    - !Condition NeedsCoralogixApiKey
 
   # PrivateLink
   IsPrivateLink:
@@ -616,12 +644,79 @@ Conditions:
 
   # Telemetry
   TelemetryModeIsMetrics: !Equals [ !Ref TelemetryMode, metrics ]
+  UseCoralogixRestLogs: !And
+    - !Equals [ !Ref TelemetryMode, logs ]
+    - !Equals [ !Ref LogExportProtocol, coralogix_rest ]
+  UseOtlpGrpcLogs: !And
+    - !Equals [ !Ref TelemetryMode, logs ]
+    - !Equals [ !Ref LogExportProtocol, otlp_grpc ]
+  OtlpEndpointIsSet: !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
+  UseCollectorOtlpLogs: !And
+    - !Condition UseOtlpGrpcLogs
+    - !Condition OtlpEndpointIsSet
+  UseCoralogixOtlpLogs: !And
+    - !Condition UseOtlpGrpcLogs
+    - !Not [ !Condition OtlpEndpointIsSet ]
+  NeedsCoralogixApiKey: !Or
+    - !Equals [ !Ref TelemetryMode, metrics ]
+    - !Condition UseCoralogixRestLogs
+    - !Condition UseCoralogixOtlpLogs
+  NeedsCoralogixRestEndpoint: !Or
+    - !Equals [ !Ref TelemetryMode, metrics ]
+    - !Condition UseCoralogixRestLogs
   EnableLogGroupTagsIsTrue: !Equals [ !Ref EnableLogGroupTags, 'true' ]
 
 # ---------------------------------------------------------------
 # Rules
 # ---------------------------------------------------------------
 Rules:
+  ValidateCustomDomain:
+    RuleCondition: !Or
+      - !Equals [ !Ref TelemetryMode, metrics ]
+      - !And
+        - !Equals [ !Ref TelemetryMode, logs ]
+        - !Equals [ !Ref LogExportProtocol, coralogix_rest ]
+      - !And
+        - !Equals [ !Ref TelemetryMode, logs ]
+        - !Equals [ !Ref LogExportProtocol, otlp_grpc ]
+        - !Equals [ !Ref OTLPEndpoint, '' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref CustomDomain, '' ] ]
+        AssertDescription: CustomDomain must be set for metrics, coralogix_rest logs, or direct Coralogix OTLP logs
+
+  ValidateCoralogixApiKey:
+    RuleCondition: !Or
+      - !Equals [ !Ref TelemetryMode, metrics ]
+      - !And
+        - !Equals [ !Ref TelemetryMode, logs ]
+        - !Equals [ !Ref LogExportProtocol, coralogix_rest ]
+      - !And
+        - !Equals [ !Ref TelemetryMode, logs ]
+        - !Equals [ !Ref LogExportProtocol, otlp_grpc ]
+        - !Equals [ !Ref OTLPEndpoint, '' ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref ApiKey, '' ] ]
+        AssertDescription: ApiKey must be set for metrics, coralogix_rest logs, or direct Coralogix OTLP logs
+
+  ValidateOtlpLogExport:
+    RuleCondition: !And
+      - !Equals [ !Ref TelemetryMode, logs ]
+      - !Equals [ !Ref LogExportProtocol, otlp_grpc ]
+    Assertions:
+      - Assert: !Or
+          - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
+          - !Not [ !Equals [ !Ref CustomDomain, '' ] ]
+        AssertDescription: OTLP logs require OTLPEndpoint or CustomDomain
+
+  ValidateOtlpPrivateLink:
+    RuleCondition: !And
+      - !Equals [!Ref TelemetryMode, logs]
+      - !Equals [!Ref UsePrivateLink, 'true']
+      - !Equals [!Ref LogExportProtocol, otlp_grpc]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref OTLPEndpoint, '']]
+        AssertDescription: Direct Coralogix OTLP does not support UsePrivateLink; provide an OTLPEndpoint for a Collector reachable from the Lambda VPC
+
   ValidateDLQ:
     RuleCondition: !Equals [ !Ref EnableDLQ, 'true' ]
     Assertions:
@@ -1072,13 +1167,29 @@ Resources:
       Environment:
         Variables:
           CORALOGIX_ENDPOINT: !If
-            - IsPrivateLink
-            - !Sub 'https://ingress.private.${CustomDomain}'
-            - !Sub 'https://ingress.${CustomDomain}'
+            - NeedsCoralogixRestEndpoint
+            - !If
+              - IsPrivateLink
+              - !Sub 'https://ingress.private.${CustomDomain}'
+              - !Sub 'https://ingress.${CustomDomain}'
+            - !Ref AWS::NoValue
           CORALOGIX_API_KEY: !If
-            - StoreAPIKeyInSecretsManager
-            - !Ref Secret
-            - !Ref ApiKey
+            - NeedsCoralogixApiKey
+            - !If
+              - StoreAPIKeyInSecretsManager
+              - !Ref Secret
+              - !Ref ApiKey
+            - !Ref AWS::NoValue
+          LOG_EXPORT_PROTOCOL: !Ref LogExportProtocol
+          DISABLE_LOG_SEVERITY_DETECTION: !Ref DisableLogSeverityDetection
+          OTLP_ENDPOINT: !If
+            - UseCollectorOtlpLogs
+            - !Ref OTLPEndpoint
+            - !Ref AWS::NoValue
+          CORALOGIX_DOMAIN: !If
+            - UseCoralogixOtlpLogs
+            - !Ref CustomDomain
+            - !Ref AWS::NoValue
           APP_NAME: !Ref ApplicationName
           SUB_NAME: !Ref SubsystemName
           SAMPLING: !Ref SamplingRate
@@ -1571,10 +1682,16 @@ Resources:
         ReservedConcurrentExecutions: !Ref ReservedConcurrentExecutions
         LambdaAssumeRoleARN: !Ref LambdaAssumeRoleARN
         CustomDomain: !Ref CustomDomain
+        LogExportProtocol: !Ref LogExportProtocol
+        DisableLogSeverityDetection: !Ref DisableLogSeverityDetection
+        OTLPEndpoint: !Ref OTLPEndpoint
         ApiKey: !If
-          - StoreAPIKeyInSecretsManager
-          - !Ref Secret
-          - !Ref ApiKey
+          - NeedsCoralogixApiKey
+          - !If
+            - StoreAPIKeyInSecretsManager
+            - !Ref Secret
+            - !Ref ApiKey
+          - !Ref AWS::NoValue
         AssumeRoleArn: !Ref LambdaAssumeRoleARN
         ApplicationName: !Ref ApplicationName
         SubsystemName: !Ref SubsystemName
@@ -1629,13 +1746,19 @@ Resources:
               - '.log.gz'
               - ""
         CoralogixEndpoint: !If
-          - IsPrivateLink
-          - !Sub 'https://ingress.private.${CustomDomain}'
-          - !Sub 'https://ingress.${CustomDomain}'
+          - NeedsCoralogixRestEndpoint
+          - !If
+            - IsPrivateLink
+            - !Sub 'https://ingress.private.${CustomDomain}'
+            - !Sub 'https://ingress.${CustomDomain}'
+          - !Ref AWS::NoValue
         CoralogixAPIKey: !If
-          - StoreAPIKeyInSecretsManager
-          - !Ref Secret
-          - !Ref ApiKey
+          - NeedsCoralogixApiKey
+          - !If
+            - StoreAPIKeyInSecretsManager
+            - !Ref Secret
+            - !Ref ApiKey
+          - !Ref AWS::NoValue
         TelemetryMode: !Ref TelemetryMode
         CWStreamFirehoseDestinationARN: !If
           - TelemetryModeIsMetrics

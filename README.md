@@ -110,21 +110,90 @@ Use the tables below as a guide to configure your deployment. The configuration 
 
 ### Universal configuration
 
-Use an existing Coralogix [Send-Your-Data API key](https://coralogix.com/docs/send-your-data-management-api/) to make the connection or create one as you fill our pre-made template. Additionally, make sure your integration is [Region-specific](https://coralogix.com/docs/coralogix-domain/).
+Metrics delivery, REST log delivery, and direct Coralogix OTLP log delivery
+require an existing Coralogix
+[Send-Your-Data API key](https://coralogix.com/docs/send-your-data-management-api/)
+and the appropriate [region](https://coralogix.com/docs/coralogix-domain/).
+Collector OTLP log delivery does not use Coralogix authentication: leave
+`ApiKey` empty and provide `OTLPEndpoint`.
 
 > [!NOTE]
 > Always deploy the AWS Lambda function in the same AWS region as your resource, such as the S3 bucket.
+
+#### Log export routes
+
+The shipper supports two `LogExportProtocol` values and three effective log
+routes:
+
+1. **Coralogix REST (default):** `coralogix_rest` preserves the existing
+   direct-delivery behavior and credentials. Existing deployments remain
+   backward compatible because this is the default.
+1. **Direct Coralogix OTLP/gRPC:** set `otlp_grpc` and leave `OTLPEndpoint`
+   empty. The shipper derives `https://ingress.<domain>:443` from the bare
+   domain selected by `CoralogixRegion` or `CustomDomain` and authenticates
+   with the existing Send-Your-Data API key as Bearer authorization.
+
+`CustomDomain` must be an ASCII DNS hostname. Each label may contain letters,
+digits, and internal hyphens only; schemes, ports, paths, URI userinfo, and
+leading or trailing hyphens are rejected.
+
+1. **Collector OTLP/gRPC:** set `otlp_grpc` and provide a non-empty
+   `OTLPEndpoint`. The Collector endpoint takes precedence over
+   `CORALOGIX_DOMAIN`; the shipper sends no Coralogix API key or authorization
+   metadata on this route. This is the only route without application-layer
+   authentication.
+
+> [!IMPORTANT]
+> Direct Coralogix OTLP always uses the public
+> `ingress.<domain>:443` endpoint. It does not inherit `UsePrivateLink`.
+> A Lambda in private-only subnets therefore needs public egress (for example,
+> through NAT) or must use `OTLPEndpoint` to send through a reachable
+> Collector. The templates reject direct OTLP + PrivateLink unless a Collector
+> `OTLPEndpoint` is supplied.
+
+`OTLPEndpoint` must be an `http://` or `https://` origin without a path or
+query or URI userinfo. Plaintext `http://` is intended only for a private network.
+`https://` validates the listener certificate against bundled WebPKI roots.
+An unauthenticated Collector must remain private; attach the
+Lambda to appropriate VPC subnets and security groups. See the
+[Collector enrichment example](examples/otlp-grpc-collector/) for a generic
+transform processor that adds `gateway.enriched=true`.
+
+OTLP requests group records with the same application and subsystem into one
+resource while keeping multiple resources in shared, size-limited requests.
+Structured JSON bodies retain nested arrays and objects. Because OTLP
+`AnyValue` has no null variant, JSON `null` maps to the OTLP string `"null"`.
+The configured Collector can perform additional gateway enrichment before
+forwarding logs.
+
+Direct Coralogix OTLP requests use gzip compression. Collector OTLP requests
+are sent without compression so collectors are not required to enable gzip.
+
+OTLP delivery is at-least-once. If any size-split request fails, or if a
+successful OTLP response reports one or more rejected log records, the logical
+batch fails so existing Lambda retry or DLQ handling can run. A retry may
+duplicate records accepted before the failure. A response with zero rejected
+records is a full success; any accompanying message is logged as a warning
+without exposing its contents.
+
+There is no automatic fallback between Collector OTLP, direct Coralogix OTLP,
+and REST. To roll back, set `LogExportProtocol=coralogix_rest`, clear
+`OTLPEndpoint`, restore the Coralogix REST API key and region/domain settings,
+and verify REST delivery before removing Collector networking.
 
 | Parameter                    | Description                                                                                                                                                                                                                                                                                                                        | Default Value | Required           |
 |------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
 | Application name             | This will also be the name of the CloudFormation stack that creates your integration. It can include letters (A–Z and a–z), numbers (0–9) and dashes (-).                                                                                                                                                                          |               | :heavy_check_mark: |
 | IntegrationType              | Choose the AWS service that you wish to integrate with Coralogix. Can be one of: S3, CloudTrail, VpcFlow, CloudWatch, S3Csv, SNS, SQS, CloudFront, Kinesis, Kafka, MSK, EcrScan.                                                                                                                                                   | S3            | :heavy_check_mark: |
-| CoralogixRegion              | Your data source should be in the same region as the integration stack. You may choose from one of [the default Coralogix regions](https://coralogix.com/docs/coralogix-domain/): [Custom, EU1, EU2, AP1, AP2, AP3, US1, US2]. If this value is set to Custom, you must specify the Custom Domain to use via the CustomDomain parameter. | Custom        | :heavy_check_mark: |
+| LogExportProtocol            | Log delivery protocol: `coralogix_rest` or `otlp_grpc`.                                                                                                                                                                                                                                                                            | coralogix_rest | :heavy_check_mark: |
+| DisableLogSeverityDetection  | Disable keyword-based log severity detection for every log integration and both REST and OTLP/gRPC delivery. When `true`, protocol-level severity is always `Info`; the original log body and any `severity` field remain unchanged. This setting does not affect metrics. | false | |
+| OTLPEndpoint                 | Collector `http://` or `https://` origin for `otlp_grpc`, reachable from the Lambda VPC. Required for log-mode OTLP/gRPC when `UsePrivateLink=true`. A non-empty value selects unauthenticated Collector delivery; an empty value selects direct Coralogix OTLP.                                                                    |               |                    |
+| CoralogixRegion              | Coralogix region used by metrics, REST logs, and direct Coralogix OTLP. Choose from [Custom, EU1, EU2, AP1, AP2, AP3, US1, US2]. If set to Custom, specify `CustomDomain`. Ignored for Collector OTLP.                                                                                                                                | Custom        | Metrics, REST logs, direct OTLP |
 | CustomDomain                 | If you choose a custom domain name for your private cluster, Coralogix will send telemetry from the specified address (e.g. custom.coralogix.com).                                                                                                                                                                                 |               |                    |
 | ApplicationName              | The name of the application for which the integration is configured. [Advanced configuration](#advanced-configuration) specifies dynamic value retrieval options.                                                                                                                                                                  |               | :heavy_check_mark: |
 | SubsystemName                | Specify the [name of your subsystem](https://coralogix.com/docs/application-and-subsystem-names/). For a dynamic value, refer to the Advanced configuration section. For CloudWatch, leave this field empty to use the log group name.                                                                                             |               | :heavy_check_mark: |
-| ApiKey                       | The Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) validates your authenticity. This value can be a direct Coralogix API key or an AWS Secret Manager ARN containing the API Key.<br>*Note that the parameter expects the API key in plain text or stored in a secret manager.*                          |               | :heavy_check_mark: |
-| StoreAPIKeyInSecretsManager  | Enable this to store your API key securely. Otherwise, it will remain exposed in plain text as an environment variable in the Lambda function console.                                                                                                                                                                             | True          | :heavy_check_mark: |
+| ApiKey                       | Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) or AWS Secrets Manager ARN. Required for metrics, REST logs, and direct Coralogix OTLP; leave empty for Collector OTLP because that route sends no Coralogix authentication.                                                                            |               | Metrics, REST logs, direct OTLP |
+| StoreAPIKeyInSecretsManager  | When `ApiKey` is used, enable this to store the key securely instead of exposing it as a Lambda environment variable. Not used for Collector OTLP.                                                                                                                                                                                   | True          | When `ApiKey` is used |
 | ReservedConcurrentExecutions | The number of concurrent executions that are reserved for the function, leave empty so the Lambda will use unreserved account. concurrency.                                                                                                                                                                                         | n/a           |                    |
 | LambdaAssumeRoleARN          | A role that the Lambda will assume, leave empty to use the default permissions.<br> Note that if this parameter is used, all **S3** and **ECR** API calls from the Lambda will be made with the permissions of the assumed role.                                                                                                   |               |                    |
 | ExecutionRoleARN             | The ARN of a user defined role that will be used as the execution role for the Lambda function.                                                                                                                                                                                                                                     |               |                    |
@@ -276,8 +345,14 @@ These are the default presets for Lambda. Read [Troubleshooting](#troubleshootin
 | FunctionTimeout       | Set a timeout for the Lambda function in seconds.                                                             | 300             | :heavy_check_mark: |
 | LogLevel              | Specify the log level for the Lambda function, choosing from the following options: INFO, WARN, ERROR, DEBUG. | WARN            | :heavy_check_mark: |
 | LambdaLogRetention    | Set the CloudWatch log retention period (in days) for logs generated by the Lambda function.                  | 5               | :heavy_check_mark: |
-| FunctionRunTime       | Select the runtime type for the Lambda. Allowed values are `provided.al2023` or `provided.al2`.                            | provided.al2023 | :heavy_check_mark: |
+| FunctionRunTime       | Select the runtime type for the Lambda. Only `provided.al2023` is supported.                                              | provided.al2023 | :heavy_check_mark: |
 | FunctionArchitectures | Define the Lambda function architectures. Allowed values are `arm64` or `x86_64`.                                    | arm64           | :heavy_check_mark: |
+
+> [!IMPORTANT]
+> Starting with v1.4.12, `provided.al2` is no longer supported. Existing stacks
+> configured with `FunctionRunTime=provided.al2` must change the parameter to
+> `provided.al2023` when upgrading. Release artifacts are built for Amazon
+> Linux 2023 and are not compatible with the Amazon Linux 2 runtime.
 
 ### VPC configuration (optional)
 
@@ -680,7 +755,10 @@ If Terraform is not an option, you can deploy `template-govcloud.yaml` directly.
 
 - AWS CLI configured for **GovCloud** (`aws-us-gov`) with the correct region (e.g. `us-gov-west-1` or `us-gov-east-1`).
 - An **S3 bucket in that GovCloud region** for Lambda deployment packages.
-- Coralogix ingress domain (`CustomDomain`, e.g. `cx….coralogix.com`) and **API key** (or Secrets Manager ARN).
+- For metrics, REST logs, or direct Coralogix OTLP: Coralogix ingress domain
+  (`CustomDomain`, e.g. `cx….coralogix.com`) and **API key** (or Secrets
+  Manager ARN). For Collector OTLP, use `OTLPEndpoint` and leave `ApiKey`
+  empty.
 - Integration parameters ready (e.g. `IntegrationType`, `S3BucketName`, SNS/SQS ARNs, CloudWatch log groups) for your use case.
 
 #### Step 1 — Download the shipper Lambda (`bootstrap.zip`)

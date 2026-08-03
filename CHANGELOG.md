@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.4.12 / 2026-07-29
+
+### ⚠️ Breaking changes ⚠️
+
+- **Amazon Linux 2 runtime removed:** `FunctionRunTime=provided.al2` is no
+  longer supported because release artifacts are built for Amazon Linux 2023.
+  Existing stacks using `provided.al2` must change the parameter to
+  `provided.al2023` when upgrading to v1.4.12.
+
+### 💡 Enhancements 💡
+
+- **OTLP/gRPC log export:** Add `LogExportProtocol` (`coralogix_rest` default, or `otlp_grpc`) and optional `OTLPEndpoint`. Supports Coralogix REST, direct Coralogix OTLP/gRPC (API key + domain), and unauthenticated Collector OTLP/gRPC. Updates `template.yaml`, `template-govcloud.yaml`, and README.
+- **Optional severity detection:** Add `DisableLogSeverityDetection` (`false` by default). When enabled, keyword detection is skipped and logs use protocol-level `Info` severity without changing the original body. Applies to REST and OTLP/gRPC log delivery.
+
+### 🧰 Bug fixes 🧰
+
+- **OTLP PrivateLink routing:** Reject direct OTLP/gRPC deployments with
+  `UsePrivateLink=true` unless a Collector `OTLPEndpoint` is supplied.
+- **OTLP partial rejection:** Fail the logical log batch when Coralogix or a
+  Collector reports rejected records, allowing existing Lambda retry/DLQ
+  handling to run. Delivery remains at-least-once, so records accepted before
+  the failure may be duplicated on retry. Warning-only responses with zero
+  rejected records remain successful.
+
 ## v1.4.11 / 2026-07-20
 
 ### 🧰 Bug fixes 🧰
