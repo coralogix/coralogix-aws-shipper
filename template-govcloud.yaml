@@ -472,11 +472,10 @@ Parameters:
 
   FunctionRunTime:
     Type: String
-    Description: Type of runtime for the lambda.
+    Description: Lambda runtime. Only provided.al2023 is supported.
     Default: provided.al2023
     AllowedValues:
       - provided.al2023
-      - provided.al2
 
   FunctionArchitectures:
     Type: String

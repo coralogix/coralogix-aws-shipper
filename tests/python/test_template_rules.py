@@ -96,6 +96,19 @@ def rule_succeeds(rule: dict[str, object], parameters: dict[str, str]) -> bool:
     return all(evaluate(assertion["Assert"], parameters) for assertion in rule["Assertions"])
 
 
+class TemplateContractTest(unittest.TestCase):
+    def test_only_al2023_runtime_is_supported(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+
+        for template_name in ("template.yaml", "template-govcloud.yaml"):
+            with self.subTest(template=template_name):
+                document = load_template(repository_root / template_name)
+                runtime = document["Parameters"]["FunctionRunTime"]
+
+                self.assertEqual(runtime["Default"], "provided.al2023")
+                self.assertEqual(runtime["AllowedValues"], ["provided.al2023"])
+
+
 class OtlpPrivateLinkRuleTest(unittest.TestCase):
     def test_template_loader_restores_fake_boto3_module(self) -> None:
         previous_boto3_module = sys.modules.get("boto3")

@@ -2,6 +2,13 @@
 
 ## v1.4.12 / 2026-07-29
 
+### ⚠️ Breaking changes ⚠️
+
+- **Amazon Linux 2 runtime removed:** `FunctionRunTime=provided.al2` is no
+  longer supported because release artifacts are built for Amazon Linux 2023.
+  Existing stacks using `provided.al2` must change the parameter to
+  `provided.al2023` when upgrading to v1.4.12.
+
 ### 💡 Enhancements 💡
 
 - **OTLP/gRPC log export:** Add `LogExportProtocol` (`coralogix_rest` default, or `otlp_grpc`) and optional `OTLPEndpoint`. Supports Coralogix REST, direct Coralogix OTLP/gRPC (API key + domain), and unauthenticated Collector OTLP/gRPC. Updates `template.yaml`, `template-govcloud.yaml`, and README.
