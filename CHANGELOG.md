@@ -9,6 +9,8 @@
 
 ### 🧰 Bug fixes 🧰
 
+- **OTLP PrivateLink routing:** Reject direct OTLP/gRPC deployments with
+  `UsePrivateLink=true` unless a Collector `OTLPEndpoint` is supplied.
 - **OTLP partial rejection:** Fail the logical log batch when Coralogix or a
   Collector reports rejected records, allowing existing Lambda retry/DLQ
   handling to run. Delivery remains at-least-once, so records accepted before

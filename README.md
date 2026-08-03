@@ -148,7 +148,8 @@ leading or trailing hyphens are rejected.
 > `ingress.<domain>:443` endpoint. It does not inherit `UsePrivateLink`.
 > A Lambda in private-only subnets therefore needs public egress (for example,
 > through NAT) or must use `OTLPEndpoint` to send through a reachable
-> Collector.
+> Collector. The templates reject direct OTLP + PrivateLink unless a Collector
+> `OTLPEndpoint` is supplied.
 
 `OTLPEndpoint` must be an `http://` or `https://` origin without a path or
 query or URI userinfo. Plaintext `http://` is intended only for a private network.

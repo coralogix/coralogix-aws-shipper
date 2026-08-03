@@ -530,7 +530,7 @@ Parameters:
 
   OTLPEndpoint:
     Type: String
-    Description: Optional OTLP/gRPC Collector origin. When empty in OTLP mode, CustomDomain selects direct Coralogix OTLP.
+    Description: Optional OTLP/gRPC Collector origin. Required for OTLP/gRPC when UsePrivateLink=true. When empty in OTLP mode, CustomDomain selects direct Coralogix OTLP.
     Default: ''
 
   MetricsFilter:
@@ -708,6 +708,15 @@ Rules:
           - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
           - !Not [ !Equals [ !Ref CustomDomain, '' ] ]
         AssertDescription: OTLP logs require OTLPEndpoint or CustomDomain
+
+  ValidateOtlpPrivateLink:
+    RuleCondition: !And
+      - !Equals [!Ref TelemetryMode, logs]
+      - !Equals [!Ref UsePrivateLink, 'true']
+      - !Equals [!Ref LogExportProtocol, otlp_grpc]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref OTLPEndpoint, '']]
+        AssertDescription: Direct Coralogix OTLP does not support UsePrivateLink; provide an OTLPEndpoint for a Collector reachable from the Lambda VPC
 
   ValidateDLQ:
     RuleCondition: !Equals [ !Ref EnableDLQ, 'true' ]
