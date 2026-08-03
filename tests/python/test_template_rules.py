@@ -4,6 +4,8 @@ from pathlib import Path
 from types import ModuleType
 
 
+MISSING = object()
+
 CASES = (
     (
         {
@@ -73,13 +75,19 @@ def evaluate(expression: object, parameters: dict[str, str]) -> object:
 
 
 def load_template(path: Path) -> dict[str, object]:
-    boto3_module = sys.modules.get("boto3")
+    boto3_module = sys.modules.get("boto3", MISSING)
     if isinstance(boto3_module, ModuleType) and not hasattr(boto3_module, "Session"):
         del sys.modules["boto3"]
 
-    from cfnlint.decode.cfn_yaml import load
+    try:
+        from cfnlint.decode.cfn_yaml import load
 
-    return load(path)
+        return load(path)
+    finally:
+        if boto3_module is MISSING:
+            sys.modules.pop("boto3", None)
+        else:
+            sys.modules["boto3"] = boto3_module
 
 
 def rule_succeeds(rule: dict[str, object], parameters: dict[str, str]) -> bool:
@@ -89,6 +97,21 @@ def rule_succeeds(rule: dict[str, object], parameters: dict[str, str]) -> bool:
 
 
 class OtlpPrivateLinkRuleTest(unittest.TestCase):
+    def test_template_loader_restores_fake_boto3_module(self) -> None:
+        previous_boto3_module = sys.modules.get("boto3")
+        fake_boto3_module = ModuleType("boto3")
+        sys.modules["boto3"] = fake_boto3_module
+
+        try:
+            repository_root = Path(__file__).resolve().parents[2]
+            load_template(repository_root / "template.yaml")
+            self.assertIs(sys.modules["boto3"], fake_boto3_module)
+        finally:
+            if previous_boto3_module is None:
+                sys.modules.pop("boto3", None)
+            else:
+                sys.modules["boto3"] = previous_boto3_module
+
     def test_rejects_direct_otlp_with_privatelink(self) -> None:
         repository_root = Path(__file__).resolve().parents[2]
 

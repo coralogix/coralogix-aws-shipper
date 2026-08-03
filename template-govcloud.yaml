@@ -530,7 +530,7 @@ Parameters:
 
   OTLPEndpoint:
     Type: String
-    Description: Optional OTLP/gRPC Collector origin. Required for OTLP/gRPC when UsePrivateLink=true. When empty in OTLP mode, CustomDomain selects direct Coralogix OTLP.
+    Description: OTLP/gRPC Collector origin reachable from the Lambda VPC. Required for log-mode OTLP/gRPC when UsePrivateLink=true. When empty in OTLP mode, CustomDomain selects direct Coralogix OTLP.
     Default: ''
 
   MetricsFilter:
