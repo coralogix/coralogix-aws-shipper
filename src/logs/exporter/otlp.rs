@@ -18,7 +18,7 @@ use cx_sdk_otlp::{
     otlp::proto::collector::logs::v1::{ExportLogsServiceRequest, ExportLogsServiceResponse},
     OtlpExporter, RequestListener, RequestOutcome, ResponseError,
 };
-use prost_014::Message;
+use prost::Message;
 
 use crate::logs::{
     exporter::{LogExportError, LogExporter, OtlpFailureClassification, OtlpResponseError},

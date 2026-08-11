@@ -169,6 +169,7 @@ async fn transform_message(
                                             config.app_name.clone(),
                                         )),
                                     }),
+                                    key_strindex: 0,
                                 });
                                 data_point.attributes.push(KeyValue {
                                     key: "cx.subsystem.name".to_string(),
@@ -177,6 +178,7 @@ async fn transform_message(
                                             config.sub_name.clone(),
                                         )),
                                     }),
+                                    key_strindex: 0,
                                 });
 
                                 debug!("Final DataPoint: {:?}", data_point);

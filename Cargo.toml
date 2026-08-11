@@ -41,16 +41,14 @@ anyhow = "1.0.101"
 aws-sdk-sts = { version = "1.96.0", default-features = false, features = ["rt-tokio"] }
 aws-sdk-resourcegroupstagging = { version = "1.93.0", default-features = false, features = ["rt-tokio"] }
 once_cell = "1.21.3"
-opentelemetry-proto = "0.29.0"
-prost = "0.13.3"
-prost-types = "0.13.3"
+opentelemetry-proto = "0.32.0"
+prost = "0.14.1"
 reqwest = "0.13.1"
 openssl = { version = "0.10.75", features = ["vendored"] }
 starlark = "0.13.0"
 regex = "1.11.1"
 humantime = "2.1.0"
 cx_sdk_otlp = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", rev = "52aee3bf014ce18b2ac25771ecefbfd25e73bb11", version = "0.1.0", default-features = false, features = ["tls-aws-lc", "tls-webpki-roots"] }
-prost_014 = { version = "0.14.1", package = "prost" }
 
 [dev-dependencies]
 aws-smithy-http-client = { version = "1", default-features = false, features = ["test-util"] }
@@ -61,7 +59,7 @@ serial_test = "3.2"
 criterion = "0.5"
 proptest = "1.4"
 temp-env = { version = "0.3.6", features = ["async_closure"] }
-tonic = { version = "0.12.3", features = ["gzip", "transport"] }
+tonic = { version = "0.14.3", features = ["gzip", "transport"] }
 tokio-stream = { version = "0.1.18", features = ["net"] }
 
 [[bench]]

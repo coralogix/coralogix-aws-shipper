@@ -507,6 +507,7 @@ pub async fn enrich_summary_datapoint(
                 value: Some(AnyValue {
                     value: Some(any_value::Value::StringValue(v.clone())),
                 }),
+                key_strindex: 0,
             });
         }
     }
@@ -530,6 +531,7 @@ fn append_static_labels(dp: &mut SummaryDataPoint, custom_metadata: &HashMap<Str
             value: Some(AnyValue {
                 value: Some(any_value::Value::StringValue(v.clone())),
             }),
+            key_strindex: 0,
         });
     }
 }
@@ -545,6 +547,7 @@ mod tests {
             value: Some(AnyValue {
                 value: Some(any_value::Value::StringValue(value.to_string())),
             }),
+            key_strindex: 0,
         }
     }
 
