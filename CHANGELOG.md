@@ -23,6 +23,10 @@
   handling to run. Delivery remains at-least-once, so records accepted before
   the failure may be duplicated on retry. Warning-only responses with zero
   rejected records remain successful.
+- Update Rust dependencies and lockfile to address Dependabot security advisories:
+  - `quinn-proto` → `0.11.16` (GHSA-4w2j-m93h-cj5j)
+  - `serde_with` → `3.22.0` (GHSA-7gcf-g7xr-8hxj)
+  - `opentelemetry_sdk` → `0.32.1` via `opentelemetry-proto` `0.32.0` (CVE-2026-48504 / GHSA-w9wp-h8wv-79jx)
 
 ## v1.4.11 / 2026-07-20
 
