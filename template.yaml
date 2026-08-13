@@ -382,7 +382,8 @@ Parameters:
 
   SnsKmsKeyArn:
     Type: String
-    Description: Optional KMS key ARN or alias to encrypt the Lambda failure-notification SNS topic. Leave empty for no encryption. The key policy must allow sns.amazonaws.com and the Lambda execution role to use kms:Decrypt and kms:GenerateDataKey*.
+    Description: Optional KMS key ARN (not an alias) to encrypt the Lambda failure-notification SNS topic. Leave empty for no encryption. The key policy must allow sns.amazonaws.com and the Lambda execution role to use kms:Decrypt and kms:GenerateDataKey*.
+    AllowedPattern: '^$|^arn:[a-z0-9-]+:kms:[a-z0-9-]+:[0-9]{12}:key/.+$'
     Default: ''
 
   StoreAPIKeyInSecretsManager:
@@ -805,7 +806,7 @@ Rules:
   
 
 Resources:
-  FailureNotificationTopic:
+  LambdaFunctionOnFailureTopic:
     Type: AWS::SNS::Topic
     Properties:
       KmsMasterKeyId: !If
@@ -1139,7 +1140,7 @@ Resources:
         DestinationConfig:
           OnFailure:
             Type: SNS
-            Destination: !Ref FailureNotificationTopic
+            Destination: !Ref LambdaFunctionOnFailureTopic
 
       Environment:
         Variables:
@@ -1267,7 +1268,7 @@ Resources:
     Properties:
       Protocol: email
       Endpoint: !Ref NotificationEmail
-      TopicArn: !Ref FailureNotificationTopic
+      TopicArn: !Ref LambdaFunctionOnFailureTopic
 
   ConfigureLambda:
     Type: Custom::ConfigureLambda
