@@ -35,7 +35,8 @@
    - [Log Transformation (Starlark)](#log-transformation-starlark)
 5. [Troubleshooting](#troubleshooting)
 6. [Cloudwatch Metrics Stream via Firehose for PrivateLink (beta)](#cloudwatch-metrics-streaming-via-privatelink-beta)
-7. [Support](#support)
+7. [AWS Transaction Search Traces (beta)](#aws-transaction-search-traces-beta)
+8. [Support](#support)
 
 <!-- /delete -->
 
@@ -736,6 +737,67 @@ To enable CloudWatch metrics streaming via Firehose (PrivateLink), you must prov
   - Works only with `TELEMETRY_MODE=metrics`.
   - Note: Larger events can produce larger single requests; ensure they fit within your network and service limits.
 - **`METRICS_BATCH_MAX_SIZE`** (from **`MetricsBatchMaxSize`** parameter): Maximum size in megabytes for the aggregated encoded protobuf payload before it is flushed and sent. Default: `4`. Applies only when batching is enabled. If a single transformed message exceeds this size, it is sent by itself.
+
+## AWS Transaction Search traces (beta)
+
+As of version `v1.4.15`, the shipper can forward **AWS CloudWatch Transaction Search
+spans as traces**. This gives trace coverage for AWS-managed services that cannot be
+instrumented directly — Step Functions, API Gateway, AppSync — with no application
+code changes.
+
+### How does it work?
+
+When [Transaction Search](https://docs.aws.amazon.com/xray/latest/devguide/transaction-search.html)
+is enabled, X-Ray writes every span to the `aws/spans` CloudWatch log group. The
+shipper subscribes to that log group like any other CloudWatch integration, converts
+the records to OTLP spans, and sends them to Coralogix over OTLP/gRPC.
+
+Delivery uses the existing CloudWatch Logs subscription trigger, so no extra plumbing
+is needed: set `TelemetryMode=traces`, `IntegrationType=CloudWatch` and
+`CloudWatchLogGroupName=aws/spans`.
+
+### Prerequisites
+
+1. **Enable Transaction Search** in the X-Ray console (*Traces → Transaction Search*),
+   or via `aws xray update-trace-segment-destination --destination CloudWatchLogs`.
+   This creates the `aws/spans` log group.
+2. **Enable X-Ray tracing on the services you want traced** (for example
+   `tracingConfiguration.enabled = true` on a Step Functions state machine). Spans only
+   appear for services that are actively traced.
+3. Deploy the shipper in the **same region** as the `aws/spans` log group.
+
+### Configuration
+
+| Parameter              | Description                                                                                                                                  | Default Value | Required           |
+|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
+| TelemetryMode          | Set to `traces` to forward Transaction Search spans. Supported values: `logs`, `metrics`, `traces`.                                          | logs          | :heavy_check_mark: |
+| IntegrationType        | Must be `CloudWatch`.                                                                                                                        | S3            | :heavy_check_mark: |
+| CloudWatchLogGroupName | Must be `aws/spans`.                                                                                                                         |               | :heavy_check_mark: |
+| ApiKey                 | Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) or AWS Secrets Manager ARN.                                      |               | :heavy_check_mark: |
+| CoralogixRegion        | Coralogix region, or `Custom` with `CustomDomain`. Traces are always sent to Coralogix over OTLP/gRPC; `LogExportProtocol` does not apply.    | Custom        | :heavy_check_mark: |
+| ApplicationName        | Application name applied to the spans.                                                                                                       |               | :heavy_check_mark: |
+| SubsystemName          | Subsystem name applied to the spans. Leave empty to use the log group name (`aws/spans`).                                                     |               |                    |
+
+> [!NOTE]
+> `TelemetryMode=traces` handles **only** the `aws/spans` log group. To ship regular
+> CloudWatch logs as well, deploy a second stack with `TelemetryMode=logs`.
+
+### Known limitation: `service.name` on child spans
+
+AWS records `service.name` only on the **root** span of a trace. Child spans arrive
+with no service name and no resource identifier of any kind — their
+`aws.local.service` attribute is the constant `"UnknownService"`.
+
+Those spans are forwarded **unnamed** rather than given a substituted value, because a
+placeholder would be indistinguishable from a real service and would corrupt the
+service map.
+
+The practical effect: traces render correctly — parent/child structure, timings, errors
+and stacktraces are all intact — but service-level views (service map, per-service APM
+metrics) are incomplete. This cannot be resolved in the Lambda, since CloudWatch
+delivers roughly one span per invocation and a Lambda holds no state between
+invocations. The issue has been raised with AWS, who track it as an internal feature
+request.
 
 ## AWS GovCloud (US)
 

@@ -1,0 +1,1349 @@
+[
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "b03258e2e1abc353",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830304824000000,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.inprogress": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:97f11f06-1431-4bf8-8756-76057d605dbf"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "3b65215f9ddfbb8f",
+    "parentSpanId": "b03258e2e1abc353",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830304877000192,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.provider": "aws"
+      }
+    },
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "29d03b80232a080a",
+    "parentSpanId": "3b65215f9ddfbb8f",
+    "name": "S3.ListBuckets",
+    "kind": "CLIENT",
+    "startTimeUnixNano": 1785830304947000064,
+    "endTimeUnixNano": 1785830304997999872,
+    "durationNano": 50999808,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.retries": 0,
+      "telemetry.extended": "true",
+      "rpc.service": "S3",
+      "rpc.system": "aws-api",
+      "aws.remote.service": "AWS::S3",
+      "aws.local.environment": "generic:default",
+      "aws.remote.operation": "ListBuckets",
+      "http.status_code": 200,
+      "aws.request_id": "GDP5Z1T6TMBHV8KT",
+      "aws.id_2": "AWrNN5jVGlS2CfdTeoY7RidU4gp4Qdau5vv02BlzEgAzxItOvY2D9h+JjGrLq/hOxLFvdj8KgV8=",
+      "aws.local.operation": "UnmappedOperation",
+      "aws.span.kind": "CLIENT",
+      "aws.region": "eu-west-1",
+      "aws.operation": "ListBuckets",
+      "rpc.method": "ListBuckets",
+      "PlatformType": "Generic",
+      "http.response.status_code": 200
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "S3",
+        "namespace": "aws",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "b223f976e01e97b8",
+    "parentSpanId": "b03258e2e1abc353",
+    "name": "Wait",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830305019000064,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Wait",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "3b65215f9ddfbb8f",
+    "parentSpanId": "b03258e2e1abc353",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830304877000192,
+    "endTimeUnixNano": 1785830305019000064,
+    "durationNano": 141999872,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "fca6c5b5544e0511",
+    "parentSpanId": "b03258e2e1abc353",
+    "name": "Done",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830306060000000,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Done",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "b223f976e01e97b8",
+    "parentSpanId": "b03258e2e1abc353",
+    "name": "Wait",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830305019000064,
+    "endTimeUnixNano": 1785830306060000000,
+    "durationNano": 1040999936,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Wait",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "fca6c5b5544e0511",
+    "parentSpanId": "b03258e2e1abc353",
+    "name": "Done",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830306060000000,
+    "endTimeUnixNano": 1785830306060000000,
+    "durationNano": 0,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Done",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719ba03dce37b129b5432cd44db566",
+    "spanId": "b03258e2e1abc353",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830304824000000,
+    "endTimeUnixNano": 1785830306082000128,
+    "durationNano": 1258000128,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:97f11f06-1431-4bf8-8756-76057d605dbf"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "ceb332d5ded77e88",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830309993999872,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.inprogress": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:e3dcbc4d-e6d5-484d-b92a-23ecd719a4a8"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "84d3a189fdd0de63",
+    "parentSpanId": "ceb332d5ded77e88",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830310033999872,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.provider": "aws"
+      }
+    },
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "4674eaf95b4faa43",
+    "parentSpanId": "84d3a189fdd0de63",
+    "name": "S3.ListBuckets",
+    "kind": "CLIENT",
+    "startTimeUnixNano": 1785830310109999872,
+    "endTimeUnixNano": 1785830310157000192,
+    "durationNano": 47000320,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.retries": 0,
+      "telemetry.extended": "true",
+      "rpc.service": "S3",
+      "rpc.system": "aws-api",
+      "aws.remote.service": "AWS::S3",
+      "aws.local.environment": "generic:default",
+      "aws.remote.operation": "ListBuckets",
+      "http.status_code": 200,
+      "aws.request_id": "HC0FDNJM7Y90P5SY",
+      "aws.id_2": "pzHs/asUtCj9NTU9QK2JPh9Cb6m9IvB+2Y06B4mKadl4GZfnZowD2zpBiiCOBORgDg9H1fvgI6zAxtQiuOLlGqOtrSHgJlUF",
+      "aws.local.operation": "UnmappedOperation",
+      "aws.span.kind": "CLIENT",
+      "aws.region": "eu-west-1",
+      "aws.operation": "ListBuckets",
+      "rpc.method": "ListBuckets",
+      "PlatformType": "Generic",
+      "http.response.status_code": 200
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "S3",
+        "namespace": "aws",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "068e28ebe8af1ca4",
+    "parentSpanId": "ceb332d5ded77e88",
+    "name": "Wait",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830310177999872,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Wait",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "84d3a189fdd0de63",
+    "parentSpanId": "ceb332d5ded77e88",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830310033999872,
+    "endTimeUnixNano": 1785830310177999872,
+    "durationNano": 144000000,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "40ae4ae66dc28c25",
+    "parentSpanId": "ceb332d5ded77e88",
+    "name": "Done",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830311219000064,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Done",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "068e28ebe8af1ca4",
+    "parentSpanId": "ceb332d5ded77e88",
+    "name": "Wait",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830310177999872,
+    "endTimeUnixNano": 1785830311219000064,
+    "durationNano": 1041000192,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Wait",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "40ae4ae66dc28c25",
+    "parentSpanId": "ceb332d5ded77e88",
+    "name": "Done",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830311219000064,
+    "endTimeUnixNano": 1785830311219000064,
+    "durationNano": 0,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Done",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719ba58cc15797eb426d270c58d046",
+    "spanId": "ceb332d5ded77e88",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830309993999872,
+    "endTimeUnixNano": 1785830311239000064,
+    "durationNano": 1245000192,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:e3dcbc4d-e6d5-484d-b92a-23ecd719a4a8"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "c2726b91d5bd56fa",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830311308000000,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.inprogress": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:31e42966-017f-4e92-827e-1b0ef6c6e9b1"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "1c16d65cc01b92dd",
+    "parentSpanId": "c2726b91d5bd56fa",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830311342000128,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.provider": "aws"
+      }
+    },
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "46af0db84bfddacd",
+    "parentSpanId": "1c16d65cc01b92dd",
+    "name": "S3.ListBuckets",
+    "kind": "CLIENT",
+    "startTimeUnixNano": 1785830311415000064,
+    "endTimeUnixNano": 1785830311493999872,
+    "durationNano": 78999808,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.retries": 0,
+      "telemetry.extended": "true",
+      "rpc.service": "S3",
+      "rpc.system": "aws-api",
+      "aws.remote.service": "AWS::S3",
+      "aws.local.environment": "generic:default",
+      "aws.remote.operation": "ListBuckets",
+      "http.status_code": 200,
+      "aws.request_id": "1KXVCCY76JQ6GQZY",
+      "aws.id_2": "Vc+o4O8dHjMyAbdOvrP14TgtVs2xMYNOwclAYbT0Vg1HvTkkPN2DnVfwiethl1JEIzSCQNGAtJUKuX8LSBnXOCG55kxrAI3Z",
+      "aws.local.operation": "UnmappedOperation",
+      "aws.span.kind": "CLIENT",
+      "aws.region": "eu-west-1",
+      "aws.operation": "ListBuckets",
+      "rpc.method": "ListBuckets",
+      "PlatformType": "Generic",
+      "http.response.status_code": 200
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "S3",
+        "namespace": "aws",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "cf27c04ca407c6fc",
+    "parentSpanId": "c2726b91d5bd56fa",
+    "name": "Wait",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830311524000000,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Wait",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "1c16d65cc01b92dd",
+    "parentSpanId": "c2726b91d5bd56fa",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830311342000128,
+    "endTimeUnixNano": 1785830311524000000,
+    "durationNano": 181999872,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "2411191770caaef7",
+    "parentSpanId": "c2726b91d5bd56fa",
+    "name": "Done",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830312592999936,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Done",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "cf27c04ca407c6fc",
+    "parentSpanId": "c2726b91d5bd56fa",
+    "name": "Wait",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830311524000000,
+    "endTimeUnixNano": 1785830312592999936,
+    "durationNano": 1068999936,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Wait",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "2411191770caaef7",
+    "parentSpanId": "c2726b91d5bd56fa",
+    "name": "Done",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830312592999936,
+    "endTimeUnixNano": 1785830312592999936,
+    "durationNano": 0,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "Done",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719ba7f993db259367ce464d366cbb",
+    "spanId": "c2726b91d5bd56fa",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830311308000000,
+    "endTimeUnixNano": 1785830312617000192,
+    "durationNano": 1309000192,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:31e42966-017f-4e92-827e-1b0ef6c6e9b1"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719d9e695f3a2b284a1dbc17fcb015",
+    "spanId": "734784f58ed0566f",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830814505000192,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.inprogress": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:0f424958-6ea3-4bed-a5c6-2c7d3c9039a0"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719d9e695f3a2b284a1dbc17fcb015",
+    "spanId": "c42898e97ecc6997",
+    "parentSpanId": "734784f58ed0566f",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830814539000064,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.provider": "aws"
+      }
+    },
+    "traceId": "6a719d9e695f3a2b284a1dbc17fcb015",
+    "spanId": "7df80a2dabf4fdf3",
+    "parentSpanId": "c42898e97ecc6997",
+    "name": "S3.ListBuckets",
+    "kind": "CLIENT",
+    "startTimeUnixNano": 1785830814611000064,
+    "endTimeUnixNano": 1785830814637000192,
+    "durationNano": 26000128,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.retries": 0,
+      "telemetry.extended": "true",
+      "rpc.service": "S3",
+      "rpc.system": "aws-api",
+      "aws.remote.service": "AWS::S3",
+      "aws.local.environment": "generic:default",
+      "aws.remote.operation": "ListBuckets",
+      "http.status_code": 403,
+      "aws.request_id": "PNSX85Y8BDJNM70D",
+      "aws.id_2": "zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=",
+      "aws.local.operation": "UnmappedOperation",
+      "aws.span.kind": "CLIENT",
+      "aws.region": "eu-west-1",
+      "aws.operation": "ListBuckets",
+      "rpc.method": "ListBuckets",
+      "aws.xray.error": true,
+      "PlatformType": "Generic",
+      "http.response.status_code": 403
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830814611000064,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "software.amazon.awssdk.services.s3.model.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "software.amazon.awssdk.services.s3.model.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": true
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "S3",
+        "namespace": "aws",
+        "type": "subsegment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719d9e695f3a2b284a1dbc17fcb015",
+    "spanId": "c42898e97ecc6997",
+    "parentSpanId": "734784f58ed0566f",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830814539000064,
+    "endTimeUnixNano": 1785830814653000192,
+    "durationNano": 114000128,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.xray.fault": true,
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830814539000064,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "S3.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "S3.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": false
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719d9e695f3a2b284a1dbc17fcb015",
+    "spanId": "734784f58ed0566f",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830814505000192,
+    "endTimeUnixNano": 1785830814676000000,
+    "durationNano": 170999808,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.fault": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:0f424958-6ea3-4bed-a5c6-2c7d3c9039a0"
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830814505000192,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "S3.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "S3.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": false
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/QpWyubSffZDXBflAIXKwHPyjgagvpWYm is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: PNSX85Y8BDJNM70D, Extended Request ID: zPeroY0RnUq3lsn/KNwMgWjkW8+kgFfkq0JDHOd0Nr2TtCbM5ckE2bSlQpwHWg9vhYy0Egkqy4o=) (SDK Attempt Count: 1)"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719dadce543cfec1a38ce778187d35",
+    "spanId": "cae40547f825ab57",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830829411000064,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.inprogress": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:553ea73d-ddbb-46c2-a594-27ba946a2388"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719dadce543cfec1a38ce778187d35",
+    "spanId": "eea2efc8cd3e3130",
+    "parentSpanId": "cae40547f825ab57",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830829453000192,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.provider": "aws"
+      }
+    },
+    "traceId": "6a719dadce543cfec1a38ce778187d35",
+    "spanId": "2f73a4ea1b9e2636",
+    "parentSpanId": "eea2efc8cd3e3130",
+    "name": "S3.ListBuckets",
+    "kind": "CLIENT",
+    "startTimeUnixNano": 1785830829525000192,
+    "endTimeUnixNano": 1785830829545000192,
+    "durationNano": 20000000,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.retries": 0,
+      "telemetry.extended": "true",
+      "rpc.service": "S3",
+      "rpc.system": "aws-api",
+      "aws.remote.service": "AWS::S3",
+      "aws.local.environment": "generic:default",
+      "aws.remote.operation": "ListBuckets",
+      "http.status_code": 403,
+      "aws.request_id": "VXKSJWXRF150H7MA",
+      "aws.id_2": "Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM",
+      "aws.local.operation": "UnmappedOperation",
+      "aws.span.kind": "CLIENT",
+      "aws.region": "eu-west-1",
+      "aws.operation": "ListBuckets",
+      "rpc.method": "ListBuckets",
+      "aws.xray.error": true,
+      "PlatformType": "Generic",
+      "http.response.status_code": 403
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830829525000192,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "software.amazon.awssdk.services.s3.model.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "software.amazon.awssdk.services.s3.model.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": true
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "S3",
+        "namespace": "aws",
+        "type": "subsegment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719dadce543cfec1a38ce778187d35",
+    "spanId": "eea2efc8cd3e3130",
+    "parentSpanId": "cae40547f825ab57",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830829453000192,
+    "endTimeUnixNano": 1785830829568000000,
+    "durationNano": 114999808,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.xray.fault": true,
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830829453000192,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "S3.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "S3.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": false
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719dadce543cfec1a38ce778187d35",
+    "spanId": "cae40547f825ab57",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830829411000064,
+    "endTimeUnixNano": 1785830829589999872,
+    "durationNano": 178999808,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.fault": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:553ea73d-ddbb-46c2-a594-27ba946a2388"
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830829411000064,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "S3.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "S3.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": false
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/xujimmvltbzdIouPfWWsIggcxLBquUSN is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: VXKSJWXRF150H7MA, Extended Request ID: Us68v9VcT9UYdFMgS3k3ow+KRzdXKdabPrAJz1BGyRjPxC+eqxYwOKTwsn5GPYhQBnhmH5LWjG/Jo9QtHajsBU8lB8AdJ/sM) (SDK Attempt Count: 1)"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719dae743b9a75efa225296e610c7a",
+    "spanId": "b5df1715694cade5",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830830654000128,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.inprogress": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:5eaea8d3-fdd5-43ec-8e17-35eaf44ee4b7"
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719dae743b9a75efa225296e610c7a",
+    "spanId": "19e2dda835b36c5b",
+    "parentSpanId": "b5df1715694cade5",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830830692000000,
+    "endTimeUnixNano": null,
+    "attributes": {
+      "aws.xray.inprogress": true
+    },
+    "status": {
+      "code": "UNSET"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.provider": "aws"
+      }
+    },
+    "traceId": "6a719dae743b9a75efa225296e610c7a",
+    "spanId": "2b3fceee63f63b0e",
+    "parentSpanId": "19e2dda835b36c5b",
+    "name": "S3.ListBuckets",
+    "kind": "CLIENT",
+    "startTimeUnixNano": 1785830830763000064,
+    "endTimeUnixNano": 1785830830792999936,
+    "durationNano": 29999872,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.retries": 0,
+      "telemetry.extended": "true",
+      "rpc.service": "S3",
+      "rpc.system": "aws-api",
+      "aws.remote.service": "AWS::S3",
+      "aws.local.environment": "generic:default",
+      "aws.remote.operation": "ListBuckets",
+      "http.status_code": 403,
+      "aws.request_id": "S4ZYBTHKA8JCXADG",
+      "aws.id_2": "SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ",
+      "aws.local.operation": "UnmappedOperation",
+      "aws.span.kind": "CLIENT",
+      "aws.region": "eu-west-1",
+      "aws.operation": "ListBuckets",
+      "rpc.method": "ListBuckets",
+      "aws.xray.error": true,
+      "PlatformType": "Generic",
+      "http.response.status_code": 403
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830830763000064,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "software.amazon.awssdk.services.s3.model.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "software.amazon.awssdk.services.s3.model.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": true
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "S3",
+        "namespace": "aws",
+        "type": "subsegment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)"
+      }
+    }
+  },
+  {
+    "resource": {},
+    "traceId": "6a719dae743b9a75efa225296e610c7a",
+    "spanId": "19e2dda835b36c5b",
+    "parentSpanId": "b5df1715694cade5",
+    "name": "ListBuckets",
+    "kind": "INTERNAL",
+    "startTimeUnixNano": 1785830830692000000,
+    "endTimeUnixNano": 1785830830812999936,
+    "durationNano": 120999936,
+    "attributes": {
+      "aws.local.service": "UnknownService",
+      "aws.xray.fault": true,
+      "PlatformType": "Generic",
+      "aws.local.environment": "generic:default"
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830830692000000,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "S3.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "S3.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": false
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "ListBuckets",
+        "type": "subsegment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)"
+      }
+    }
+  },
+  {
+    "resource": {
+      "attributes": {
+        "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+        "cloud.provider": "aws",
+        "service.name": "cx-span-sample"
+      }
+    },
+    "traceId": "6a719dae743b9a75efa225296e610c7a",
+    "spanId": "b5df1715694cade5",
+    "name": "cx-span-sample",
+    "kind": "SERVER",
+    "startTimeUnixNano": 1785830830654000128,
+    "endTimeUnixNano": 1785830830835000064,
+    "durationNano": 180999936,
+    "attributes": {
+      "aws.xray.origin": "AWS::StepFunctions::StateMachine",
+      "cloud.resource_id": "arn:aws:states:eu-west-1:123456789012:stateMachine:cx-span-sample",
+      "aws.xray.fault": true,
+      "aws.resource_arn": "arn:aws:states:eu-west-1:123456789012:execution:cx-span-sample:5eaea8d3-fdd5-43ec-8e17-35eaf44ee4b7"
+    },
+    "events": [
+      {
+        "timeUnixNano": 1785830830654000128,
+        "name": "exception",
+        "attributes": {
+          "aws.xray.exception.truncated": 0,
+          "exception.type": "S3.AccessDeniedException",
+          "exception.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)",
+          "aws.xray.exception.skipped": 0,
+          "exception.stacktrace": "S3.AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)\n",
+          "aws.xray.exception.stacktrace_language": "java",
+          "aws.xray.exception.remote": false
+        }
+      }
+    ],
+    "status": {
+      "code": "ERROR"
+    },
+    "_aws": {
+      "xray": {
+        "name": "cx-span-sample",
+        "type": "segment",
+        "cause.message": "User: arn:aws:sts::123456789012:assumed-role/StepFunctions-cx-span-sample-role-v0atcubxh/wEcjLQOYvxJLEthrbmvvaVivnDrHGPss is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action (Service: S3, Status Code: 403, Request ID: S4ZYBTHKA8JCXADG, Extended Request ID: SIVOadqK+TKkQwudUo9lmJfEdJKIq+cVDFLRXp3nohtvklOBvIUpCZ1iJ3fNxX9FlLl0EPxkbS9KzsYDEd2jqBab3Bozm6dZ) (SDK Attempt Count: 1)"
+      }
+    }
+  }
+]
