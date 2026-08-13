@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.4.13 / 2026-08-13
+
+### 💡 Enhancements 💡
+
+- **Traces telemetry mode:** Add `TelemetryMode=traces`, forwarding AWS CloudWatch
+  Transaction Search spans from the `aws/spans` log group as OTLP/gRPC traces. Covers
+  AWS-managed services that cannot be instrumented directly, such as Step Functions,
+  API Gateway and AppSync. Set `IntegrationType=CloudWatch` and
+  `CloudWatchLogGroupName=aws/spans`; delivery uses the existing CloudWatch Logs
+  subscription trigger. Updates `template.yaml` and `template-govcloud.yaml`.
+  - Transaction Search writes each span twice, once in progress and once complete. Only
+    the completed record is forwarded, so spans are not duplicated.
+  - Span timestamps are parsed as 64-bit integers, attribute value types are preserved,
+    and error status plus exception span events are carried through.
+  - Requests are split to stay within the OTLP request size limit, and a partial
+    rejection fails the batch so existing retry and DLQ handling applies.
+
+### 🧰 Known limitations 🧰
+
+- **Child spans have no `service.name`:** AWS records `service.name` only on the root
+  span of a trace. Child spans arrive with no service name and no resource identifier,
+  so they are forwarded unnamed rather than being given a substituted value. Traces
+  render correctly, but service-level views are incomplete. Raised with AWS; tracked
+  internally by them as a feature request.
+
 ## v1.4.12 / 2026-07-29
 
 ### ⚠️ Breaking changes ⚠️

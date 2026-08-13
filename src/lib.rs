@@ -7,6 +7,7 @@ pub mod custom_metadata;
 pub mod events;
 pub mod logs;
 pub mod metrics;
+pub mod traces;
 
 pub fn set_up_logging() {
     tracing_subscriber::fmt()

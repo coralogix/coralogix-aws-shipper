@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.4.12
+    SemanticVersion: 1.4.13
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -486,11 +486,15 @@ Parameters:
 
   TelemetryMode:
     Type: String
-    Description: The telemetry mode for the shipper, i.e metrics or logs
+    Description: |
+      The telemetry mode for the shipper, i.e logs, metrics or traces.
+      Use traces to ship AWS Transaction Search spans from the aws/spans CloudWatch log
+      group as OTLP traces; set CloudWatchLogGroupName to aws/spans in that mode.
     Default: logs
     AllowedValues:
       - logs
       - metrics
+      - traces
 
   LogExportProtocol:
     Type: String
@@ -657,6 +661,7 @@ Conditions:
 
   # TelemetryModeIsLogs: !Equals [!Ref TelemetryMode, logs]
   TelemetryModeIsMetrics: !Equals [!Ref TelemetryMode, metrics]
+  TelemetryModeIsTraces: !Equals [!Ref TelemetryMode, traces]
   UseCoralogixRestLogs: !And
     - !Equals [!Ref TelemetryMode, logs]
     - !Equals [!Ref LogExportProtocol, coralogix_rest]
@@ -672,8 +677,13 @@ Conditions:
     - !Not [!Condition OtlpEndpointIsSet]
   NeedsCoralogixApiKey: !Or
     - !Equals [!Ref TelemetryMode, metrics]
+    - !Condition TelemetryModeIsTraces
     - !Condition UseCoralogixRestLogs
     - !Condition UseCoralogixOtlpLogs
+  # Traces resolve ingress.<domain> in code, same as the OTLP log path.
+  NeedsCoralogixDomain: !Or
+    - !Condition UseCoralogixOtlpLogs
+    - !Condition TelemetryModeIsTraces
   NeedsCoralogixRestEndpoint: !Or
     - !Equals [!Ref TelemetryMode, metrics]
     - !Condition UseCoralogixRestLogs
@@ -692,6 +702,14 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref DLQS3Bucket, 'none' ] ]
         AssertDescription: DLQS3Bucket must be set when EnableDLQ is set to true
+
+  ValidateTracesMode:
+    RuleCondition: !Equals [ !Ref TelemetryMode, traces ]
+    Assertions:
+      - Assert: !Equals [ !Ref IntegrationType, 'CloudWatch' ]
+        AssertDescription: IntegrationType must be CloudWatch when TelemetryMode is traces
+      - Assert: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
+        AssertDescription: CloudWatchLogGroupName must be set to aws/spans when TelemetryMode is traces
 
   ValidateCloudWatchLogs:
     RuleCondition: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
@@ -1153,7 +1171,7 @@ Resources:
             - !Ref OTLPEndpoint
             - !Ref AWS::NoValue
           CORALOGIX_DOMAIN: !If
-            - UseCoralogixOtlpLogs
+            - NeedsCoralogixDomain
             - !If
               - IsCustomDomain
               - !Ref CustomDomain
