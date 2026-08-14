@@ -4,7 +4,7 @@
 
 ### 💡 Enhancements 💡
 
-- **Optional SNS topic KMS:** Add `SnsKmsKeyArn` to encrypt the Lambda failure-notification SNS topic with a customer-managed KMS key. Leave empty to keep the topic unencrypted. The key policy must allow `sns.amazonaws.com` and the Lambda execution role to use `kms:Decrypt` and `kms:GenerateDataKey*`.
+- **Optional SNS topic KMS:** Add `SnsKmsKeyArn` to encrypt the Lambda failure-notification SNS topic with a customer-managed KMS key. Leave empty to keep the topic unencrypted. The key policy must allow `sns.amazonaws.com` and the Lambda execution role to use `kms:Decrypt` and `kms:GenerateDataKey*`. Reuses the SAM OnFailure topic logical ID so existing email subscriptions are not replaced.
 
 ## v1.4.12 / 2026-07-29
 

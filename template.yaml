@@ -806,7 +806,7 @@ Rules:
   
 
 Resources:
-  LambdaFunctionOnFailureTopic:
+  LambdaFunctionEventInvokeConfigOnFailureTopic:
     Type: AWS::SNS::Topic
     Properties:
       KmsMasterKeyId: !If
@@ -1140,7 +1140,7 @@ Resources:
         DestinationConfig:
           OnFailure:
             Type: SNS
-            Destination: !Ref LambdaFunctionOnFailureTopic
+            Destination: !Ref LambdaFunctionEventInvokeConfigOnFailureTopic
 
       Environment:
         Variables:
@@ -1268,7 +1268,7 @@ Resources:
     Properties:
       Protocol: email
       Endpoint: !Ref NotificationEmail
-      TopicArn: !Ref LambdaFunctionOnFailureTopic
+      TopicArn: !Ref LambdaFunctionEventInvokeConfigOnFailureTopic
 
   ConfigureLambda:
     Type: Custom::ConfigureLambda

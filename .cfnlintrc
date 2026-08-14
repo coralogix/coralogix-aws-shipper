@@ -2,3 +2,6 @@ ignore_checks:
   # ExecutionRoleARN intentionally defaults to an empty string so the template
   # can create a role unless the user supplies an ARN.
   - E3031
+  # W3694 expects AWS::Lambda::Function GetAtt Arn; this template uses
+  # AWS::Serverless::Function, whose Arn is a valid Lambda ARN after transform.
+  - W3694
