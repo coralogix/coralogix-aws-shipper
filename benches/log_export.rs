@@ -3,7 +3,7 @@ use coralogix_aws_shipper::logs::{
     model::{LogSeverity, ProcessedLog},
 };
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use prost_014::Message;
+use prost::Message;
 
 fn logs(count: usize, unique_resources: bool) -> Vec<ProcessedLog> {
     (0..count)
