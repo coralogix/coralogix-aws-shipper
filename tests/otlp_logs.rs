@@ -12,7 +12,7 @@ use opentelemetry_proto::tonic::{common::v1::any_value, logs::v1::SeverityNumber
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{
-    body::BoxBody, codec::CompressionEncoding, codegen::Service, metadata::MetadataMap,
+    body::Body, codec::CompressionEncoding, codegen::Service, metadata::MetadataMap,
     server::NamedService, Request, Response, Status,
 };
 
@@ -45,9 +45,9 @@ where
     const NAME: &'static str = S::NAME;
 }
 
-impl<S> Service<http::Request<BoxBody>> for WireEncodingCaptureService<S>
+impl<S> Service<http::Request<Body>> for WireEncodingCaptureService<S>
 where
-    S: Service<http::Request<BoxBody>, Response = http::Response<BoxBody>, Error = Infallible>
+    S: Service<http::Request<Body>, Response = http::Response<Body>, Error = Infallible>
         + Clone
         + Send
         + 'static,
@@ -61,7 +61,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: http::Request<BoxBody>) -> Self::Future {
+    fn call(&mut self, req: http::Request<Body>) -> Self::Future {
         let encoding = req
             .headers()
             .get(GRPC_ENCODING_HEADER)
