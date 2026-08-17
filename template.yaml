@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.4.13
+    SemanticVersion: 1.4.14
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -88,6 +88,7 @@ Metadata:
           default: Generic Config
         Parameters:
           - NotificationEmail
+          - SnsKmsKeyArn
           - BlockingPattern
           - LogStreamFilter
           - SamplingRate
@@ -379,6 +380,12 @@ Parameters:
     MaxLength: 320
     Default: ''
 
+  SnsKmsKeyArn:
+    Type: String
+    Description: Optional KMS key ARN (not an alias) to encrypt the Lambda failure-notification SNS topic. Leave empty for no encryption. The key policy must allow sns.amazonaws.com and the Lambda execution role to use kms:Decrypt and kms:GenerateDataKey*.
+    AllowedPattern: '^$|^arn:[a-z0-9-]+:kms:[a-z0-9-]+:[0-9]{12}:key/.+$'
+    Default: ''
+
   StoreAPIKeyInSecretsManager:
     Type: String
     Description: |
@@ -603,6 +610,7 @@ Conditions:
   UseECRScan: !Equals [ !Ref IntegrationType, 'EcrScan' ]
   IsSQSIntegration: !Equals [ !Ref IntegrationType, 'Sqs' ]
   IsNotificationEnabled: !Not [ !Equals [ !Ref NotificationEmail, '' ] ]
+  IsSnsKmsKeySet: !Not [ !Equals [ !Ref SnsKmsKeyArn, '' ] ]
   IsCustomDomain: !Equals [ !Ref CoralogixRegion, Custom ]
   S3KeyPrefixIsSet: !Not [ !Equals [ !Ref S3KeyPrefix, '' ] ]
   S3SuffixIsSet: !Not [ !Equals [ !Ref S3KeySuffix, '' ] ]
@@ -798,6 +806,13 @@ Rules:
   
 
 Resources:
+  LambdaFunctionEventInvokeConfigOnFailureTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      KmsMasterKeyId: !If
+        - IsSnsKmsKeySet
+        - !Ref SnsKmsKeyArn
+        - !Ref AWS::NoValue
   Secret:
     Type: 'AWS::SecretsManager::Secret'
     Condition: StoreAPIKeyInSecretsManager
@@ -944,6 +959,16 @@ Resources:
               Action:
                 - 'kms:Decrypt'
               Resource: !Ref S3BucketKMSKeyARN
+            - !Ref AWS::NoValue
+
+          # KMS Policy for SNS failure-notification topic encryption
+          - !If
+            - IsSnsKmsKeySet
+            - Effect: Allow
+              Action:
+                - 'kms:Decrypt'
+                - 'kms:GenerateDataKey*'
+              Resource: !Ref SnsKmsKeyArn
             - !Ref AWS::NoValue
           # SQS Policy
           - !If
@@ -1115,6 +1140,7 @@ Resources:
         DestinationConfig:
           OnFailure:
             Type: SNS
+            Destination: !Ref LambdaFunctionEventInvokeConfigOnFailureTopic
 
       Environment:
         Variables:
@@ -1242,7 +1268,7 @@ Resources:
     Properties:
       Protocol: email
       Endpoint: !Ref NotificationEmail
-      TopicArn: !Ref LambdaFunction.DestinationTopic
+      TopicArn: !Ref LambdaFunctionEventInvokeConfigOnFailureTopic
 
   ConfigureLambda:
     Type: Custom::ConfigureLambda
