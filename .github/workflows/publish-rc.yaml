@@ -38,6 +38,22 @@ jobs:
           print(json.dumps({k: c.get(k) for k in ['sub','aud','job_workflow_ref','repository','ref','workflow']}, indent=1))
           "
           TOKEN=$(python3 -c "import json; print(json.load(open('/tmp/resp.json'))['value'])")
+          echo "=== jwt header ==="
+          python3 -c "
+          import base64, json
+          t = open('/tmp/resp.json').read()
+          t = json.loads(t)['value']
+          h = t.split('.')[0]; h += '=' * (-len(h) % 4)
+          print(json.dumps(json.loads(base64.urlsafe_b64decode(h)), indent=1))
+          "
+          echo "=== jwks kids ==="
+          curl -sS https://token.actions.githubusercontent.com/.well-known/jwks | python3 -c "
+          import json, sys, base64
+          jwks = json.load(sys.stdin)
+          for k in jwks.get('keys', []):
+              kid = k.get('kid','')
+              print(kid, k.get('kty'), k.get('alg'))
+          "
           echo "=== raw STS call ==="
           AWS_DEFAULT_REGION=eu-west-1 aws sts assume-role-with-web-identity \
             --role-arn arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging \
