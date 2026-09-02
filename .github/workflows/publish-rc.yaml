@@ -37,6 +37,12 @@ jobs:
           c = json.loads(base64.urlsafe_b64decode(p))
           print(json.dumps({k: c.get(k) for k in ['sub','aud','job_workflow_ref','repository','ref','workflow']}, indent=1))
           "
+          TOKEN=$(python3 -c "import json; print(json.load(open('/tmp/resp.json'))['value'])")
+          echo "=== raw STS call ==="
+          AWS_DEFAULT_REGION=eu-west-1 aws sts assume-role-with-web-identity \
+            --role-arn arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging \
+            --role-session-name raw-cli-probe \
+            --web-identity-token "$TOKEN" 2>&1 | head -20
 
       - name: checkout
         uses: actions/checkout@v4
