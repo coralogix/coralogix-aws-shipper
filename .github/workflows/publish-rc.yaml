@@ -54,19 +54,13 @@ jobs:
               kid = k.get('kid','')
               print(kid, k.get('kty'), k.get('alg'))
           "
-          echo "=== bisect: subonly / subaud (ido) / subaud (ccs) / staging ==="
+          echo "=== bisect: jwf exact / jwf wildcard ==="
           AWS_DEFAULT_REGION=eu-west-1 aws sts assume-role-with-web-identity \
-            --role-arn arn:aws:iam::035955823196:role/tmp-oidc-bisect-subonly \
-            --role-session-name bisect1 --web-identity-token "$TOKEN" >/dev/null 2>/tmp/e1 && echo "1 subonly-ido: OK" || echo "1 subonly-ido: FAIL $(cat /tmp/e1 | head -1)"
+            --role-arn arn:aws:iam::035955823196:role/tmp-oidc-bisect-jwfexact \
+            --role-session-name bisect5 --web-identity-token "$TOKEN" >/dev/null 2>/tmp/e5 && echo "5 jwfexact: OK" || echo "5 jwfexact: FAIL $(head -c 200 /tmp/e5)"
           AWS_DEFAULT_REGION=eu-west-1 aws sts assume-role-with-web-identity \
-            --role-arn arn:aws:iam::035955823196:role/tmp-oidc-bisect-subaud \
-            --role-session-name bisect2 --web-identity-token "$TOKEN" >/dev/null 2>/tmp/e2 && echo "2 subaud-ido: OK" || echo "2 subaud-ido: FAIL $(cat /tmp/e2 | head -1)"
-          AWS_DEFAULT_REGION=eu-central-1 aws sts assume-role-with-web-identity \
-            --role-arn arn:aws:iam::597078901540:role/tmp-oidc-bisect-subaud-ccs \
-            --role-session-name bisect3 --web-identity-token "$TOKEN" >/dev/null 2>/tmp/e3 && echo "3 subaud-ccs: OK" || echo "3 subaud-ccs: FAIL $(cat /tmp/e3 | head -1)"
-          AWS_DEFAULT_REGION=eu-west-1 aws sts assume-role-with-web-identity \
-            --role-arn arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging \
-            --role-session-name bisect4 --web-identity-token "$TOKEN" >/dev/null 2>/tmp/e4 && echo "4 staging-ido: OK" || echo "4 staging-ido: FAIL $(cat /tmp/e4 | head -1)"
+            --role-arn arn:aws:iam::035955823196:role/tmp-oidc-bisect-jwfwild \
+            --role-session-name bisect6 --web-identity-token "$TOKEN" >/dev/null 2>/tmp/e6 && echo "6 jwfwild: OK" || echo "6 jwfwild: FAIL $(head -c 200 /tmp/e6)"
 
       - name: checkout
         uses: actions/checkout@v4
