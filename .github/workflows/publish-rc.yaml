@@ -54,11 +54,17 @@ jobs:
               kid = k.get('kid','')
               print(kid, k.get('kty'), k.get('alg'))
           "
-          echo "=== raw STS call ==="
+          echo "=== raw STS call (regional) ==="
           AWS_DEFAULT_REGION=eu-west-1 aws sts assume-role-with-web-identity \
             --role-arn arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging \
             --role-session-name raw-cli-probe \
-            --web-identity-token "$TOKEN" 2>&1 | head -20
+            --web-identity-token "$TOKEN" 2>&1 | head -5
+          echo "=== raw STS call (global) ==="
+          aws sts assume-role-with-web-identity \
+            --endpoint-url https://sts.amazonaws.com \
+            --role-arn arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging \
+            --role-session-name raw-cli-probe-global \
+            --web-identity-token "$TOKEN" 2>&1 | head -5
 
       - name: checkout
         uses: actions/checkout@v4
