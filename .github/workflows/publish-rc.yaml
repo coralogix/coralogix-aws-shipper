@@ -25,6 +25,19 @@ jobs:
           - arm64
           - x86-64
     steps:
+      - name: TMP dump oidc claims
+        run: |
+          set +e
+          curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" > /tmp/resp.json 2>&1
+          python3 -c "
+          import base64, json
+          t = json.load(open('/tmp/resp.json')).get('value','')
+          p = t.split('.')[1]; p += '=' * (-len(p) % 4)
+          c = json.loads(base64.urlsafe_b64decode(p))
+          print(json.dumps({k: c.get(k) for k in ['sub','aud','job_workflow_ref','repository','ref','workflow']}, indent=1))
+          "
+
       - name: checkout
         uses: actions/checkout@v4
         with:
