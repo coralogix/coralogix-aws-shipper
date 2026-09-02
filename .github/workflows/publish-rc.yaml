@@ -20,6 +20,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -36,8 +37,9 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+          audience: sts.amazonaws.com
+          role-to-assume: arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging
+          role-session-name: coralogix-aws-shipper-rc-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       # python is still needed so `sam build` can package the python
@@ -127,7 +129,7 @@ jobs:
         if: ${{ matrix.target == 'x86-64' }}
         run: |
           aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}/coralogix-aws-shipper-${{ matrix.target }}.zip
 
       - name: store-arm64-package
@@ -146,11 +148,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+          audience: sts.amazonaws.com
+          role-to-assume: arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging
+          role-session-name: coralogix-aws-shipper-rc-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - name: download
@@ -164,7 +168,7 @@ jobs:
       - name: store
         run: |
           aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunctionDefault") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}/coralogix-aws-shipper.zip
 
           # upload custom resource

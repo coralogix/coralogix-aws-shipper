@@ -76,14 +76,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: checkout
         uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          audience: sts.amazonaws.com
+          role-to-assume: arn:aws:iam::597078901540:role/github-actions-coralogix-aws-shipper-publish
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - uses: aws-actions/setup-sam@v2
@@ -103,6 +105,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -118,8 +121,9 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          audience: sts.amazonaws.com
+          role-to-assume: arn:aws:iam::597078901540:role/github-actions-coralogix-aws-shipper-publish
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       # python is still needed so `sam build` can package the python
@@ -243,13 +247,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
     steps:
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          audience: sts.amazonaws.com
+          role-to-assume: arn:aws:iam::597078901540:role/github-actions-coralogix-aws-shipper-publish
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - name: download
