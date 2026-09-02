@@ -64,14 +64,17 @@ jobs:
   validate:
     name: validate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::597078901540:role/github-actions-coralogix-aws-shipper-publish
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
           
       - uses: aws-actions/setup-sam@v2
@@ -87,6 +90,9 @@ jobs:
     needs: validate
     if: ${{ github.event_name == 'workflow_dispatch' || success() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       matrix:
         target:
@@ -99,8 +105,8 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::597078901540:role/github-actions-coralogix-aws-shipper-publish
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - uses: actions/setup-python@v5
@@ -174,13 +180,16 @@ jobs:
     needs: [check_version , build]
     if: ${{ github.event_name == 'workflow_dispatch' || (success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::597078901540:role/github-actions-coralogix-aws-shipper-publish
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - name: download

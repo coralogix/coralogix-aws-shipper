@@ -16,6 +16,9 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       matrix:
         target:
@@ -29,8 +32,8 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+          role-to-assume: arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging
+          role-session-name: coralogix-aws-shipper-rc-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - uses: actions/setup-python@v4
@@ -89,11 +92,14 @@ jobs:
     needs: build
     if: ${{ github.event_name == 'workflow_dispatch' || success() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+          role-to-assume: arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging
+          role-session-name: coralogix-aws-shipper-rc-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - name: download
