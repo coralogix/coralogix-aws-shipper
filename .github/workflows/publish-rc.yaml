@@ -32,6 +32,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v2
         with:
+          audience: sts.amazonaws.com
           role-to-assume: arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging
           role-session-name: coralogix-aws-shipper-rc-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
@@ -98,6 +99,7 @@ jobs:
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
+          audience: sts.amazonaws.com
           role-to-assume: arn:aws:iam::035955823196:role/github-actions-coralogix-aws-shipper-publish-staging
           role-session-name: coralogix-aws-shipper-rc-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
