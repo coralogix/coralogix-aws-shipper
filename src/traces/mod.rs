@@ -157,11 +157,19 @@ fn to_span(record: &Value) -> Option<Span> {
 
     let trace_id = hex_id(record.get("traceId")?.as_str()?, 16)?;
     let span_id = hex_id(record.get("spanId")?.as_str()?, 8)?;
-    let parent_span_id = record
+    // Only a genuinely absent parent may yield an empty id. A present-but-unparseable
+    // value must make the record unmappable, exactly as a bad trace or span id does -
+    // defaulting it to empty would silently re-parent the span to the root and corrupt
+    // the topology. An empty string is treated as absent: roots in real data omit the
+    // key, so an empty value means "no parent" rather than a broken one.
+    let parent_span_id = match record
         .get("parentSpanId")
         .and_then(Value::as_str)
-        .and_then(|s| hex_id(s, 8))
-        .unwrap_or_default();
+        .filter(|s| !s.is_empty())
+    {
+        Some(parent) => hex_id(parent, 8)?,
+        None => Vec::new(),
+    };
 
     Some(Span {
         trace_id,
@@ -932,6 +940,42 @@ mod tests {
                 assert!(rs.resource.is_some());
             }
         }
+    }
+
+    /// A broken parent id must not be laundered into a root span.
+    #[test]
+    fn rejects_malformed_parent_span_ids() {
+        let base = serde_json::json!({
+            "traceId": "6a719ba03dce37b129b5432cd44db5aa",
+            "spanId": "1111111111111111",
+            "startTimeUnixNano": 1_700_000_000_000_000_000u64,
+            "endTimeUnixNano":   1_700_000_000_000_000_001u64,
+        });
+
+        for bad in ["zzzzzzzzzzzzzzzz", "111", "11111111111111111"] {
+            let mut record = base.clone();
+            record["parentSpanId"] = serde_json::json!(bad);
+            assert!(
+                to_span(&record).is_none(),
+                "malformed parentSpanId {bad:?} must not map to a span"
+            );
+        }
+
+        // Absent, null and empty all mean "root", and must still map.
+        let mut null_parent = base.clone();
+        null_parent["parentSpanId"] = Value::Null;
+        let mut empty_parent = base.clone();
+        empty_parent["parentSpanId"] = serde_json::json!("");
+
+        for record in [base.clone(), null_parent, empty_parent] {
+            let span = to_span(&record).expect("a root span must still map");
+            assert!(span.parent_span_id.is_empty());
+        }
+
+        let mut good = base;
+        good["parentSpanId"] = serde_json::json!("2222222222222222");
+        let span = to_span(&good).expect("a valid child must map");
+        assert_eq!(span.parent_span_id, vec![0x22; 8]);
     }
 
     #[test]
