@@ -16,6 +16,10 @@
     and error status plus exception span events are carried through.
   - Requests are split to stay within the OTLP request size limit, and a partial
     rejection fails the batch so existing retry and DLQ handling applies.
+  - Template rules validate the mode at deploy time: `CloudWatchLogGroupName` must be
+    exactly `aws/spans`, `ApiKey` is required, a custom domain must be supplied when
+    needed, and `UsePrivateLink=true` is rejected (traces have no collector endpoint
+    to route through).
 
 ### 🧰 Known limitations 🧰
 

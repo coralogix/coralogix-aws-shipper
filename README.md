@@ -772,7 +772,7 @@ is needed: set `TelemetryMode=traces`, `IntegrationType=CloudWatch` and
 |------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|---------------|--------------------|
 | TelemetryMode          | Set to `traces` to forward Transaction Search spans. Supported values: `logs`, `metrics`, `traces`.                                          | logs          | :heavy_check_mark: |
 | IntegrationType        | Must be `CloudWatch`.                                                                                                                        | S3            | :heavy_check_mark: |
-| CloudWatchLogGroupName | Must be `aws/spans`.                                                                                                                         |               | :heavy_check_mark: |
+| CloudWatchLogGroupName | Must be exactly `aws/spans`. The template rejects any other value in this mode.                                                              |               | :heavy_check_mark: |
 | ApiKey                 | Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) or AWS Secrets Manager ARN.                                      |               | :heavy_check_mark: |
 | CoralogixRegion        | Coralogix region, or `Custom` with `CustomDomain`. Traces are always sent to Coralogix over OTLP/gRPC; `LogExportProtocol` does not apply.    | Custom        | :heavy_check_mark: |
 | ApplicationName        | Application name applied to the spans.                                                                                                       |               | :heavy_check_mark: |
@@ -781,6 +781,12 @@ is needed: set `TelemetryMode=traces`, `IntegrationType=CloudWatch` and
 > [!NOTE]
 > `TelemetryMode=traces` handles **only** the `aws/spans` log group. To ship regular
 > CloudWatch logs as well, deploy a second stack with `TelemetryMode=logs`.
+
+> [!IMPORTANT]
+> `UsePrivateLink=true` is **not supported** in traces mode and the template rejects
+> the combination. Traces always go direct to Coralogix OTLP (`ingress.<domain>`);
+> there is no collector endpoint to route through, so a Lambda confined to a private
+> subnet could not reach the destination.
 
 ### Known limitation: `service.name` on child spans
 

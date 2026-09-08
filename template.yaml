@@ -716,8 +716,18 @@ Rules:
     Assertions:
       - Assert: !Equals [ !Ref IntegrationType, 'CloudWatch' ]
         AssertDescription: IntegrationType must be CloudWatch when TelemetryMode is traces
-      - Assert: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
-        AssertDescription: CloudWatchLogGroupName must be set to aws/spans when TelemetryMode is traces
+      - Assert: !Equals [ !Ref CloudWatchLogGroupName, 'aws/spans' ]
+        AssertDescription: CloudWatchLogGroupName must be aws/spans when TelemetryMode is traces
+      - Assert: !Not [ !Equals [ !Ref ApiKey, '' ] ]
+        AssertDescription: ApiKey must be set when TelemetryMode is traces
+      # Traces always go direct to Coralogix OTLP; there is no collector endpoint to
+      # route through, so a VPC-only Lambda could never reach ingress.<domain>.
+      - Assert: !Equals [ !Ref UsePrivateLink, 'false' ]
+        AssertDescription: UsePrivateLink is not supported when TelemetryMode is traces
+      - Assert: !Or
+          - !Not [ !Equals [ !Ref CoralogixRegion, Custom ] ]
+          - !Not [ !Equals [ !Ref CustomDomain, '' ] ]
+        AssertDescription: CustomDomain must be set when TelemetryMode is traces and CoralogixRegion is Custom
 
   ValidateCloudWatchLogs:
     RuleCondition: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
