@@ -333,16 +333,12 @@ impl Config {
         // `OTLP_ENDPOINT` points at a collector, the same parameter the OTLP log path
         // uses. `CORALOGIX_ENDPOINT` is the raw override kept for tests.
         let collector = env_opt("OTLP_ENDPOINT");
-        let endpoint = match collector
-            .clone()
-            .or_else(|| env_opt("CORALOGIX_ENDPOINT"))
-        {
+        let endpoint = match collector.clone().or_else(|| env_opt("CORALOGIX_ENDPOINT")) {
             Some(endpoint) => endpoint,
             // Failing those, derive `ingress.<domain>` as the OTLP log path does.
             None => {
-                let domain = env_opt("CORALOGIX_DOMAIN").ok_or(
-                    "neither OTLP_ENDPOINT nor CORALOGIX_DOMAIN is set".to_string(),
-                )?;
+                let domain = env_opt("CORALOGIX_DOMAIN")
+                    .ok_or("neither OTLP_ENDPOINT nor CORALOGIX_DOMAIN is set".to_string())?;
                 format!("https://ingress.{domain}:443")
             }
         };
@@ -390,12 +386,7 @@ pub fn build_exporter(config: &Config) -> Result<AuthorizedOtlpTraceExporterGrpc
             max_elapsed_time: Duration::from_secs(20),
         })
         .with_channel_config(ChannelConfig::new(config.endpoint.clone()).with_webpki_roots())
-        .with_auth_data(
-            config
-                .api_key()
-                .map(AuthData::from)
-                .unwrap_or_default(),
-        )
+        .with_auth_data(config.api_key().map(AuthData::from).unwrap_or_default())
         .try_build()
         .map_err(|e| format!("failed to build OTLP trace exporter: {e}"))
 }
@@ -993,7 +984,10 @@ mod tests {
             || {
                 let conf = Config::load_from_env().expect("config should load");
                 assert_eq!(conf.endpoint, "https://ingress.eu2.coralogix.com:443");
-                assert_eq!(conf.api_key().map(|k| k.token().to_string()).as_deref(), Some("secret"));
+                assert_eq!(
+                    conf.api_key().map(|k| k.token().to_string()).as_deref(),
+                    Some("secret")
+                );
             },
         );
 
