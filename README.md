@@ -778,11 +778,10 @@ is needed: set `TelemetryMode=traces`, `IntegrationType=CloudWatch` and
 | ApplicationName        | Application name applied to the spans.                                                                                                       |               | :heavy_check_mark: |
 | SubsystemName          | Subsystem name applied to the spans. Leave empty to use the log group name (`aws/spans`).                                                     |               |                    |
 
-> [!NOTE]
+> [!IMPORTANT]
 > `TelemetryMode=traces` handles **only** the `aws/spans` log group. To ship regular
 > CloudWatch logs as well, deploy a second stack with `TelemetryMode=logs`.
-
-> [!IMPORTANT]
+>
 > `UsePrivateLink=true` is **not supported** in traces mode and the template rejects
 > the combination. Traces always go direct to Coralogix OTLP (`ingress.<domain>`);
 > there is no collector endpoint to route through, so a Lambda confined to a private
