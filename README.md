@@ -773,11 +773,11 @@ is needed: set `TelemetryMode=traces`, `IntegrationType=CloudWatch` and
 | TelemetryMode          | Set to `traces` to forward Transaction Search spans. Supported values: `logs`, `metrics`, `traces`.                                          | logs          | :heavy_check_mark: |
 | IntegrationType        | Must be `CloudWatch`.                                                                                                                        | S3            | :heavy_check_mark: |
 | CloudWatchLogGroupName | Must be exactly `aws/spans`. The template rejects any other value in this mode.                                                              |               | :heavy_check_mark: |
-| ApiKey                 | Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) or AWS Secrets Manager ARN.                                      |               | :heavy_check_mark: |
+| ApiKey                 | Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) or AWS Secrets Manager ARN. Not used on the Collector route.     |               | Direct delivery    |
 | CoralogixRegion        | Coralogix region, or `Custom` with `CustomDomain`. Used to resolve `ingress.<domain>` for direct delivery; ignored when `OTLPEndpoint` is set. | Custom        | Direct delivery    |
 | OTLPEndpoint           | Collector `http://` or `https://` origin, reachable from the Lambda VPC. Set this to route traces through a Collector instead of directly to Coralogix. Required when `UsePrivateLink=true`. |               | PrivateLink        |
 | ApplicationName        | Application name applied to the spans.                                                                                                       |               | :heavy_check_mark: |
-| SubsystemName          | Subsystem name applied to the spans. Leave empty to use the log group name (`aws/spans`).                                                     |               |                    |
+| SubsystemName          | Subsystem name applied to the spans. Leave empty to use the log group name the spans arrived from (`aws/spans`).                              |               |                    |
 
 Traces always travel over OTLP/gRPC, so `LogExportProtocol` does not apply. There are
 two routes, selected by `OTLPEndpoint`, mirroring the OTLP log path:
@@ -785,7 +785,10 @@ two routes, selected by `OTLPEndpoint`, mirroring the OTLP log path:
 - **Direct to Coralogix** (`OTLPEndpoint` empty) — the endpoint is resolved as
   `https://ingress.<domain>:443` from `CoralogixRegion`/`CustomDomain`.
 - **Via a Collector** (`OTLPEndpoint` set) — spans go to that origin instead, which is
-  what makes traces work from a Lambda in a private subnet.
+  what makes traces work from a Lambda in a private subnet. This route is
+  **unauthenticated**: no Coralogix API key is sent, so a shared or third-party
+  Collector never receives your credentials. Configure Coralogix authentication on the
+  Collector itself.
 
 > [!IMPORTANT]
 > `TelemetryMode=traces` handles **only** the `aws/spans` log group. To ship regular
@@ -795,7 +798,7 @@ two routes, selected by `OTLPEndpoint`, mirroring the OTLP log path:
 > `ingress.<domain>`, which a Lambda confined to a private subnet cannot reach, so the
 > template rejects that combination — the same rule the OTLP log path uses.
 >
-> An `ApiKey` is required on both routes, including via a Collector.
+> An `ApiKey` is required for direct delivery only.
 
 ### Known limitation: `service.name` on child spans
 

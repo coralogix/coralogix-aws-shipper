@@ -19,7 +19,10 @@
   - Supports both OTLP routes, selected by `OTLPEndpoint` exactly as the OTLP log path
     does: direct to Coralogix (`ingress.<domain>`, resolved from the region or custom
     domain) or through a Collector, which is what makes traces work from a Lambda in a
-    private subnet.
+    private subnet. The Collector route is unauthenticated, so the Coralogix API key is
+    never sent to a customer-configured endpoint.
+  - An unset `SubsystemName` falls back to the originating log group, matching the
+    CloudWatch logs path.
   - Template rules validate the mode at deploy time: `CloudWatchLogGroupName` must be
     exactly `aws/spans`, `ApiKey` is required, a custom domain must be supplied for
     direct delivery, and `UsePrivateLink=true` requires an `OTLPEndpoint`.

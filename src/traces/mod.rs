@@ -302,38 +302,81 @@ pub fn to_resource_spans(records: &[Value], app_name: &str, sub_name: &str) -> V
         .collect()
 }
 
+/// CloudFormation renders an unset parameter as an empty string, so an empty value has
+/// to mean "unset" everywhere - `env::var` alone returns `Ok("")` and defeats a
+/// `unwrap_or_else` fallback.
+fn env_opt(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|v| !v.is_empty())
+}
+
+/// Where spans are sent, and whether they carry Coralogix credentials.
+pub enum Destination {
+    /// Direct to Coralogix; the API key authenticates us.
+    Coralogix { api_key: ApiKey },
+    /// A customer-configured Collector. Deliberately unauthenticated: the Coralogix API
+    /// key must not be disclosed to a third-party or shared endpoint. Mirrors
+    /// `LogExportConfig::CollectorOtlpGrpc`.
+    Collector,
+}
+
 pub struct Config {
-    pub api_key: ApiKey,
+    pub destination: Destination,
     pub endpoint: String,
     pub app_name: String,
-    pub sub_name: String,
+    /// `None` means "use the log group the event came from", as the CloudWatch logs
+    /// path does.
+    pub sub_name: Option<String>,
 }
 
 impl Config {
     pub fn load_from_env() -> Result<Config, String> {
-        Ok(Config {
-            app_name: std::env::var("APP_NAME").unwrap_or_else(|_| "aws".to_string()),
-            api_key: std::env::var("CORALOGIX_API_KEY")
-                .map_err(|e| format!("CORALOGIX_API_KEY is not set: {e}"))?
-                .into(),
-            // `OTLP_ENDPOINT` points at a collector, the same parameter the OTLP log
-            // path uses. `CORALOGIX_ENDPOINT` is the raw override kept for tests.
+        // `OTLP_ENDPOINT` points at a collector, the same parameter the OTLP log path
+        // uses. `CORALOGIX_ENDPOINT` is the raw override kept for tests.
+        let collector = env_opt("OTLP_ENDPOINT");
+        let endpoint = match collector
+            .clone()
+            .or_else(|| env_opt("CORALOGIX_ENDPOINT"))
+        {
+            Some(endpoint) => endpoint,
             // Failing those, derive `ingress.<domain>` as the OTLP log path does.
-            endpoint: match std::env::var("OTLP_ENDPOINT")
-                .ok()
-                .or_else(|| std::env::var("CORALOGIX_ENDPOINT").ok())
-                .filter(|e| !e.is_empty())
-            {
-                Some(endpoint) => endpoint,
-                None => {
-                    let domain = std::env::var("CORALOGIX_DOMAIN").map_err(|e| {
-                        format!("neither OTLP_ENDPOINT nor CORALOGIX_DOMAIN is set: {e}")
-                    })?;
-                    format!("https://ingress.{domain}:443")
-                }
+            None => {
+                let domain = env_opt("CORALOGIX_DOMAIN").ok_or(
+                    "neither OTLP_ENDPOINT nor CORALOGIX_DOMAIN is set".to_string(),
+                )?;
+                format!("https://ingress.{domain}:443")
+            }
+        };
+
+        let destination = match collector {
+            Some(_) => Destination::Collector,
+            None => Destination::Coralogix {
+                api_key: env_opt("CORALOGIX_API_KEY")
+                    .ok_or("CORALOGIX_API_KEY is not set".to_string())?
+                    .into(),
             },
-            sub_name: std::env::var("SUB_NAME").unwrap_or_else(|_| "traces".to_string()),
+        };
+
+        Ok(Config {
+            destination,
+            endpoint,
+            app_name: env_opt("APP_NAME").unwrap_or_else(|| "aws".to_string()),
+            sub_name: env_opt("SUB_NAME"),
         })
+    }
+
+    /// The API key, when one is used. `None` on the Collector route.
+    pub fn api_key(&self) -> Option<&ApiKey> {
+        match &self.destination {
+            Destination::Coralogix { api_key } => Some(api_key),
+            Destination::Collector => None,
+        }
+    }
+
+    /// Replace the API key after resolving a Secrets Manager ARN.
+    pub fn set_api_key(&mut self, key: ApiKey) {
+        if let Destination::Coralogix { api_key } = &mut self.destination {
+            *api_key = key;
+        }
     }
 }
 
@@ -347,7 +390,12 @@ pub fn build_exporter(config: &Config) -> Result<AuthorizedOtlpTraceExporterGrpc
             max_elapsed_time: Duration::from_secs(20),
         })
         .with_channel_config(ChannelConfig::new(config.endpoint.clone()).with_webpki_roots())
-        .with_auth_data(AuthData::from(&config.api_key))
+        .with_auth_data(
+            config
+                .api_key()
+                .map(AuthData::from)
+                .unwrap_or_default(),
+        )
         .try_build()
         .map_err(|e| format!("failed to build OTLP trace exporter: {e}"))
 }
@@ -454,7 +502,10 @@ pub async fn handler(
         })
         .collect();
 
-    let resource_spans = to_resource_spans(&records, &config.app_name, &config.sub_name);
+    // An unset subsystem falls back to the log group the spans came from, matching the
+    // CloudWatch logs path.
+    let sub_name = config.sub_name.as_deref().unwrap_or(&data.log_group);
+    let resource_spans = to_resource_spans(&records, &config.app_name, sub_name);
     let span_count: usize = resource_spans
         .iter()
         .flat_map(|rs| rs.scope_spans.iter())
@@ -904,6 +955,86 @@ mod tests {
             "startTimeUnixNano": 1u64, "endTimeUnixNano": 2u64,
         });
         assert!(to_span(&bad).is_none());
+    }
+
+    /// The Coralogix API key must never leave for a customer-configured Collector.
+    #[test]
+    fn collector_route_is_unauthenticated() {
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", Some("http://collector.internal:4317")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+                ("SUB_NAME", None::<&str>),
+                ("APP_NAME", None::<&str>),
+            ],
+            || {
+                let conf = Config::load_from_env().expect("config should load");
+                assert_eq!(conf.endpoint, "http://collector.internal:4317");
+                assert!(
+                    conf.api_key().is_none(),
+                    "the API key must not be sent to a Collector"
+                );
+            },
+        );
+    }
+
+    /// The direct route is the only one that authenticates, and it requires a key.
+    #[test]
+    fn direct_route_carries_the_api_key() {
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+            ],
+            || {
+                let conf = Config::load_from_env().expect("config should load");
+                assert_eq!(conf.endpoint, "https://ingress.eu2.coralogix.com:443");
+                assert_eq!(conf.api_key().map(|k| k.token().to_string()).as_deref(), Some("secret"));
+            },
+        );
+
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_API_KEY", None::<&str>),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+            ],
+            || {
+                let err = Config::load_from_env()
+                    .err()
+                    .expect("direct delivery without a key must fail");
+                assert!(err.contains("CORALOGIX_API_KEY"), "unexpected error: {err}");
+            },
+        );
+    }
+
+    /// CloudFormation renders unset parameters as empty strings, so empty must mean
+    /// unset - otherwise every default deployment ships an empty subsystem name.
+    #[test]
+    fn empty_env_vars_count_as_unset() {
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", Some("")),
+                ("CORALOGIX_ENDPOINT", Some("")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("SUB_NAME", Some("")),
+                ("APP_NAME", Some("")),
+            ],
+            || {
+                let conf = Config::load_from_env().expect("config should load");
+                // Empty OTLP_ENDPOINT must not select the collector route.
+                assert_eq!(conf.endpoint, "https://ingress.eu2.coralogix.com:443");
+                assert!(conf.api_key().is_some(), "should be the direct route");
+                assert_eq!(conf.sub_name, None, "empty SUB_NAME must fall back");
+                assert_eq!(conf.app_name, "aws");
+            },
+        );
     }
 
     /// A collector endpoint must win over the derived `ingress.<domain>`, otherwise a

@@ -55,18 +55,17 @@ async fn main() -> Result<(), Error> {
         TelemetryMode::Traces => {
             info!("running in traces telemetry mode");
             let mut conf = traces::Config::load_from_env()?;
-            if conf.api_key.token().starts_with("arn:aws")
-                && conf.api_key.token().contains(":secretsmanager")
-            {
-                conf.api_key = crate::logs::config::get_api_key_from_secrets_manager(
-                    &aws_config,
-                    conf.api_key.token().to_string(),
-                )
-                .await
-                .map_err(|e| e.to_string())?
-                .token()
-                .to_string()
-                .into();
+            // The Collector route carries no key, hence the Option.
+            let arn = conf
+                .api_key()
+                .map(|k| k.token().to_string())
+                .filter(|t| t.starts_with("arn:aws") && t.contains(":secretsmanager"));
+            if let Some(arn) = arn {
+                let resolved =
+                    crate::logs::config::get_api_key_from_secrets_manager(&aws_config, arn)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                conf.set_api_key(resolved.token().to_string().into());
             }
 
             let exporter = traces::build_exporter(&conf)?;

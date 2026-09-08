@@ -673,7 +673,7 @@ Conditions:
     - !Condition UseCollectorOtlpTraces
   NeedsCoralogixApiKey: !Or
     - !Equals [ !Ref TelemetryMode, metrics ]
-    - !Condition TelemetryModeIsTraces
+    - !Condition UseCoralogixOtlpTraces
     - !Condition UseCoralogixRestLogs
     - !Condition UseCoralogixOtlpLogs
   # Traces resolve ingress.<domain> in code, same as the OTLP log path. A collector
@@ -697,8 +697,11 @@ Rules:
         AssertDescription: IntegrationType must be CloudWatch when TelemetryMode is traces
       - Assert: !Equals [ !Ref CloudWatchLogGroupName, 'aws/spans' ]
         AssertDescription: CloudWatchLogGroupName must be aws/spans when TelemetryMode is traces
-      - Assert: !Not [ !Equals [ !Ref ApiKey, '' ] ]
-        AssertDescription: ApiKey must be set when TelemetryMode is traces
+      # A Collector endpoint is unauthenticated, so no key is sent or needed there.
+      - Assert: !Or
+          - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
+          - !Not [ !Equals [ !Ref ApiKey, '' ] ]
+        AssertDescription: ApiKey must be set when TelemetryMode is traces without an OTLPEndpoint
       - Assert: !Or
           - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
           - !Not [ !Equals [ !Ref CustomDomain, '' ] ]
