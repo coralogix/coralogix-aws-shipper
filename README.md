@@ -774,18 +774,28 @@ is needed: set `TelemetryMode=traces`, `IntegrationType=CloudWatch` and
 | IntegrationType        | Must be `CloudWatch`.                                                                                                                        | S3            | :heavy_check_mark: |
 | CloudWatchLogGroupName | Must be exactly `aws/spans`. The template rejects any other value in this mode.                                                              |               | :heavy_check_mark: |
 | ApiKey                 | Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) or AWS Secrets Manager ARN.                                      |               | :heavy_check_mark: |
-| CoralogixRegion        | Coralogix region, or `Custom` with `CustomDomain`. Traces are always sent to Coralogix over OTLP/gRPC; `LogExportProtocol` does not apply.    | Custom        | :heavy_check_mark: |
+| CoralogixRegion        | Coralogix region, or `Custom` with `CustomDomain`. Used to resolve `ingress.<domain>` for direct delivery; ignored when `OTLPEndpoint` is set. | Custom        | Direct delivery    |
+| OTLPEndpoint           | Collector `http://` or `https://` origin, reachable from the Lambda VPC. Set this to route traces through a Collector instead of directly to Coralogix. Required when `UsePrivateLink=true`. |               | PrivateLink        |
 | ApplicationName        | Application name applied to the spans.                                                                                                       |               | :heavy_check_mark: |
 | SubsystemName          | Subsystem name applied to the spans. Leave empty to use the log group name (`aws/spans`).                                                     |               |                    |
+
+Traces always travel over OTLP/gRPC, so `LogExportProtocol` does not apply. There are
+two routes, selected by `OTLPEndpoint`, mirroring the OTLP log path:
+
+- **Direct to Coralogix** (`OTLPEndpoint` empty) — the endpoint is resolved as
+  `https://ingress.<domain>:443` from `CoralogixRegion`/`CustomDomain`.
+- **Via a Collector** (`OTLPEndpoint` set) — spans go to that origin instead, which is
+  what makes traces work from a Lambda in a private subnet.
 
 > [!IMPORTANT]
 > `TelemetryMode=traces` handles **only** the `aws/spans` log group. To ship regular
 > CloudWatch logs as well, deploy a second stack with `TelemetryMode=logs`.
 >
-> `UsePrivateLink=true` is **not supported** in traces mode and the template rejects
-> the combination. Traces always go direct to Coralogix OTLP (`ingress.<domain>`);
-> there is no collector endpoint to route through, so a Lambda confined to a private
-> subnet could not reach the destination.
+> `UsePrivateLink=true` requires an `OTLPEndpoint`. Direct delivery resolves the public
+> `ingress.<domain>`, which a Lambda confined to a private subnet cannot reach, so the
+> template rejects that combination — the same rule the OTLP log path uses.
+>
+> An `ApiKey` is required on both routes, including via a Collector.
 
 ### Known limitation: `service.name` on child spans
 

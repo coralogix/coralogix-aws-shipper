@@ -662,15 +662,25 @@ Conditions:
   UseCoralogixOtlpLogs: !And
     - !Condition UseOtlpGrpcLogs
     - !Not [ !Condition OtlpEndpointIsSet ]
+  UseCollectorOtlpTraces: !And
+    - !Condition TelemetryModeIsTraces
+    - !Condition OtlpEndpointIsSet
+  UseCoralogixOtlpTraces: !And
+    - !Condition TelemetryModeIsTraces
+    - !Not [ !Condition OtlpEndpointIsSet ]
+  UseCollectorOtlp: !Or
+    - !Condition UseCollectorOtlpLogs
+    - !Condition UseCollectorOtlpTraces
   NeedsCoralogixApiKey: !Or
     - !Equals [ !Ref TelemetryMode, metrics ]
     - !Condition TelemetryModeIsTraces
     - !Condition UseCoralogixRestLogs
     - !Condition UseCoralogixOtlpLogs
-  # Traces resolve ingress.<domain> in code, same as the OTLP log path.
+  # Traces resolve ingress.<domain> in code, same as the OTLP log path. A collector
+  # endpoint replaces that, so the domain is only needed for the direct route.
   NeedsCoralogixDomain: !Or
     - !Condition UseCoralogixOtlpLogs
-    - !Condition TelemetryModeIsTraces
+    - !Condition UseCoralogixOtlpTraces
   NeedsCoralogixRestEndpoint: !Or
     - !Equals [ !Ref TelemetryMode, metrics ]
     - !Condition UseCoralogixRestLogs
@@ -689,12 +699,16 @@ Rules:
         AssertDescription: CloudWatchLogGroupName must be aws/spans when TelemetryMode is traces
       - Assert: !Not [ !Equals [ !Ref ApiKey, '' ] ]
         AssertDescription: ApiKey must be set when TelemetryMode is traces
-      - Assert: !Not [ !Equals [ !Ref CustomDomain, '' ] ]
-        AssertDescription: CustomDomain must be set when TelemetryMode is traces
-      # Traces always go direct to Coralogix OTLP; there is no collector endpoint to
-      # route through, so a VPC-only Lambda could never reach ingress.<domain>.
-      - Assert: !Equals [ !Ref UsePrivateLink, 'false' ]
-        AssertDescription: UsePrivateLink is not supported when TelemetryMode is traces
+      - Assert: !Or
+          - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
+          - !Not [ !Equals [ !Ref CustomDomain, '' ] ]
+        AssertDescription: CustomDomain must be set when TelemetryMode is traces without an OTLPEndpoint
+      # Direct Coralogix OTLP resolves the public ingress.<domain>, which a Lambda
+      # confined to a private subnet cannot reach; a collector endpoint can be.
+      - Assert: !Or
+          - !Not [ !Equals [ !Ref UsePrivateLink, 'true' ] ]
+          - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
+        AssertDescription: Direct Coralogix OTLP traces do not support UsePrivateLink; provide an OTLPEndpoint for a Collector reachable from the Lambda VPC
 
   ValidateCustomDomain:
     RuleCondition: !Or
@@ -1209,7 +1223,7 @@ Resources:
           LOG_EXPORT_PROTOCOL: !Ref LogExportProtocol
           DISABLE_LOG_SEVERITY_DETECTION: !Ref DisableLogSeverityDetection
           OTLP_ENDPOINT: !If
-            - UseCollectorOtlpLogs
+            - UseCollectorOtlp
             - !Ref OTLPEndpoint
             - !Ref AWS::NoValue
           CORALOGIX_DOMAIN: !If

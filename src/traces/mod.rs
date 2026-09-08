@@ -316,13 +316,18 @@ impl Config {
             api_key: std::env::var("CORALOGIX_API_KEY")
                 .map_err(|e| format!("CORALOGIX_API_KEY is not set: {e}"))?
                 .into(),
-            // An explicit endpoint wins (collectors, tests); otherwise derive it from the
-            // domain, matching how the OTLP log path resolves `ingress.<domain>`.
-            endpoint: match std::env::var("CORALOGIX_ENDPOINT") {
-                Ok(endpoint) => endpoint,
-                Err(_) => {
+            // `OTLP_ENDPOINT` points at a collector, the same parameter the OTLP log
+            // path uses. `CORALOGIX_ENDPOINT` is the raw override kept for tests.
+            // Failing those, derive `ingress.<domain>` as the OTLP log path does.
+            endpoint: match std::env::var("OTLP_ENDPOINT")
+                .ok()
+                .or_else(|| std::env::var("CORALOGIX_ENDPOINT").ok())
+                .filter(|e| !e.is_empty())
+            {
+                Some(endpoint) => endpoint,
+                None => {
                     let domain = std::env::var("CORALOGIX_DOMAIN").map_err(|e| {
-                        format!("neither CORALOGIX_ENDPOINT nor CORALOGIX_DOMAIN is set: {e}")
+                        format!("neither OTLP_ENDPOINT nor CORALOGIX_DOMAIN is set: {e}")
                     })?;
                     format!("https://ingress.{domain}:443")
                 }
@@ -899,5 +904,72 @@ mod tests {
             "startTimeUnixNano": 1u64, "endTimeUnixNano": 2u64,
         });
         assert!(to_span(&bad).is_none());
+    }
+
+    /// A collector endpoint must win over the derived `ingress.<domain>`, otherwise a
+    /// PrivateLink deployment silently addresses the public ingress it cannot reach.
+    #[test]
+    fn endpoint_prefers_the_collector_over_the_domain() {
+        let cases = [
+            // (OTLP_ENDPOINT, CORALOGIX_ENDPOINT, CORALOGIX_DOMAIN, expected)
+            (
+                Some("http://collector.internal:4317"),
+                None,
+                Some("eu2.coralogix.com"),
+                "http://collector.internal:4317",
+            ),
+            // Empty is how CloudFormation renders an unset parameter; ignore it.
+            (
+                Some(""),
+                None,
+                Some("eu2.coralogix.com"),
+                "https://ingress.eu2.coralogix.com:443",
+            ),
+            (
+                None,
+                Some("https://override:443"),
+                Some("eu2.coralogix.com"),
+                "https://override:443",
+            ),
+            (
+                None,
+                None,
+                Some("eu2.coralogix.com"),
+                "https://ingress.eu2.coralogix.com:443",
+            ),
+        ];
+
+        for (otlp, cx, domain, expected) in cases {
+            temp_env::with_vars(
+                [
+                    ("CORALOGIX_API_KEY", Some("secret")),
+                    ("OTLP_ENDPOINT", otlp),
+                    ("CORALOGIX_ENDPOINT", cx),
+                    ("CORALOGIX_DOMAIN", domain),
+                ],
+                || {
+                    let conf = Config::load_from_env().expect("config should load");
+                    assert_eq!(conf.endpoint, expected, "otlp={otlp:?} cx={cx:?}");
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn endpoint_requires_a_collector_or_a_domain() {
+        temp_env::with_vars(
+            [
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+                ("CORALOGIX_DOMAIN", None::<&str>),
+            ],
+            || {
+                let err = Config::load_from_env()
+                    .err()
+                    .expect("should refuse to guess an endpoint");
+                assert!(err.contains("OTLP_ENDPOINT"), "unexpected error: {err}");
+            },
+        );
     }
 }

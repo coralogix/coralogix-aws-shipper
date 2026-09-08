@@ -16,10 +16,13 @@
     and error status plus exception span events are carried through.
   - Requests are split to stay within the OTLP request size limit, and a partial
     rejection fails the batch so existing retry and DLQ handling applies.
+  - Supports both OTLP routes, selected by `OTLPEndpoint` exactly as the OTLP log path
+    does: direct to Coralogix (`ingress.<domain>`, resolved from the region or custom
+    domain) or through a Collector, which is what makes traces work from a Lambda in a
+    private subnet.
   - Template rules validate the mode at deploy time: `CloudWatchLogGroupName` must be
-    exactly `aws/spans`, `ApiKey` is required, a custom domain must be supplied when
-    needed, and `UsePrivateLink=true` is rejected (traces have no collector endpoint
-    to route through).
+    exactly `aws/spans`, `ApiKey` is required, a custom domain must be supplied for
+    direct delivery, and `UsePrivateLink=true` requires an `OTLPEndpoint`.
 
 ### 🧰 Known limitations 🧰
 
