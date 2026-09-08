@@ -775,7 +775,7 @@ is needed: set `TelemetryMode=traces`, `IntegrationType=CloudWatch` and
 | CloudWatchLogGroupName | Must be exactly `aws/spans`. The template rejects any other value in this mode.                                                              |               | :heavy_check_mark: |
 | ApiKey                 | Send-Your-Data [API key](https://coralogix.com/docs/send-your-data-api-key/) or AWS Secrets Manager ARN. Not used on the Collector route.     |               | Direct delivery    |
 | CoralogixRegion        | Coralogix region, or `Custom` with `CustomDomain`. Used to resolve `ingress.<domain>` for direct delivery; ignored when `OTLPEndpoint` is set. | Custom        | Direct delivery    |
-| OTLPEndpoint           | Collector `http://` or `https://` origin, reachable from the Lambda VPC. Set this to route traces through a Collector instead of directly to Coralogix. Required when `UsePrivateLink=true`. |               | PrivateLink        |
+| OTLPEndpoint           | Collector `http://` or `https://` origin, reachable from the Lambda VPC. Set this to route traces through a Collector instead of directly to Coralogix. Required when `UsePrivateLink=true`. Must be an absolute origin with no userinfo, path or query — validated at startup. |               | PrivateLink        |
 | ApplicationName        | Application name applied to the spans.                                                                                                       |               | :heavy_check_mark: |
 | SubsystemName          | Subsystem name applied to the spans. Leave empty to use the log group name the spans arrived from (`aws/spans`).                              |               |                    |
 
@@ -799,6 +799,11 @@ two routes, selected by `OTLPEndpoint`, mirroring the OTLP log path:
 > template rejects that combination — the same rule the OTLP log path uses.
 >
 > An `ApiKey` is required for direct delivery only.
+>
+> `EnableDLQ=true` is **not supported** in traces mode and the template rejects it. The
+> dead-letter queue is mapped back to the Lambda as an event source, so replays arrive
+> as SQS events, which the traces handler does not read. Export failures instead rely on
+> the CloudWatch Logs subscription's own asynchronous retries.
 
 ### Known limitation: `service.name` on child spans
 

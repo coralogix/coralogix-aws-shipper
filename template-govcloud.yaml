@@ -697,6 +697,14 @@ Rules:
         AssertDescription: IntegrationType must be CloudWatch when TelemetryMode is traces
       - Assert: !Equals [ !Ref CloudWatchLogGroupName, 'aws/spans' ]
         AssertDescription: CloudWatchLogGroupName must be aws/spans when TelemetryMode is traces
+      # EnableDLQ maps the dead-letter queue back to this Lambda as an event source
+      # (custom-resource/index.py), so replays arrive as SQS. The traces handler reads
+      # CloudWatch Logs events only, and the logs path's retry-count/S3-offload
+      # machinery has no traces equivalent yet - without it a permanently failing batch
+      # would loop between the queue and the function. Refuse the combination rather
+      # than leave poison messages in the queue.
+      - Assert: !Equals [ !Ref EnableDLQ, 'false' ]
+        AssertDescription: EnableDLQ is not supported when TelemetryMode is traces
       # A Collector endpoint is unauthenticated, so no key is sent or needed there.
       - Assert: !Or
           - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]

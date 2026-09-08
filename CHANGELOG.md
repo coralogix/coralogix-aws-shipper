@@ -24,8 +24,12 @@
   - An unset `SubsystemName` falls back to the originating log group, matching the
     CloudWatch logs path.
   - Template rules validate the mode at deploy time: `CloudWatchLogGroupName` must be
-    exactly `aws/spans`, `ApiKey` is required, a custom domain must be supplied for
-    direct delivery, and `UsePrivateLink=true` requires an `OTLPEndpoint`.
+    exactly `aws/spans`, `ApiKey` is required for direct delivery, a custom domain must
+    be supplied for direct delivery, `UsePrivateLink=true` requires an `OTLPEndpoint`,
+    and `EnableDLQ=true` is rejected — the dead-letter queue replays as SQS events,
+    which the traces handler does not read.
+  - `OTLPEndpoint` is validated at startup with the same rules as the OTLP log path
+    (absolute `http`/`https` origin, no userinfo, path or query).
 
 ### 🧰 Known limitations 🧰
 

@@ -312,9 +312,13 @@ pub fn to_resource_spans(records: &[Value], app_name: &str, sub_name: &str) -> V
 
 /// CloudFormation renders an unset parameter as an empty string, so an empty value has
 /// to mean "unset" everywhere - `env::var` alone returns `Ok("")` and defeats a
-/// `unwrap_or_else` fallback.
+/// `unwrap_or_else` fallback. Whitespace-only counts as empty, and the value is trimmed:
+/// a stack parameter carrying a stray space must not select a different code path.
 fn env_opt(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|v| !v.is_empty())
+    std::env::var(key)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// Where spans are sent, and whether they carry Coralogix credentials.
@@ -341,6 +345,12 @@ impl Config {
         // `OTLP_ENDPOINT` points at a collector, the same parameter the OTLP log path
         // uses. `CORALOGIX_ENDPOINT` is the raw override kept for tests.
         let collector = env_opt("OTLP_ENDPOINT");
+        // Validate before it selects the unauthenticated route: an unusable value would
+        // otherwise fail exporter construction on every cold start. Same rules as the
+        // OTLP log path, so both routes accept the same endpoints.
+        if let Some(endpoint) = &collector {
+            crate::logs::config::LogExportConfig::validate_collector_endpoint(endpoint)?;
+        }
         let endpoint = match collector.clone().or_else(|| env_opt("CORALOGIX_ENDPOINT")) {
             Some(endpoint) => endpoint,
             // Failing those, derive `ingress.<domain>` as the OTLP log path does.
@@ -1071,6 +1081,56 @@ mod tests {
                 assert!(conf.api_key().is_some(), "should be the direct route");
                 assert_eq!(conf.sub_name, None, "empty SUB_NAME must fall back");
                 assert_eq!(conf.app_name, "aws");
+            },
+        );
+    }
+
+    /// An unusable collector endpoint must fail at config load, not on every cold start
+    /// inside the exporter.
+    #[test]
+    fn rejects_unusable_collector_endpoints() {
+        for bad in [
+            "collector.internal:4317",         // no scheme
+            "ftp://collector.internal:4317",   // wrong scheme
+            "http://user:pw@collector:4317",   // userinfo
+            "http://collector:4317/v1/traces", // path
+            "http://collector:4317?x=1",       // query
+        ] {
+            temp_env::with_vars(
+                [
+                    ("OTLP_ENDPOINT", Some(bad)),
+                    ("CORALOGIX_API_KEY", Some("secret")),
+                    ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                    ("CORALOGIX_ENDPOINT", None::<&str>),
+                ],
+                || {
+                    assert!(
+                        Config::load_from_env().is_err(),
+                        "{bad:?} should be rejected"
+                    );
+                },
+            );
+        }
+    }
+
+    /// Whitespace must not select the Collector route, and must not survive into a name.
+    #[test]
+    fn whitespace_env_vars_count_as_unset() {
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", Some("   ")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+                ("SUB_NAME", Some("  ")),
+                ("APP_NAME", Some(" my-app ")),
+            ],
+            || {
+                let conf = Config::load_from_env().expect("config should load");
+                assert_eq!(conf.endpoint, "https://ingress.eu2.coralogix.com:443");
+                assert!(conf.api_key().is_some(), "should be the direct route");
+                assert_eq!(conf.sub_name, None);
+                assert_eq!(conf.app_name, "my-app");
             },
         );
     }
