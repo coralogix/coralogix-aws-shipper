@@ -537,10 +537,38 @@ Your script must define a `transform(event)` function that:
 
 ### Understanding the Event Format
 
-The `event` passed to `transform(event)` is the **raw log content** — there is no wrapper or envelope added by the shipper. If the log string is valid JSON, `event` is a Starlark dict (object); otherwise it is a plain string.
+By default, the `event` passed to `transform(event)` is the **raw log content** — there is no wrapper or envelope added by the shipper. If the log string is valid JSON, `event` is a Starlark dict (object); otherwise it is a plain string.
 
-> [!NOTE]
-> The transform runs **before** any metadata (e.g., `s3.object.key`, `cw.log.group`) is attached. Your script only sees the raw log content, not shipper metadata.
+The `StarlarkTransformAfterMetadata` parameter controls the transformation stage:
+
+| Value | Processing order |
+|-------|------------------|
+| `false` (default) | Raw log → Starlark transform → metadata attachment → export |
+| `true` | Raw log → metadata attachment → Starlark transform → export |
+
+The default is backward compatible with existing deployments and scripts.
+
+When `StarlarkTransformAfterMetadata` is `true`, the script receives the body that would otherwise be exported. It contains only metadata configured for output through `AddMetadata`, `CustomMetadata`, or enabled CloudWatch log group tags. Internal metadata that was not selected is not exposed.
+
+When metadata is attached, the existing output envelope places the original log under `event["message"]` and metadata at the root:
+
+```json
+{
+  "message": {"level": "INFO", "msg": "hello"},
+  "kinesis.event.source_arn": "arn:aws:kinesis:us-east-1:123456789012:stream/example"
+}
+```
+
+The post-metadata script may modify or remove any of these fields; metadata is not attached again afterward. Application/subsystem routing, automatic severity, and the timestamp are determined before this final body transformation. If a script returns multiple events, every result inherits those values from its source log.
+
+Example:
+
+```python
+def transform(event):
+    event["source_arn"] = event.pop("kinesis.event.source_arn")
+    event["message"]["metadata_was_available"] = True
+    return [event]
+```
 
 The structure of `event` depends on the source that triggered the Lambda:
 
