@@ -34,15 +34,16 @@ pub struct LogWithMeta {
 }
 
 /// Like `process_batches` but each log entry carries its own per-record metadata
-/// context snapshot. Transform has already been applied per-record before reaching
-/// this function, so it is skipped here.
+/// context snapshot. In the default mode, transform has already been applied
+/// per-record before reaching this function. In post-metadata mode, raw logs
+/// reach this function and are transformed after conversion.
 pub async fn process_batches_with_meta(
     logs_with_meta: Vec<LogWithMeta>,
     configured_app_name: &str,
     configured_sub_name: &str,
     config: &Config,
     exporter: DynLogExporter,
-    _aws_config: &aws_config::SdkConfig,
+    aws_config: &aws_config::SdkConfig,
 ) -> Result<(), Error> {
     let logs_with_meta: Vec<LogWithMeta> = logs_with_meta
         .into_iter()
@@ -65,7 +66,7 @@ pub async fn process_batches_with_meta(
     );
 
     let results = futures::stream::iter(batches)
-        .map(|batch| {
+        .then(|batch| async move {
             let batch = batch
                 .into_iter()
                 .map(|lm| {
@@ -78,7 +79,14 @@ pub async fn process_batches_with_meta(
                     )
                 })
                 .collect_vec();
-            send_logs(exporter.clone(), batch)
+            transform_processed_logs_after_metadata(batch, config, aws_config).await
+        })
+        .map(|batch| {
+            let exporter = exporter.clone();
+            async move {
+                let batch = batch?;
+                send_transformed_logs(exporter, batch, config).await
+            }
         })
         .buffer_unordered(config.batches_max_concurrency.max(1))
         .inspect_err(|error| error!(?error, "Failed to send logs"))
@@ -89,37 +97,39 @@ pub async fn process_batches_with_meta(
     Ok(())
 }
 
-fn into_batches_with_meta_of_estimated_size(
-    logs: Vec<LogWithMeta>,
-    config: &Config,
-) -> Vec<Vec<LogWithMeta>> {
-    let target_batch_size = config.batches_max_size * 1024 * 1024;
-    let overhead_per_log_estimation = 200;
+const OVERHEAD_PER_LOG_ESTIMATION: usize = 200;
 
-    let (mut batches, batch, _) = logs
-        .into_iter()
-        .fold::<(Vec<Vec<LogWithMeta>>, Vec<LogWithMeta>, usize), _>(
-            (Vec::new(), Vec::new(), 0),
-            |acc, lm| {
-                let (mut batches, mut batch, size) = acc;
-                let new_size = size + lm.log.len() + overhead_per_log_estimation;
-                if new_size <= target_batch_size {
-                    batch.push(lm);
-                    (batches, batch, new_size)
-                } else {
-                    if !batch.is_empty() {
-                        batches.push(std::mem::take(&mut batch));
-                    }
-                    let new_size = lm.log.len() + overhead_per_log_estimation;
-                    batch.push(lm);
-                    (batches, batch, new_size)
-                }
-            },
-        );
+fn into_batches_by_estimated_size<T>(
+    items: Vec<T>,
+    config: &Config,
+    estimate_size: impl Fn(&T) -> usize,
+) -> Vec<Vec<T>> {
+    let target_batch_size = config.batches_max_size * 1024 * 1024;
+    let mut batches = Vec::new();
+    let mut batch = Vec::new();
+    let mut batch_size = 0;
+
+    for item in items {
+        let item_size = estimate_size(&item) + OVERHEAD_PER_LOG_ESTIMATION;
+        if !batch.is_empty() && batch_size + item_size > target_batch_size {
+            batches.push(std::mem::take(&mut batch));
+            batch_size = 0;
+        }
+        batch.push(item);
+        batch_size += item_size;
+    }
+
     if !batch.is_empty() {
         batches.push(batch);
     }
     batches
+}
+
+fn into_batches_with_meta_of_estimated_size(
+    logs: Vec<LogWithMeta>,
+    config: &Config,
+) -> Vec<Vec<LogWithMeta>> {
+    into_batches_by_estimated_size(logs, config, |log| log.log.len())
 }
 
 pub async fn process_batches(
@@ -141,13 +151,18 @@ pub async fn process_batches(
         return Ok(());
     }
 
-    // Apply transformation pipeline (Starlark if configured, otherwise passthrough)
-    let logs = transform::transform_logs(logs, config, aws_config)
-        .await
-        .map_err(|e| {
-            error!("Log transformation failed: {}", e);
-            Error::from(e.to_string())
-        })?;
+    // Apply the existing pre-metadata transformation unless the script is
+    // explicitly configured to run after conversion.
+    let logs = if config.starlark_transform_after_metadata {
+        logs
+    } else {
+        transform::transform_logs(logs, config, aws_config)
+            .await
+            .map_err(|e| {
+                error!("Log transformation failed: {}", e);
+                Error::from(e.to_string())
+            })?
+    };
 
     let logs: Vec<String> = logs
         .into_iter()
@@ -171,7 +186,7 @@ pub async fn process_batches(
 
     // Process and send batches concurrently, limited by config
     let results = futures::stream::iter(batches)
-        .map(|batch| {
+        .then(|batch| async move {
             let batch = batch
                 .into_iter()
                 .map(|log| {
@@ -184,7 +199,14 @@ pub async fn process_batches(
                     )
                 })
                 .collect_vec();
-            send_logs(exporter.clone(), batch)
+            transform_processed_logs_after_metadata(batch, config, aws_config).await
+        })
+        .map(|batch| {
+            let exporter = exporter.clone();
+            async move {
+                let batch = batch?;
+                send_transformed_logs(exporter, batch, config).await
+            }
         })
         .buffer_unordered(config.batches_max_concurrency.max(1))
         .inspect_err(|error| error!(?error, "Failed to send logs"))
@@ -198,34 +220,79 @@ pub async fn process_batches(
 }
 
 fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec<String>> {
-    // The hard limit is 10MB. We're aiming for 2MB, so we don't need to be precise with the size estimation.
-    let target_batch_size = config.batches_max_size * 1024 * 1024; // 4MB
-    let overhead_per_log_estimation = 200;
-
-    let (mut batches, batch, _) = logs
-        .into_iter()
-        .fold::<(Vec<Vec<String>>, Vec<String>, usize), _>(
-            (Vec::new(), Vec::new(), 0),
-            |acc, log| {
-                let (mut batches, mut batch, size) = acc;
-
-                let new_size = size + log.len() + overhead_per_log_estimation;
-                if new_size <= target_batch_size {
-                    batch.push(log);
-                    (batches, batch, new_size)
-                } else {
-                    batches.push(std::mem::take(&mut batch));
-                    let new_size = log.len() + overhead_per_log_estimation;
-                    batch.push(log);
-                    (batches, batch, new_size)
-                }
-            },
-        );
-    if !batch.is_empty() {
-        batches.push(batch);
-    }
-    batches
+    into_batches_by_estimated_size(logs, config, String::len)
 }
+
+async fn transform_processed_logs_after_metadata(
+    processed_logs: Vec<ProcessedLog>,
+    config: &Config,
+    aws_config: &aws_config::SdkConfig,
+) -> Result<Vec<ProcessedLog>, Error> {
+    if !config.starlark_transform_after_metadata || config.starlark_script.is_none() {
+        return Ok(processed_logs);
+    }
+
+    let mut transformed_logs = Vec::with_capacity(processed_logs.len());
+    for source_log in processed_logs {
+        let transform_input = match &source_log.body {
+            Value::String(text) => Ok(text.clone()),
+            body => serde_json::to_string(body).map_err(|error| Error::from(error.to_string())),
+        }?;
+        let transformed_bodies =
+            transform::transform_logs(vec![transform_input], config, aws_config)
+                .await
+                .map_err(|error| {
+                    error!("Post-metadata log transformation failed: {}", error);
+                    Error::from(error.to_string())
+                })?;
+
+        for transformed_body in transformed_bodies {
+            if transformed_body.trim().is_empty() {
+                continue;
+            }
+
+            let body = serde_json::from_str(&transformed_body)
+                .unwrap_or_else(|_| Value::String(transformed_body));
+            let mut transformed_log = source_log.clone();
+            transformed_log.body = body;
+            transformed_logs.push(transformed_log);
+        }
+    }
+
+    Ok(transformed_logs)
+}
+
+fn into_processed_log_batches_of_estimated_size(
+    logs: Vec<ProcessedLog>,
+    config: &Config,
+) -> Vec<Vec<ProcessedLog>> {
+    into_batches_by_estimated_size(logs, config, |log| log.body.to_string().len())
+}
+
+async fn send_transformed_logs(
+    exporter: DynLogExporter,
+    logs: Vec<ProcessedLog>,
+    config: &Config,
+) -> Result<(), Error> {
+    if logs.is_empty() {
+        return Ok(());
+    }
+
+    if !config.starlark_transform_after_metadata
+        || !matches!(
+            &config.export,
+            crate::logs::config::LogExportConfig::CoralogixRest { .. }
+        )
+    {
+        return send_logs(exporter, logs).await;
+    }
+
+    for batch in into_processed_log_batches_of_estimated_size(logs, config) {
+        send_logs(exporter.clone(), batch).await?;
+    }
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct JsonMessage {
     message: Value,
@@ -615,6 +682,11 @@ fn get_severity_level(message: &str) -> LogSeverity {
 mod tests {
     use super::*;
     use crate::logs::config::LogExportConfig;
+    use serial_test::serial;
+    use std::sync::{Arc, Mutex};
+
+    const KINESIS_SOURCE_ARN_KEY: &str = "kinesis.event.source_arn";
+    const KINESIS_SOURCE_ARN: &str = "arn:aws:kinesis:region:account:stream/source";
 
     struct AlwaysFailingExporter;
 
@@ -625,6 +697,34 @@ mod tests {
             _logs: Vec<ProcessedLog>,
         ) -> Result<(), crate::logs::exporter::LogExportError> {
             Err(crate::logs::exporter::LogExportError::OversizedRecord)
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingExporter {
+        logs: Mutex<Vec<ProcessedLog>>,
+        batch_sizes: Mutex<Vec<usize>>,
+    }
+
+    impl RecordingExporter {
+        fn take_logs(&self) -> Vec<ProcessedLog> {
+            std::mem::take(&mut self.logs.lock().unwrap())
+        }
+
+        fn batch_sizes(&self) -> Vec<usize> {
+            self.batch_sizes.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::logs::exporter::LogExporter for RecordingExporter {
+        async fn export(
+            &self,
+            logs: Vec<ProcessedLog>,
+        ) -> Result<(), crate::logs::exporter::LogExportError> {
+            self.batch_sizes.lock().unwrap().push(logs.len());
+            self.logs.lock().unwrap().extend(logs);
+            Ok(())
         }
     }
 
@@ -653,10 +753,66 @@ mod tests {
             dlq_s3_bucket: None,
             lambda_assume_role: None,
             starlark_script: None,
+            starlark_transform_after_metadata: false,
             enable_log_group_tags: false,
             log_group_tags_cache_ttl_seconds: 300,
             disable_log_severity_detection: false,
         }
+    }
+
+    fn starlark_config(add_metadata: &str, after_metadata: bool, script: &str) -> Config {
+        let mut config = test_config();
+        config.add_metadata = add_metadata.to_string();
+        config.starlark_script = Some(script.to_string());
+        config.starlark_transform_after_metadata = after_metadata;
+        config
+    }
+
+    fn metadata_context<const N: usize>(entries: [(&str, &str); N]) -> process::MetadataContext {
+        let metadata = process::MetadataContext::default();
+        for (key, value) in entries {
+            metadata.insert(key.to_string(), Some(value.to_string()));
+        }
+        metadata
+    }
+
+    async fn capture_logs(
+        config: &Config,
+        metadata: &process::MetadataContext,
+        logs: &[&str],
+        app: &str,
+        subsystem: &str,
+    ) -> Vec<ProcessedLog> {
+        crate::logs::transform::reset_cache().await;
+        let exporter = Arc::new(RecordingExporter::default());
+        let sdk_config = aws_config::SdkConfig::builder().build();
+        process_batches(
+            logs.iter().map(|log| (*log).to_string()).collect(),
+            app,
+            subsystem,
+            config,
+            metadata,
+            exporter.clone(),
+            &sdk_config,
+        )
+        .await
+        .unwrap();
+        exporter.take_logs()
+    }
+
+    async fn capture_logs_with_metadata(
+        config: &Config,
+        logs: Vec<LogWithMeta>,
+        app: &str,
+        subsystem: &str,
+    ) -> Vec<ProcessedLog> {
+        crate::logs::transform::reset_cache().await;
+        let exporter = Arc::new(RecordingExporter::default());
+        let sdk_config = aws_config::SdkConfig::builder().build();
+        process_batches_with_meta(logs, app, subsystem, config, exporter.clone(), &sdk_config)
+            .await
+            .unwrap();
+        exporter.take_logs()
     }
 
     #[tokio::test]
@@ -681,6 +837,160 @@ mod tests {
             error.to_string(),
             "one encoded OTLP log record exceeds the configured request limit"
         );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn default_starlark_transform_still_runs_before_metadata() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            false,
+            r#"
+def transform(event):
+    event["saw_metadata"] = "kinesis.event.source_arn" in event
+    return [event]
+"#,
+        );
+        let metadata = metadata_context([(KINESIS_SOURCE_ARN_KEY, KINESIS_SOURCE_ARN)]);
+        let logs = capture_logs(
+            &config,
+            &metadata,
+            &[r#"{"message":"critical failure"}"#],
+            "app",
+            "sub",
+        )
+        .await;
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(
+            logs[0].body,
+            serde_json::json!({
+                "message": {"message": "critical failure", "saw_metadata": false},
+                "kinesis.event.source_arn": KINESIS_SOURCE_ARN,
+            })
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_starlark_preserves_record_context_during_fan_out() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    source = event.pop("kinesis.event.source_arn")
+    event["observed_metadata"] = source
+    event["message"]["route"] = "after"
+    if source == "stream-A":
+        return [event, {"copy_of_source": source}]
+    return [event]
+"#,
+        );
+        let logs = capture_logs_with_metadata(
+            &config,
+            vec![
+                LogWithMeta {
+                    log: r#"{"route":"before-a","level":"critical"}"#.to_string(),
+                    mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, "stream-A")]),
+                },
+                LogWithMeta {
+                    log: r#"{"route":"before-b","level":"info"}"#.to_string(),
+                    mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, "stream-B")]),
+                },
+            ],
+            "{{ $.route }}",
+            "sub",
+        )
+        .await;
+
+        let routing = logs
+            .iter()
+            .map(|log| {
+                (
+                    log.application_name.as_str(),
+                    log.subsystem_name.as_str(),
+                    log.severity,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            routing,
+            vec![
+                ("before-a", "sub", LogSeverity::Critical),
+                ("before-a", "sub", LogSeverity::Critical),
+                ("before-b", "sub", LogSeverity::Info),
+            ]
+        );
+        assert_eq!(logs[0].timestamp, logs[1].timestamp);
+        assert_eq!(
+            logs.iter().map(|log| log.body.clone()).collect::<Vec<_>>(),
+            vec![
+                serde_json::json!({
+                    "message": {"route": "after", "level": "critical"},
+                    "observed_metadata": "stream-A",
+                }),
+                serde_json::json!({"copy_of_source": "stream-A"}),
+                serde_json::json!({
+                    "message": {"route": "after", "level": "info"},
+                    "observed_metadata": "stream-B",
+                }),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_starlark_failure_passes_through_enriched_body() {
+        let config = starlark_config(
+            "cw.log.group",
+            true,
+            r#"
+def transform(event):
+    return [event["missing"]]
+"#,
+        );
+        let metadata = metadata_context([("cw.log.group", "/aws/lambda/source")]);
+        let logs = capture_logs(&config, &metadata, &["plain text"], "app", "sub").await;
+        assert_eq!(logs.len(), 1);
+        assert_eq!(
+            logs[0].body,
+            serde_json::json!({
+                "message": "plain text",
+                "cw.log.group": "/aws/lambda/source",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn final_transformed_bodies_are_rebatched_only_for_rest() {
+        let mut config = test_config();
+        config.batches_max_size = 1;
+        config.starlark_transform_after_metadata = true;
+        let body = "x".repeat(600 * 1024);
+        let log = |body| ProcessedLog {
+            application_name: "app".to_string(),
+            subsystem_name: "sub".to_string(),
+            body: Value::String(body),
+            severity: LogSeverity::Info,
+            timestamp: OffsetDateTime::UNIX_EPOCH,
+        };
+        let logs = || vec![log(body.clone()), log(body.clone())];
+
+        let rest_exporter = Arc::new(RecordingExporter::default());
+        send_transformed_logs(rest_exporter.clone(), logs(), &config)
+            .await
+            .unwrap();
+        assert_eq!(rest_exporter.batch_sizes(), [1, 1]);
+
+        config.export = LogExportConfig::CollectorOtlpGrpc {
+            endpoint: "http://collector:4317".to_string(),
+        };
+        let otlp_exporter = Arc::new(RecordingExporter::default());
+        send_transformed_logs(otlp_exporter.clone(), logs(), &config)
+            .await
+            .unwrap();
+        assert_eq!(otlp_exporter.batch_sizes(), [2]);
     }
 
     #[test]
