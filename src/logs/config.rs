@@ -16,6 +16,7 @@ use thiserror::Error;
 /// Maximum allowed size for a downloaded Starlark script (1 MiB).
 const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
 const DISABLE_LOG_SEVERITY_DETECTION_ENV: &str = "DISABLE_LOG_SEVERITY_DETECTION";
+const STARLARK_TRANSFORM_AFTER_METADATA_ENV: &str = "STARLARK_TRANSFORM_AFTER_METADATA";
 
 fn load_disable_log_severity_detection() -> bool {
     match env::var(DISABLE_LOG_SEVERITY_DETECTION_ENV) {
@@ -24,6 +25,22 @@ fn load_disable_log_severity_detection() -> bool {
             Err(_) => {
                 tracing::warn!(
                     environment_variable = DISABLE_LOG_SEVERITY_DETECTION_ENV,
+                    "Invalid boolean value; using default false"
+                );
+                false
+            }
+        },
+        Err(_) => false,
+    }
+}
+
+fn load_starlark_transform_after_metadata() -> bool {
+    match env::var(STARLARK_TRANSFORM_AFTER_METADATA_ENV) {
+        Ok(value) => match value.parse::<bool>() {
+            Ok(value) => value,
+            Err(_) => {
+                tracing::warn!(
+                    environment_variable = STARLARK_TRANSFORM_AFTER_METADATA_ENV,
                     "Invalid boolean value; using default false"
                 );
                 false
@@ -186,6 +203,7 @@ pub struct Config {
     pub dlq_s3_bucket: Option<String>,
     pub lambda_assume_role: Option<String>,
     pub starlark_script: Option<String>,
+    pub starlark_transform_after_metadata: bool,
     pub enable_log_group_tags: bool,
     pub log_group_tags_cache_ttl_seconds: u64,
     pub disable_log_severity_detection: bool,
@@ -289,6 +307,7 @@ impl Config {
             starlark_script: env::var("STARLARK_SCRIPT")
                 .ok()
                 .filter(|s| !s.trim().is_empty()),
+            starlark_transform_after_metadata: load_starlark_transform_after_metadata(),
             enable_log_group_tags: env::var("ENABLE_LOG_GROUP_TAGS")
                 .unwrap_or("false".to_string())
                 .parse::<bool>()
@@ -696,6 +715,20 @@ mod destination_config_tests {
         temp_env::with_var("DISABLE_LOG_SEVERITY_DETECTION", Some("yes"), || {
             assert!(!load_disable_log_severity_detection())
         });
+    }
+
+    #[test]
+    fn starlark_transform_after_metadata_flag_defaults_and_parsing() {
+        for (value, expected) in [
+            (None, false),
+            (Some("false"), false),
+            (Some("true"), true),
+            (Some("yes"), false),
+        ] {
+            temp_env::with_var(STARLARK_TRANSFORM_AFTER_METADATA_ENV, value, || {
+                assert_eq!(load_starlark_transform_after_metadata(), expected);
+            });
+        }
     }
 
     #[test]
