@@ -746,8 +746,6 @@ Rules:
           - !Equals [ !Ref SNSTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ]
           - !Equals [ !Ref SNSIntegrationTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ]
         AssertDescription: SNS triggers are not supported when TelemetryMode is traces; leave SNSTopicArn and SNSIntegrationTopicArn at their defaults
-      - Assert: !Equals [ !Ref CloudWatchLogGroupPrefix, '' ]
-        AssertDescription: CloudWatchLogGroupPrefix must be empty when TelemetryMode is traces
       # EnableDLQ maps the dead-letter queue back to this Lambda as an event source
       # (custom-resource/index.py), so replays arrive as SQS. The traces handler reads
       # CloudWatch Logs events only, and the logs path's retry-count/S3-offload

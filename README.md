@@ -801,8 +801,8 @@ two routes, selected by `OTLPEndpoint`, mirroring the OTLP log path:
 > An `ApiKey` is required for direct delivery only.
 >
 > Only the `aws/spans` CloudWatch trigger is supported. The SQS and SNS ARN parameters
-> must be left at their defaults and `CloudWatchLogGroupPrefix` must be empty — those
-> triggers would otherwise deliver events the traces handler cannot read.
+> must be left at their defaults — those triggers would otherwise deliver events the
+> traces handler cannot read.
 >
 > `EnableDLQ=true` is **not supported** in traces mode and the template rejects it. The
 > dead-letter queue is mapped back to the Lambda as an event source, so replays arrive

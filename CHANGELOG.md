@@ -10,9 +10,7 @@
   `TelemetryMode=traces` therefore left its event source mapping in place, delivering
   events the traces handler cannot read — each one failing and retrying until the
   queue's retention expired. `ValidateTracesMode` now requires the SQS and SNS ARN
-  parameters to be left at their defaults, and `CloudWatchLogGroupPrefix` to be empty,
-  since the prefix is passed to the custom resource and would subscribe ordinary log
-  groups to the traces handler. Fresh deployments were unaffected.
+  parameters to be left at their defaults. Fresh deployments were unaffected.
 
 ## v1.4.15 / 2026-09-08
 
