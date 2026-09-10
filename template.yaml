@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.4.15
+    SemanticVersion: 1.4.16
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -736,6 +736,18 @@ Rules:
         AssertDescription: IntegrationType must be CloudWatch when TelemetryMode is traces
       - Assert: !Equals [ !Ref CloudWatchLogGroupName, 'aws/spans' ]
         AssertDescription: CloudWatchLogGroupName must be aws/spans when TelemetryMode is traces
+      # SQSIsSet/SNSIsSet key off the ARN alone, so unlike Kinesis and MSK they survive a
+      # switch to traces and feed events the traces handler cannot read.
+      - Assert: !And
+          - !Equals [ !Ref SQSTopicArn, 'arn:aws:sqs:us-east-1:123456789012:placeholder' ]
+          - !Equals [ !Ref SQSIntegrationTopicArn, 'arn:aws:sqs:us-east-1:123456789012:placeholder' ]
+        AssertDescription: SQS triggers are not supported when TelemetryMode is traces; leave SQSTopicArn and SQSIntegrationTopicArn at their defaults
+      - Assert: !And
+          - !Equals [ !Ref SNSTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ]
+          - !Equals [ !Ref SNSIntegrationTopicArn, 'arn:aws:sns:us-east-1:123456789012:placeholder' ]
+        AssertDescription: SNS triggers are not supported when TelemetryMode is traces; leave SNSTopicArn and SNSIntegrationTopicArn at their defaults
+      - Assert: !Equals [ !Ref CloudWatchLogGroupPrefix, '' ]
+        AssertDescription: CloudWatchLogGroupPrefix must be empty when TelemetryMode is traces
       # EnableDLQ maps the dead-letter queue back to this Lambda as an event source
       # (custom-resource/index.py), so replays arrive as SQS. The traces handler reads
       # CloudWatch Logs events only, and the logs path's retry-count/S3-offload
