@@ -73,6 +73,12 @@ jobs:
 
   validate:
     name: validate
+    # Master and manual runs only, like the other jobs here. This is a release
+    # workflow: it assumes the publish role in the release account (597078901540),
+    # whose trust policy is scoped to master, so on a branch push it can only fail.
+    # PRs lose nothing - tests.yaml already runs `sam validate --lint` and cfn-lint
+    # on both templates.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
