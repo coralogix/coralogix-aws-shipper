@@ -145,6 +145,16 @@ fn status(v: Option<&Value>) -> Option<Status> {
     })
 }
 
+/// Whether a record is AWS's in-progress duplicate, i.e. expected to produce no span.
+///
+/// Only an absent or null `endTimeUnixNano` counts. A present but wrong-typed value - say
+/// AWS starts encoding it as a string - must NOT land here: `to_span` would reject it and
+/// it would be written off as an expected duplicate, silencing the `unmappable` warning
+/// that exists precisely to catch a format change.
+fn is_in_progress(record: &Value) -> bool {
+    matches!(record.get("endTimeUnixNano"), None | Some(Value::Null))
+}
+
 /// Convert one `aws/spans` record, or `None` if it should not become a span.
 ///
 /// Transaction Search emits each span twice: once at start (`endTimeUnixNano: null`,
@@ -502,10 +512,7 @@ pub async fn handler(
     // Records that produced no span are either AWS's in-progress duplicates (expected, we
     // drop them deliberately) or records we could not map (unexpected — a format change
     // would look exactly like this, so it must be visible rather than silent).
-    let in_progress = records
-        .iter()
-        .filter(|r| r.get("endTimeUnixNano").and_then(Value::as_u64).is_none())
-        .count();
+    let in_progress = records.iter().filter(|r| is_in_progress(r)).count();
     let unmappable = records.len().saturating_sub(in_progress + span_count);
     if unmappable > 0 {
         warn!(
@@ -954,6 +961,48 @@ mod tests {
                 assert!(rs.resource.is_some());
             }
         }
+    }
+
+    /// A malformed end time must not be written off as an in-progress duplicate.
+    ///
+    /// `to_span` rejects it either way, but counting it as in-progress removes it from
+    /// `unmappable` and silences the only warning that would reveal AWS changing the
+    /// record format - the exact case that warning exists for.
+    #[test]
+    fn a_malformed_end_time_is_not_an_in_progress_record() {
+        let base = serde_json::json!({
+            "traceId": "6a719ba03dce37b129b5432cd44db5aa",
+            "spanId": "1111111111111111",
+            "startTimeUnixNano": 1_700_000_000_000_000_000u64,
+        });
+
+        // Genuinely in progress: absent, or explicitly null.
+        let mut null_end = base.clone();
+        null_end["endTimeUnixNano"] = Value::Null;
+        for record in [base.clone(), null_end] {
+            assert!(is_in_progress(&record));
+            assert!(to_span(&record).is_none());
+        }
+
+        // Present but unusable: unmappable, and must be reported as such.
+        for bad in [
+            serde_json::json!("1700000000000000001"),
+            serde_json::json!(1.7e18),
+            serde_json::json!(-1),
+        ] {
+            let mut record = base.clone();
+            record["endTimeUnixNano"] = bad.clone();
+            assert!(
+                !is_in_progress(&record),
+                "{bad} must not count as in-progress"
+            );
+            assert!(to_span(&record).is_none(), "{bad} must not map to a span");
+        }
+
+        // Sanity: the fixture's own split is unchanged by this.
+        let recs = fixture();
+        let counted = recs.iter().filter(|r| is_in_progress(r)).count();
+        assert_eq!(counted, 18, "fixture has 18 in-progress records");
     }
 
     /// A broken parent id must not be laundered into a root span.
