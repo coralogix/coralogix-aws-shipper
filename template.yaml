@@ -194,6 +194,16 @@ Parameters:
       Must define a transform(event) function.
     Default: ''
 
+  StarlarkTransformAfterMetadata:
+    Type: String
+    Description: |
+      When true, run the Starlark transformation after configured log metadata is attached.
+      The default false preserves the existing behavior of transforming the raw log first.
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+
   BlockingPattern:
     Type: String
     Description: Regular expression to detect lines that should be excluded from sent to Coralogix
@@ -1320,6 +1330,7 @@ Resources:
           ENABLE_LOG_GROUP_TAGS: !Ref EnableLogGroupTags
           LOG_GROUP_TAGS_CACHE_TTL_SECONDS: !Ref LogGroupTagsCacheTTLSeconds
           STARLARK_SCRIPT: !If [StarlarkScriptIsSet, !Ref StarlarkScript, !Ref AWS::NoValue]
+          STARLARK_TRANSFORM_AFTER_METADATA: !Ref StarlarkTransformAfterMetadata
 
   SNSNotificationSubscription:
     DependsOn: CustomResourceFunction
