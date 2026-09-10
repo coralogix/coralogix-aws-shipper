@@ -535,6 +535,14 @@ Parameters:
     Type: String
     Description: OTLP/gRPC Collector origin reachable from the Lambda VPC. Required for log-mode OTLP/gRPC when UsePrivateLink=true. When empty in OTLP mode, CustomDomain selects direct Coralogix OTLP.
     Default: ''
+    # Whitespace must not read as "configured". The templates decide which route to
+    # take, and whether to export CORALOGIX_API_KEY/CORALOGIX_DOMAIN, from whether this
+    # is empty - while the runtime trims before deciding. Without this, "   " selects the
+    # Collector route here, the domain is never exported, and the runtime then discards
+    # the endpoint and fails on every cold start with nothing to fall back to.
+    # Deliberately loose on path/query: the runtime validates those with a precise error.
+    AllowedPattern: '^$|^https?://\S+$'
+    ConstraintDescription: OTLPEndpoint must be empty or an http:// or https:// origin with no spaces
 
   MetricsFilter:
     Type: String

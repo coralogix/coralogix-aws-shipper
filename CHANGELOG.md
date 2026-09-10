@@ -29,7 +29,12 @@
     and `EnableDLQ=true` is rejected — the dead-letter queue replays as SQS events,
     which the traces handler does not read.
   - `OTLPEndpoint` is validated at startup with the same rules as the OTLP log path
-    (absolute `http`/`https` origin, no userinfo, path or query).
+    (absolute `http`/`https` origin, no userinfo, path or query), and the parameter now
+    carries an `AllowedPattern` so a whitespace-only value cannot be mistaken for a
+    configured Collector. Previously such a value selected the Collector route in the
+    template - suppressing `CORALOGIX_DOMAIN` - while the runtime trimmed it away, so
+    the function had no endpoint to fall back to and failed on every cold start. This
+    also fixes the same latent mismatch on the OTLP **log** route.
 
 ### 🧰 Known limitations 🧰
 
