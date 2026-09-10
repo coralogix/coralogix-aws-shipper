@@ -817,9 +817,15 @@ service map.
 
 The practical effect: traces render correctly — parent/child structure, timings, errors
 and stacktraces are all intact — but service-level views (service map, per-service APM
-metrics) are incomplete. This cannot be resolved in the Lambda, since CloudWatch
-delivers roughly one span per invocation and a Lambda holds no state between
-invocations. The issue has been raised with AWS, who track it as an internal feature
+metrics) are incomplete.
+
+This cannot be resolved in the Lambda. Borrowing the name from the root of the same
+trace was tried and measured on live traffic: CloudWatch batches a root with its first
+child and not the rest, so it named a minority of children and left **every** trace
+split across two services, making per-service metrics cover an arbitrary subset and
+identical executions disagree. Naming therefore depends only on the record in hand,
+which is reproducible. Resolving a child's owner needs the whole trace, which a Lambda
+never has. The issue has been raised with AWS, who track it as an internal feature
 request.
 
 ## AWS GovCloud (US)

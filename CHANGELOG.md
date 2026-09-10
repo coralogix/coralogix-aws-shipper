@@ -38,6 +38,11 @@
   so they are forwarded unnamed rather than being given a substituted value. Traces
   render correctly, but service-level views are incomplete. Raised with AWS; tracked
   internally by them as a feature request.
+  - A span's name is derived only from its own record, never from other records in the
+    same batch. Borrowing from the root of the same trace was measured on live traffic
+    and rejected: CloudWatch batches a root with its first child and not the rest, so it
+    named a minority of children while leaving every trace split across two services and
+    making identical executions produce different data.
 
 ## v1.4.14 / 2026-08-14
 

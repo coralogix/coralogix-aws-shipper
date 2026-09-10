@@ -195,41 +195,26 @@ fn to_span(record: &Value) -> Option<Span> {
     })
 }
 
-fn record_service_name(record: &Value) -> Option<&str> {
-    record
-        .get("resource")
-        .and_then(|r| r.get("attributes"))
-        .and_then(|a| a.get("service.name"))
-        .and_then(Value::as_str)
-}
-
-/// `service.name` per trace id, taken from whichever record in the batch carries one — in
-/// practice the root segment. Spans without one land under an unknown service in APM.
-fn service_names_by_trace(records: &[Value]) -> BTreeMap<&str, &str> {
-    let mut by_trace = BTreeMap::new();
-    for record in records {
-        if let (Some(trace_id), Some(service)) = (
-            record.get("traceId").and_then(Value::as_str),
-            record_service_name(record),
-        ) {
-            by_trace.entry(trace_id).or_insert(service);
-        }
-    }
-    by_trace
-}
-
-/// Resource attributes for a record, resolving `service.name` in order: the span's own
-/// resource, a real `aws.local.service`, then the root segment of the same trace in this batch.
+/// Resource attributes for a record, taking `service.name` from the span's own resource,
+/// or failing that a real `aws.local.service`.
 ///
-/// Only root segments carry `service.name`. Subscription filters push near-real-time in
-/// batches of roughly one record, so a child rarely shares a batch with its root, and children
-/// hold no owner identifier of their own. Spans that resolve to nothing are left unnamed on
-/// purpose: a placeholder would only look like a real service. Resolving it accurately needs
-/// the whole trace, so it belongs in ingestion.
-fn resource_attributes(
-    record: &Value,
-    service_by_trace: &BTreeMap<&str, &str>,
-) -> BTreeMap<String, Value> {
+/// Only root segments carry `service.name`; children arrive with an empty resource and the
+/// constant `aws.local.service: "UnknownService"`, so they are left unnamed. That is
+/// deliberate, and so is the decision *not* to borrow a name from the root of the same
+/// trace when the two happen to share a batch.
+///
+/// Borrowing was measured on live Step Functions traffic and made things worse. CloudWatch
+/// delivered 40 records over 19 invocations, so a root shared a batch with its first child
+/// but not the rest: every trace came out split across two services - the root and one
+/// child named, the remaining children not. It named 4 of 18 children while leaving all
+/// four traces internally inconsistent, and per-service spanmetrics are computed over
+/// whatever arbitrary subset the batching happened to produce. Identical executions gave
+/// different results.
+///
+/// Both resolution steps that remain look only at the record in hand, so the output is a
+/// function of the record and nothing else. Resolving a child's owner accurately needs the
+/// whole trace, which the Lambda never has; that belongs in ingestion.
+fn resource_attributes(record: &Value) -> BTreeMap<String, Value> {
     let mut attrs: BTreeMap<String, Value> = record
         .get("resource")
         .and_then(|r| r.get("attributes"))
@@ -238,19 +223,13 @@ fn resource_attributes(
         .unwrap_or_default();
 
     if !attrs.contains_key("service.name") {
-        let inherited = record
+        let local = record
             .get("attributes")
             .and_then(|a| a.get("aws.local.service"))
             .and_then(Value::as_str)
-            .filter(|n| *n != "UnknownService")
-            .or_else(|| {
-                record
-                    .get("traceId")
-                    .and_then(Value::as_str)
-                    .and_then(|t| service_by_trace.get(t).copied())
-            });
+            .filter(|n| *n != "UnknownService");
 
-        if let Some(name) = inherited {
+        if let Some(name) = local {
             attrs.insert("service.name".to_string(), Value::String(name.to_string()));
         }
     }
@@ -262,14 +241,13 @@ fn resource_attributes(
 /// Grouping matters: APM derives the service map from distinct resources, so spans from
 /// different AWS services must not be flattened into one `ResourceSpans`.
 pub fn to_resource_spans(records: &[Value], app_name: &str, sub_name: &str) -> Vec<ResourceSpans> {
-    let service_by_trace = service_names_by_trace(records);
     let mut groups: BTreeMap<String, (BTreeMap<String, Value>, Vec<Span>)> = BTreeMap::new();
 
     for record in records {
         let Some(span) = to_span(record) else {
             continue;
         };
-        let attrs = resource_attributes(record, &service_by_trace);
+        let attrs = resource_attributes(record);
         // BTreeMap is already sorted, so this key is stable regardless of JSON field order.
         let key = format!("{attrs:?}");
         groups
@@ -587,12 +565,16 @@ mod tests {
         serde_json::from_str(FIXTURE).unwrap()
     }
 
-    /// No default service name, so these exercise the inheritance chain on its own.
+    /// No default service name, so these exercise `service.name` resolution on its own.
     fn all_spans(records: &[Value]) -> Vec<Span> {
         to_resource_spans(records, "aws", "traces")
             .into_iter()
             .flat_map(|rs| rs.scope_spans.into_iter().flat_map(|ss| ss.spans))
             .collect()
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
 
     fn service_name_of(rs: &ResourceSpans) -> Option<String> {
@@ -774,43 +756,65 @@ mod tests {
         assert_eq!(ok.status.as_ref().unwrap().code, StatusCode::Unset as i32);
     }
 
-    /// Every span must carry a service.name, or it lands under an unknown service in APM
-    /// and vanishes from the service map. Only root segments have one in the raw data.
+    /// Naming must depend only on the record in hand, never on what else shares the batch.
+    ///
+    /// The whole fixture goes in at once, so every root sits alongside its own children -
+    /// the case where borrowing a name from the root would fire. Children must still come
+    /// out unnamed. Measured on live traffic, borrowing named 4 of 18 children and left
+    /// every trace split across two services, because CloudWatch batches a root with its
+    /// first child and not the rest; per-service metrics then cover an arbitrary subset and
+    /// identical executions disagree. Unnamed is the honest, reproducible answer.
     #[test]
-    fn every_span_inherits_a_service_name() {
+    fn children_are_unnamed_even_when_batched_with_their_root() {
         let records = fixture();
+        // Guard the premise: without both kinds present this test proves nothing.
+        assert!(records.iter().any(|r| r.get("parentSpanId").is_none()));
+        assert!(records.iter().any(|r| r.get("parentSpanId").is_some()));
+
+        let roots: Vec<&Value> = records
+            .iter()
+            .filter(|r| r.get("parentSpanId").is_none() && r.get("endTimeUnixNano").is_some())
+            .collect();
+        let named_root_ids: Vec<&str> = roots
+            .iter()
+            .filter(|r| {
+                r.get("resource")
+                    .and_then(|x| x.get("attributes"))
+                    .and_then(|a| a.get("service.name"))
+                    .is_some()
+            })
+            .map(|r| r["spanId"].as_str().unwrap())
+            .collect();
+        assert!(!named_root_ids.is_empty(), "fixture has no named root");
+
         let grouped = to_resource_spans(&records, "aws", "traces");
 
-        let mut with_service = 0;
-        let mut total = 0;
+        // Every span that carries a service name must be one of the roots that already had
+        // one in the raw record - nothing else may acquire a name.
         for rs in &grouped {
-            let service = rs
-                .resource
-                .as_ref()
-                .unwrap()
-                .attributes
-                .iter()
-                .find(|kv| kv.key == "service.name")
-                .and_then(|kv| kv.value.as_ref())
-                .and_then(|v| v.value.clone());
-
-            let spans: usize = rs.scope_spans.iter().map(|ss| ss.spans.len()).sum();
-            total += spans;
-            if service.is_some() {
-                with_service += spans;
-                assert_eq!(
-                    service,
-                    Some(any_value::Value::StringValue("cx-span-sample".to_string())),
-                    "inherited the wrong service name"
+            if service_name_of(rs).is_none() {
+                continue;
+            }
+            assert_eq!(
+                service_name_of(rs),
+                Some("cx-span-sample".to_string()),
+                "unexpected service name"
+            );
+            for span in rs.scope_spans.iter().flat_map(|ss| ss.spans.iter()) {
+                let id = hex(&span.span_id);
+                assert!(
+                    named_root_ids.contains(&id.as_str()),
+                    "span {id} was named but is not a root that carried service.name"
                 );
             }
         }
 
-        assert_eq!(total, 24);
-        assert_eq!(
-            with_service, total,
-            "child spans must inherit service.name from their trace's root segment"
-        );
+        let total: usize = grouped
+            .iter()
+            .flat_map(|rs| rs.scope_spans.iter())
+            .map(|ss| ss.spans.len())
+            .sum();
+        assert_eq!(total, 24, "all spans must still be emitted");
     }
 
     /// The handler's input is a gzipped, base64-encoded CloudWatch subscription batch, and
