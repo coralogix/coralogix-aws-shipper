@@ -27,7 +27,7 @@ Metadata:
       - kinesis
       - cloudfront
     HomePageUrl: https://coralogix.com
-    SemanticVersion: 1.4.14
+    SemanticVersion: 1.4.15
     SourceCodeUrl: https://github.com/coralogix/coralogix-aws-shipper
 
   AWS::CloudFormation::Interface:
@@ -493,11 +493,15 @@ Parameters:
 
   TelemetryMode:
     Type: String
-    Description: The telemetry mode for the shipper, i.e metrics or logs
+    Description: |
+      The telemetry mode for the shipper, i.e logs, metrics or traces.
+      Use traces to ship AWS Transaction Search spans from the aws/spans CloudWatch log
+      group as OTLP traces; set CloudWatchLogGroupName to aws/spans in that mode.
     Default: logs
     AllowedValues:
       - logs
       - metrics
+      - traces
 
   LogExportProtocol:
     Type: String
@@ -519,6 +523,14 @@ Parameters:
     Type: String
     Description: OTLP/gRPC Collector origin reachable from the Lambda VPC. Required for log-mode OTLP/gRPC when UsePrivateLink=true. When empty in OTLP mode, CoralogixRegion or CustomDomain selects direct Coralogix OTLP.
     Default: ''
+    # Whitespace must not read as "configured". The templates decide which route to
+    # take, and whether to export CORALOGIX_API_KEY/CORALOGIX_DOMAIN, from whether this
+    # is empty - while the runtime trims before deciding. Without this, "   " selects the
+    # Collector route here, the domain is never exported, and the runtime then discards
+    # the endpoint and fails on every cold start with nothing to fall back to.
+    # Deliberately loose on path/query: the runtime validates those with a precise error.
+    AllowedPattern: '^$|^https?://\S+$'
+    ConstraintDescription: OTLPEndpoint must be empty or an http:// or https:// origin with no spaces
 
   MetricsFilter:
     Type: String
@@ -665,6 +677,7 @@ Conditions:
 
   # TelemetryModeIsLogs: !Equals [!Ref TelemetryMode, logs]
   TelemetryModeIsMetrics: !Equals [!Ref TelemetryMode, metrics]
+  TelemetryModeIsTraces: !Equals [!Ref TelemetryMode, traces]
   UseCoralogixRestLogs: !And
     - !Equals [!Ref TelemetryMode, logs]
     - !Equals [!Ref LogExportProtocol, coralogix_rest]
@@ -678,10 +691,25 @@ Conditions:
   UseCoralogixOtlpLogs: !And
     - !Condition UseOtlpGrpcLogs
     - !Not [!Condition OtlpEndpointIsSet]
+  UseCollectorOtlp: !Or
+    - !Condition UseCollectorOtlpLogs
+    - !Condition UseCollectorOtlpTraces
+  UseCollectorOtlpTraces: !And
+    - !Condition TelemetryModeIsTraces
+    - !Condition OtlpEndpointIsSet
+  UseCoralogixOtlpTraces: !And
+    - !Condition TelemetryModeIsTraces
+    - !Not [!Condition OtlpEndpointIsSet]
   NeedsCoralogixApiKey: !Or
     - !Equals [!Ref TelemetryMode, metrics]
+    - !Condition UseCoralogixOtlpTraces
     - !Condition UseCoralogixRestLogs
     - !Condition UseCoralogixOtlpLogs
+  # Traces resolve ingress.<domain> in code, same as the OTLP log path. A collector
+  # endpoint replaces that, so the domain is only needed for the direct route.
+  NeedsCoralogixDomain: !Or
+    - !Condition UseCoralogixOtlpLogs
+    - !Condition UseCoralogixOtlpTraces
   NeedsCoralogixRestEndpoint: !Or
     - !Equals [!Ref TelemetryMode, metrics]
     - !Condition UseCoralogixRestLogs
@@ -700,6 +728,38 @@ Rules:
     Assertions:
       - Assert: !Not [ !Equals [ !Ref DLQS3Bucket, 'none' ] ]
         AssertDescription: DLQS3Bucket must be set when EnableDLQ is set to true
+
+  ValidateTracesMode:
+    RuleCondition: !Equals [ !Ref TelemetryMode, traces ]
+    Assertions:
+      - Assert: !Equals [ !Ref IntegrationType, 'CloudWatch' ]
+        AssertDescription: IntegrationType must be CloudWatch when TelemetryMode is traces
+      - Assert: !Equals [ !Ref CloudWatchLogGroupName, 'aws/spans' ]
+        AssertDescription: CloudWatchLogGroupName must be aws/spans when TelemetryMode is traces
+      # EnableDLQ maps the dead-letter queue back to this Lambda as an event source
+      # (custom-resource/index.py), so replays arrive as SQS. The traces handler reads
+      # CloudWatch Logs events only, and the logs path's retry-count/S3-offload
+      # machinery has no traces equivalent yet - without it a permanently failing batch
+      # would loop between the queue and the function. Refuse the combination rather
+      # than leave poison messages in the queue.
+      - Assert: !Equals [ !Ref EnableDLQ, 'false' ]
+        AssertDescription: EnableDLQ is not supported when TelemetryMode is traces
+      # A Collector endpoint is unauthenticated, so no key is sent or needed there.
+      - Assert: !Or
+          - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
+          - !Not [ !Equals [ !Ref ApiKey, '' ] ]
+        AssertDescription: ApiKey must be set when TelemetryMode is traces without an OTLPEndpoint
+      # Direct Coralogix OTLP resolves the public ingress.<domain>, which a Lambda
+      # confined to a private subnet cannot reach; a collector endpoint can be.
+      - Assert: !Or
+          - !Not [ !Equals [ !Ref UsePrivateLink, 'true' ] ]
+          - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
+        AssertDescription: Direct Coralogix OTLP traces do not support UsePrivateLink; provide an OTLPEndpoint for a Collector reachable from the Lambda VPC
+      - Assert: !Or
+          - !Not [ !Equals [ !Ref OTLPEndpoint, '' ] ]
+          - !Not [ !Equals [ !Ref CoralogixRegion, Custom ] ]
+          - !Not [ !Equals [ !Ref CustomDomain, '' ] ]
+        AssertDescription: CustomDomain must be set when TelemetryMode is traces and CoralogixRegion is Custom
 
   ValidateCloudWatchLogs:
     RuleCondition: !Not [ !Equals [ !Ref CloudWatchLogGroupName, '' ] ]
@@ -1175,11 +1235,11 @@ Resources:
           LOG_EXPORT_PROTOCOL: !Ref LogExportProtocol
           DISABLE_LOG_SEVERITY_DETECTION: !Ref DisableLogSeverityDetection
           OTLP_ENDPOINT: !If
-            - UseCollectorOtlpLogs
+            - UseCollectorOtlp
             - !Ref OTLPEndpoint
             - !Ref AWS::NoValue
           CORALOGIX_DOMAIN: !If
-            - UseCoralogixOtlpLogs
+            - NeedsCoralogixDomain
             - !If
               - IsCustomDomain
               - !Ref CustomDomain

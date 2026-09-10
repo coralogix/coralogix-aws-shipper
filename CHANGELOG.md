@@ -1,5 +1,54 @@
 # Changelog
 
+## v1.4.15 / 2026-09-08
+
+### 💡 Enhancements 💡
+
+- **Traces telemetry mode:** Add `TelemetryMode=traces`, forwarding AWS CloudWatch
+  Transaction Search spans from the `aws/spans` log group as OTLP/gRPC traces. Covers
+  AWS-managed services that cannot be instrumented directly, such as Step Functions,
+  API Gateway and AppSync. Set `IntegrationType=CloudWatch` and
+  `CloudWatchLogGroupName=aws/spans`; delivery uses the existing CloudWatch Logs
+  subscription trigger. Updates `template.yaml` and `template-govcloud.yaml`.
+  - Transaction Search writes each span twice, once in progress and once complete. Only
+    the completed record is forwarded, so spans are not duplicated.
+  - Span timestamps are parsed as 64-bit integers, attribute value types are preserved,
+    and error status plus exception span events are carried through.
+  - Requests are split to stay within the OTLP request size limit, and a partial
+    rejection fails the batch so existing retry and DLQ handling applies.
+  - Supports both OTLP routes, selected by `OTLPEndpoint` exactly as the OTLP log path
+    does: direct to Coralogix (`ingress.<domain>`, resolved from the region or custom
+    domain) or through a Collector, which is what makes traces work from a Lambda in a
+    private subnet. The Collector route is unauthenticated, so the Coralogix API key is
+    never sent to a customer-configured endpoint.
+  - An unset `SubsystemName` falls back to the originating log group, matching the
+    CloudWatch logs path.
+  - Template rules validate the mode at deploy time: `CloudWatchLogGroupName` must be
+    exactly `aws/spans`, `ApiKey` is required for direct delivery, a custom domain must
+    be supplied for direct delivery, `UsePrivateLink=true` requires an `OTLPEndpoint`,
+    and `EnableDLQ=true` is rejected — the dead-letter queue replays as SQS events,
+    which the traces handler does not read.
+  - `OTLPEndpoint` is validated at startup with the same rules as the OTLP log path
+    (absolute `http`/`https` origin, no userinfo, path or query), and the parameter now
+    carries an `AllowedPattern` so a whitespace-only value cannot be mistaken for a
+    configured Collector. Previously such a value selected the Collector route in the
+    template - suppressing `CORALOGIX_DOMAIN` - while the runtime trimmed it away, so
+    the function had no endpoint to fall back to and failed on every cold start. This
+    also fixes the same latent mismatch on the OTLP **log** route.
+
+### 🧰 Known limitations 🧰
+
+- **Child spans have no `service.name`:** AWS records `service.name` only on the root
+  span of a trace. Child spans arrive with no service name and no resource identifier,
+  so they are forwarded unnamed rather than being given a substituted value. Traces
+  render correctly, but service-level views are incomplete. Raised with AWS; tracked
+  internally by them as a feature request.
+  - A span's name is derived only from its own record, never from other records in the
+    same batch. Borrowing from the root of the same trace was measured on live traffic
+    and rejected: CloudWatch batches a root with its first child and not the rest, so it
+    named a minority of children while leaving every trace split across two services and
+    making identical executions produce different data.
+
 ## v1.4.14 / 2026-08-14
 
 ### 💡 Enhancements 💡

@@ -3,6 +3,7 @@ pub mod custom_metadata;
 pub mod events;
 pub mod logs;
 pub mod metrics;
+pub mod traces;
 
 use crate::events::Combined;
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
@@ -52,8 +53,26 @@ async fn main() -> Result<(), Error> {
 
     match mode {
         TelemetryMode::Traces => {
-            warn!("traces telemetry mode not implemented");
-            Ok(())
+            info!("running in traces telemetry mode");
+            let mut conf = traces::Config::load_from_env()?;
+            // The Collector route carries no key, hence the Option.
+            let arn = conf
+                .api_key()
+                .map(|k| k.token().to_string())
+                .filter(|t| t.starts_with("arn:aws") && t.contains(":secretsmanager"));
+            if let Some(arn) = arn {
+                let resolved =
+                    crate::logs::config::get_api_key_from_secrets_manager(&aws_config, arn)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                conf.set_api_key(resolved.token().to_string().into());
+            }
+
+            let exporter = traces::build_exporter(&conf)?;
+            run(service_fn(|request: LambdaEvent<Combined>| {
+                traces::handler(&conf, &exporter, request)
+            }))
+            .await
         }
 
         TelemetryMode::Metrics => {

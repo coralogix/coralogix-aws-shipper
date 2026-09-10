@@ -1,0 +1,1257 @@
+//! Conversion of AWS Transaction Search spans into OTLP.
+//!
+//! With Transaction Search enabled, AWS-managed services (Step Functions, API Gateway,
+//! AppSync, Bedrock AgentCore) write 100% of their spans to the `aws/spans` CloudWatch
+//! log group. Each log event is one span, encoded as AWS's own flat JSON — *not* OTLP/JSON:
+//!
+//! ```json
+//! {
+//!   "resource": { "attributes": { "service.name": "..." } },
+//!   "traceId": "<32 hex>", "spanId": "<16 hex>", "parentSpanId": "<16 hex>",
+//!   "name": "S3.ListBuckets", "kind": "CLIENT",
+//!   "startTimeUnixNano": 0, "endTimeUnixNano": 0,
+//!   "status": { "code": "UNSET" },
+//!   "attributes": { "http.status_code": 200 },
+//!   "events": [ { "timeUnixNano": 0, "name": "exception", "attributes": {} } ],
+//!   "_aws": { "xray": { "type": "subsegment" } }
+//! }
+//! ```
+//!
+//! Attributes are a flat map with dotted semconv keys, where OTLP wants a
+//! `[{key, value:{stringValue}}]` array. Bridging that is this module's job — no OTel
+//! Collector component does it: the `awsfirehose` receiver is metrics and logs only, and no
+//! processor turns a log record into a span.
+
+use std::collections::BTreeMap;
+use std::time::Duration;
+
+use crate::events::Combined;
+use cx_sdk_otlp::auth::AuthData;
+use cx_sdk_otlp::config::{BackoffConfig, ChannelConfig};
+use cx_sdk_otlp::otlp::proto::collector::trace::v1::ExportTraceServiceRequest;
+use cx_sdk_otlp::traces::AuthorizedOtlpTraceExporterGrpc;
+use cx_sdk_otlp::{ApiKey, AuthorizedOtlpExporter};
+use lambda_runtime::{Error, LambdaEvent};
+use prost::Message;
+use tracing::{error, info, warn};
+
+use cx_sdk_otlp::otlp::proto::common::v1::{any_value, AnyValue, KeyValue};
+use cx_sdk_otlp::otlp::proto::resource::v1::Resource;
+use cx_sdk_otlp::otlp::proto::trace::v1::{
+    span::{Event, SpanKind},
+    status::StatusCode,
+    ResourceSpans, ScopeSpans, Span, Status,
+};
+use serde_json::Value;
+
+/// Decode a lowercase-hex id into `len` bytes, rejecting anything malformed.
+///
+/// Transaction Search already emits W3C-format ids, so there is no X-Ray `1-<hex>-<hex>`
+/// unwrapping to do. If that changes it belongs here: an id that fails to normalize detaches
+/// the span from the customer's own trace.
+fn hex_id(s: &str, len: usize) -> Option<Vec<u8>> {
+    if s.len() != len * 2 {
+        return None;
+    }
+    (0..len)
+        .map(|i| u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok())
+        .collect()
+}
+
+fn any_value(v: &Value) -> Option<AnyValue> {
+    let value = match v {
+        Value::String(s) => any_value::Value::StringValue(s.clone()),
+        Value::Bool(b) => any_value::Value::BoolValue(*b),
+        Value::Number(n) => match n.as_i64() {
+            Some(i) => any_value::Value::IntValue(i),
+            None => any_value::Value::DoubleValue(n.as_f64()?),
+        },
+        Value::Null => return None,
+        // ponytail: arrays/objects flattened to JSON text. AWS only emits scalars today;
+        // upgrade to ArrayValue/KvlistValue if a service starts nesting.
+        other => any_value::Value::StringValue(other.to_string()),
+    };
+    Some(AnyValue { value: Some(value) })
+}
+
+/// Flat JSON map -> OTLP attribute list, keeping each JSON value's type. AWS mixes them —
+/// real bools, ints, and strings that merely look boolean — so the type comes from the JSON,
+/// never from the key.
+fn attributes(v: Option<&Value>) -> Vec<KeyValue> {
+    let Some(map) = v.and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter_map(|(k, v)| {
+            Some(KeyValue {
+                key: k.clone(),
+                value: Some(any_value(v)?),
+            })
+        })
+        .collect()
+}
+
+/// Span events, where AWS puts exception detail on failed spans. Already OTel semantic
+/// convention, so this is a structural copy; dropping it leaves failed spans with no reason.
+fn events(v: Option<&Value>) -> Vec<Event> {
+    let Some(arr) = v.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|e| {
+            Some(Event {
+                time_unix_nano: e.get("timeUnixNano")?.as_u64()?,
+                name: e
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                attributes: attributes(e.get("attributes")),
+                dropped_attributes_count: 0,
+            })
+        })
+        .collect()
+}
+
+fn span_kind(kind: Option<&str>) -> SpanKind {
+    match kind.unwrap_or_default() {
+        "SERVER" => SpanKind::Server,
+        "CLIENT" => SpanKind::Client,
+        "INTERNAL" => SpanKind::Internal,
+        "PRODUCER" => SpanKind::Producer,
+        "CONSUMER" => SpanKind::Consumer,
+        _ => SpanKind::Unspecified,
+    }
+}
+
+fn status(v: Option<&Value>) -> Option<Status> {
+    let status = v?;
+    let code = match status
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or("UNSET")
+    {
+        "OK" => StatusCode::Ok,
+        "ERROR" => StatusCode::Error,
+        _ => StatusCode::Unset,
+    };
+    Some(Status {
+        code: code as i32,
+        message: status
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    })
+}
+
+/// Whether a record is AWS's in-progress duplicate, i.e. expected to produce no span.
+///
+/// Only an absent or null `endTimeUnixNano` counts. A present but wrong-typed value - say
+/// AWS starts encoding it as a string - must NOT land here: `to_span` would reject it and
+/// it would be written off as an expected duplicate, silencing the `unmappable` warning
+/// that exists precisely to catch a format change.
+fn is_in_progress(record: &Value) -> bool {
+    matches!(record.get("endTimeUnixNano"), None | Some(Value::Null))
+}
+
+/// Convert one `aws/spans` record, or `None` if it should not become a span.
+///
+/// Transaction Search emits each span twice: once at start (`endTimeUnixNano: null`,
+/// `aws.xray.inprogress: true`) and again on completion. Mapping both would duplicate span
+/// ids and draw zero-duration phantoms, so the missing end time doubles as the dedup key.
+fn to_span(record: &Value) -> Option<Span> {
+    // as_u64, never as_f64: these values exceed 2^53, so a float round-trip corrupts them.
+    let start_time_unix_nano = record.get("startTimeUnixNano")?.as_u64()?;
+    let end_time_unix_nano = record.get("endTimeUnixNano")?.as_u64()?;
+
+    let trace_id = hex_id(record.get("traceId")?.as_str()?, 16)?;
+    let span_id = hex_id(record.get("spanId")?.as_str()?, 8)?;
+    // Only a genuinely absent parent may yield an empty id. A present-but-unparseable
+    // value must make the record unmappable, exactly as a bad trace or span id does -
+    // defaulting it to empty would silently re-parent the span to the root and corrupt
+    // the topology. An empty string is treated as absent: roots in real data omit the
+    // key, so an empty value means "no parent" rather than a broken one.
+    let parent_span_id = match record
+        .get("parentSpanId")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        Some(parent) => hex_id(parent, 8)?,
+        None => Vec::new(),
+    };
+
+    Some(Span {
+        trace_id,
+        span_id,
+        parent_span_id,
+        trace_state: String::new(),
+        name: record
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        kind: span_kind(record.get("kind").and_then(Value::as_str)) as i32,
+        start_time_unix_nano,
+        end_time_unix_nano,
+        attributes: attributes(record.get("attributes")),
+        status: status(record.get("status")),
+        events: events(record.get("events")),
+        // ponytail: no `links` seen in any AWS-emitted record; add if a service starts using them.
+        links: Vec::new(),
+        dropped_attributes_count: 0,
+        dropped_events_count: 0,
+        dropped_links_count: 0,
+    })
+}
+
+/// Resource attributes for a record, taking `service.name` from the span's own resource,
+/// or failing that a real `aws.local.service`.
+///
+/// Only root segments carry `service.name`; children arrive with an empty resource and the
+/// constant `aws.local.service: "UnknownService"`, so they are left unnamed. That is
+/// deliberate, and so is the decision *not* to borrow a name from the root of the same
+/// trace when the two happen to share a batch.
+///
+/// Borrowing was measured on live Step Functions traffic and made things worse. CloudWatch
+/// delivered 40 records over 19 invocations, so a root shared a batch with its first child
+/// but not the rest: every trace came out split across two services - the root and one
+/// child named, the remaining children not. It named 4 of 18 children while leaving all
+/// four traces internally inconsistent, and per-service spanmetrics are computed over
+/// whatever arbitrary subset the batching happened to produce. Identical executions gave
+/// different results.
+///
+/// Both resolution steps that remain look only at the record in hand, so the output is a
+/// function of the record and nothing else. Resolving a child's owner accurately needs the
+/// whole trace, which the Lambda never has; that belongs in ingestion.
+fn resource_attributes(record: &Value) -> BTreeMap<String, Value> {
+    let mut attrs: BTreeMap<String, Value> = record
+        .get("resource")
+        .and_then(|r| r.get("attributes"))
+        .and_then(Value::as_object)
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+
+    if !attrs.contains_key("service.name") {
+        let local = record
+            .get("attributes")
+            .and_then(|a| a.get("aws.local.service"))
+            .and_then(Value::as_str)
+            .filter(|n| *n != "UnknownService");
+
+        if let Some(name) = local {
+            attrs.insert("service.name".to_string(), Value::String(name.to_string()));
+        }
+    }
+    attrs
+}
+
+/// Convert `aws/spans` log records into OTLP `ResourceSpans`, grouped by resource.
+///
+/// Grouping matters: APM derives the service map from distinct resources, so spans from
+/// different AWS services must not be flattened into one `ResourceSpans`.
+pub fn to_resource_spans(records: &[Value], app_name: &str, sub_name: &str) -> Vec<ResourceSpans> {
+    let mut groups: BTreeMap<String, (BTreeMap<String, Value>, Vec<Span>)> = BTreeMap::new();
+
+    for record in records {
+        let Some(span) = to_span(record) else {
+            continue;
+        };
+        let attrs = resource_attributes(record);
+        // BTreeMap is already sorted, so this key is stable regardless of JSON field order.
+        let key = format!("{attrs:?}");
+        groups
+            .entry(key)
+            .or_insert((attrs, Vec::new()))
+            .1
+            .push(span);
+    }
+
+    groups
+        .into_values()
+        .map(|(attrs, spans)| {
+            let mut resource = Resource {
+                attributes: attrs
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        Some(KeyValue {
+                            key: k.clone(),
+                            value: Some(any_value(v)?),
+                        })
+                    })
+                    .collect(),
+                dropped_attributes_count: 0,
+            };
+            resource
+                .add_metadata_to_resource(app_name.to_string().into(), sub_name.to_string().into());
+
+            ResourceSpans {
+                resource: Some(resource),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans,
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }
+        })
+        .collect()
+}
+
+/// CloudFormation renders an unset parameter as an empty string, so an empty value has
+/// to mean "unset" everywhere - `env::var` alone returns `Ok("")` and defeats a
+/// `unwrap_or_else` fallback. Whitespace-only counts as empty, and the value is trimmed:
+/// a stack parameter carrying a stray space must not select a different code path.
+fn env_opt(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// Where spans are sent, and whether they carry Coralogix credentials.
+pub enum Destination {
+    /// Direct to Coralogix; the API key authenticates us.
+    Coralogix { api_key: ApiKey },
+    /// A customer-configured Collector. Deliberately unauthenticated: the Coralogix API
+    /// key must not be disclosed to a third-party or shared endpoint. Mirrors
+    /// `LogExportConfig::CollectorOtlpGrpc`.
+    Collector,
+}
+
+pub struct Config {
+    pub destination: Destination,
+    pub endpoint: String,
+    pub app_name: String,
+    /// `None` means "use the log group the event came from", as the CloudWatch logs
+    /// path does.
+    pub sub_name: Option<String>,
+}
+
+impl Config {
+    pub fn load_from_env() -> Result<Config, String> {
+        // `OTLP_ENDPOINT` points at a collector, the same parameter the OTLP log path
+        // uses. `CORALOGIX_ENDPOINT` is the raw override kept for tests.
+        let collector = env_opt("OTLP_ENDPOINT");
+        // Validate before it selects the unauthenticated route: an unusable value would
+        // otherwise fail exporter construction on every cold start. Same rules as the
+        // OTLP log path, so both routes accept the same endpoints.
+        if let Some(endpoint) = &collector {
+            crate::logs::config::LogExportConfig::validate_collector_endpoint(endpoint)?;
+        }
+        let endpoint = match collector.clone().or_else(|| env_opt("CORALOGIX_ENDPOINT")) {
+            Some(endpoint) => endpoint,
+            // Failing those, derive `ingress.<domain>` as the OTLP log path does.
+            None => {
+                let domain = env_opt("CORALOGIX_DOMAIN")
+                    .ok_or("neither OTLP_ENDPOINT nor CORALOGIX_DOMAIN is set".to_string())?;
+                format!("https://ingress.{domain}:443")
+            }
+        };
+
+        let destination = match collector {
+            Some(_) => Destination::Collector,
+            None => Destination::Coralogix {
+                api_key: env_opt("CORALOGIX_API_KEY")
+                    .ok_or("CORALOGIX_API_KEY is not set".to_string())?
+                    .into(),
+            },
+        };
+
+        Ok(Config {
+            destination,
+            endpoint,
+            app_name: env_opt("APP_NAME").unwrap_or_else(|| "aws".to_string()),
+            sub_name: env_opt("SUB_NAME"),
+        })
+    }
+
+    /// The API key, when one is used. `None` on the Collector route.
+    pub fn api_key(&self) -> Option<&ApiKey> {
+        match &self.destination {
+            Destination::Coralogix { api_key } => Some(api_key),
+            Destination::Collector => None,
+        }
+    }
+
+    /// Replace the API key after resolving a Secrets Manager ARN.
+    pub fn set_api_key(&mut self, key: ApiKey) {
+        if let Destination::Coralogix { api_key } = &mut self.destination {
+            *api_key = key;
+        }
+    }
+}
+
+pub fn build_exporter(config: &Config) -> Result<AuthorizedOtlpTraceExporterGrpc, String> {
+    AuthorizedOtlpTraceExporterGrpc::builder()
+        // ponytail: fixed backoff. Lift to env vars if customers need to tune it, as the
+        // logs path eventually did.
+        .with_backoff_config(BackoffConfig {
+            initial_delay: Duration::from_millis(200),
+            max_delay: Duration::from_secs(2),
+            max_elapsed_time: Duration::from_secs(20),
+        })
+        .with_channel_config(ChannelConfig::new(config.endpoint.clone()).with_webpki_roots())
+        .with_auth_data(config.api_key().map(AuthData::from).unwrap_or_default())
+        .try_build()
+        .map_err(|e| format!("failed to build OTLP trace exporter: {e}"))
+}
+
+/// Largest OTLP request we will send. Mirrors the default the logs exporter uses; gRPC
+/// receivers commonly cap decoding at 4 MiB and reject anything larger outright.
+const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
+
+fn span_count_of(resource_spans: &[ResourceSpans]) -> usize {
+    resource_spans
+        .iter()
+        .flat_map(|rs| rs.scope_spans.iter())
+        .map(|ss| ss.spans.len())
+        .sum()
+}
+
+/// Split at `at` spans, preserving each part's resource so no span loses its service name.
+fn split_at(
+    resource_spans: Vec<ResourceSpans>,
+    at: usize,
+) -> (Vec<ResourceSpans>, Vec<ResourceSpans>) {
+    let (mut head, mut tail) = (Vec::new(), Vec::new());
+    let mut taken = 0usize;
+
+    for rs in resource_spans {
+        let spans: Vec<Span> = rs.scope_spans.into_iter().flat_map(|ss| ss.spans).collect();
+        let take = at.saturating_sub(taken).min(spans.len());
+        let (h, t) = spans.split_at(take);
+        taken += take;
+
+        let part = |spans: &[Span], out: &mut Vec<ResourceSpans>| {
+            if !spans.is_empty() {
+                out.push(ResourceSpans {
+                    resource: rs.resource.clone(),
+                    scope_spans: vec![ScopeSpans {
+                        scope: None,
+                        spans: spans.to_vec(),
+                        schema_url: String::new(),
+                    }],
+                    schema_url: String::new(),
+                });
+            }
+        };
+        part(h, &mut head);
+        part(t, &mut tail);
+    }
+    (head, tail)
+}
+
+/// Split spans across as many requests as needed to stay under `max_bytes`.
+///
+/// A CloudWatch batch is normally a single record, but delivery size is not something we
+/// control, so a burst could otherwise produce a request the receiver rejects — and that
+/// would fail identically on every retry until the batch is lost.
+///
+/// Halves recursively and measures the real encoded length each time, rather than
+/// estimating from span sizes: protobuf framing makes an estimate under-count, and a
+/// request that is over by a few bytes is rejected just the same. A single span larger than
+/// the limit is still sent alone, since there is nothing left to split.
+fn split_requests(
+    resource_spans: Vec<ResourceSpans>,
+    max_bytes: usize,
+) -> Vec<ExportTraceServiceRequest> {
+    let spans = span_count_of(&resource_spans);
+    let request = ExportTraceServiceRequest { resource_spans };
+
+    if spans <= 1 || request.encoded_len() <= max_bytes {
+        return vec![request];
+    }
+
+    let (head, tail) = split_at(request.resource_spans, spans / 2);
+    let mut requests = split_requests(head, max_bytes);
+    requests.extend(split_requests(tail, max_bytes));
+    requests
+}
+
+/// Ship one CloudWatch Logs batch from the `aws/spans` log group as OTLP spans.
+pub async fn handler(
+    config: &Config,
+    exporter: &AuthorizedOtlpTraceExporterGrpc,
+    event: LambdaEvent<Combined>,
+) -> Result<(), Error> {
+    let Combined::CloudWatchLogs(logs_event) = event.payload else {
+        error!("incompatible event type for traces telemetry mode: expected CloudWatch Logs from the aws/spans log group");
+        return Err("incompatible event type for traces telemetry mode"
+            .to_string()
+            .into());
+    };
+
+    let data = logs_event.aws_logs.data;
+    let received = data.log_events.len();
+
+    let records: Vec<Value> = data
+        .log_events
+        .iter()
+        .filter_map(|entry| match serde_json::from_str(&entry.message) {
+            Ok(record) => Some(record),
+            Err(e) => {
+                // A non-span record in aws/spans is not fatal: skip it and ship the rest
+                // rather than failing the batch and having CloudWatch retry it forever.
+                warn!("skipping unparsable record in {}: {e}", data.log_group);
+                None
+            }
+        })
+        .collect();
+
+    // An unset subsystem falls back to the log group the spans came from, matching the
+    // CloudWatch logs path.
+    let sub_name = config.sub_name.as_deref().unwrap_or(&data.log_group);
+    let resource_spans = to_resource_spans(&records, &config.app_name, sub_name);
+    let span_count: usize = resource_spans
+        .iter()
+        .flat_map(|rs| rs.scope_spans.iter())
+        .map(|ss| ss.spans.len())
+        .sum();
+
+    // Records that produced no span are either AWS's in-progress duplicates (expected, we
+    // drop them deliberately) or records we could not map (unexpected — a format change
+    // would look exactly like this, so it must be visible rather than silent).
+    let in_progress = records.iter().filter(|r| is_in_progress(r)).count();
+    let unmappable = records.len().saturating_sub(in_progress + span_count);
+    if unmappable > 0 {
+        warn!(
+            "{unmappable} record(s) in {} could not be mapped to spans",
+            data.log_group
+        );
+    }
+
+    if span_count == 0 {
+        info!(
+            "no spans to ship from {} ({received} record(s) received, {in_progress} in-progress)",
+            data.log_group
+        );
+        return Ok(());
+    }
+
+    info!(
+        "shipping {span_count} span(s) from {received} record(s) in {}",
+        data.log_group
+    );
+
+    for request in split_requests(resource_spans, MAX_REQUEST_BYTES) {
+        let response = exporter
+            .export(request)
+            .await
+            .map_err(|e| Error::from(e.to_string()))?;
+
+        // Match the logs path: a partial rejection fails the batch so the existing Lambda
+        // retry/DLQ handling runs. Silently succeeding would lose the rejected spans.
+        if let Some(partial) = response.partial_success {
+            if partial.rejected_spans > 0 {
+                warn!(
+                    rejected_spans = partial.rejected_spans,
+                    error_message_present = !partial.error_message.is_empty(),
+                    "Coralogix rejected spans"
+                );
+                return Err(Error::from(format!(
+                    "OTLP trace export failed: server rejected {} span(s)",
+                    partial.rejected_spans
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Real `aws/spans` records from Step Functions executions, successful and failed, so
+    /// error spans and exception events are covered.
+    const FIXTURE: &str = include_str!("../../tests/fixtures/aws_spans.json");
+
+    fn fixture() -> Vec<Value> {
+        serde_json::from_str(FIXTURE).unwrap()
+    }
+
+    /// No default service name, so these exercise `service.name` resolution on its own.
+    fn all_spans(records: &[Value]) -> Vec<Span> {
+        to_resource_spans(records, "aws", "traces")
+            .into_iter()
+            .flat_map(|rs| rs.scope_spans.into_iter().flat_map(|ss| ss.spans))
+            .collect()
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    fn service_name_of(rs: &ResourceSpans) -> Option<String> {
+        rs.resource
+            .as_ref()?
+            .attributes
+            .iter()
+            .find(|kv| kv.key == "service.name")
+            .and_then(|kv| kv.value.clone())
+            .and_then(|v| match v.value {
+                Some(any_value::Value::StringValue(s)) => Some(s),
+                _ => None,
+            })
+    }
+
+    #[test]
+    fn drops_in_progress_duplicates() {
+        let records = fixture();
+        assert_eq!(records.len(), 42, "fixture changed");
+
+        let spans = all_spans(&records);
+
+        assert_eq!(spans.len(), 24, "in-progress records must be dropped");
+
+        let mut ids: Vec<&Vec<u8>> = spans.iter().map(|s| &s.span_id).collect();
+        ids.sort();
+        let unique = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), unique, "duplicate span ids leaked through");
+    }
+
+    #[test]
+    fn maps_ids_times_and_kinds() {
+        let records = fixture();
+        let spans = all_spans(&records);
+
+        for span in &spans {
+            assert_eq!(span.trace_id.len(), 16);
+            assert_eq!(span.span_id.len(), 8);
+            assert!(span.end_time_unix_nano >= span.start_time_unix_nano);
+            assert!(span.start_time_unix_nano > 0);
+        }
+
+        // The completed root segment: no parent, SERVER kind, and timestamps preserved
+        // exactly — this value is past 2^53 and would round if parsed as f64.
+        let root = spans
+            .iter()
+            .find(|s| s.span_id == hex_id("b03258e2e1abc353", 8).unwrap())
+            .expect("root span missing");
+        assert!(root.parent_span_id.is_empty());
+        assert_eq!(root.kind, SpanKind::Server as i32);
+        assert_eq!(root.start_time_unix_nano, 1785830304824000000);
+        assert_eq!(root.end_time_unix_nano, 1785830306082000128);
+
+        // Child spans keep their parent link, so the waterfall reconstructs.
+        let client = spans
+            .iter()
+            .find(|s| s.span_id == hex_id("29d03b80232a080a", 8).unwrap())
+            .expect("client span missing");
+        assert_eq!(client.kind, SpanKind::Client as i32);
+        assert_eq!(
+            client.parent_span_id,
+            hex_id("3b65215f9ddfbb8f", 8).unwrap()
+        );
+    }
+
+    #[test]
+    fn preserves_attribute_types() {
+        let records = fixture();
+        let spans = all_spans(&records);
+
+        let client = spans
+            .iter()
+            .find(|s| s.span_id == hex_id("29d03b80232a080a", 8).unwrap())
+            .unwrap();
+        let attr = |key: &str| {
+            client
+                .attributes
+                .iter()
+                .find(|kv| kv.key == key)
+                .and_then(|kv| kv.value.clone())
+                .and_then(|v| v.value)
+        };
+
+        assert_eq!(
+            attr("http.status_code"),
+            Some(any_value::Value::IntValue(200)),
+            "ints must not become strings"
+        );
+        assert_eq!(
+            attr("telemetry.extended"),
+            Some(any_value::Value::StringValue("true".to_string())),
+            "the string \"true\" must not become a bool"
+        );
+        assert_eq!(
+            attr("aws.region"),
+            Some(any_value::Value::StringValue("eu-west-1".to_string()))
+        );
+    }
+
+    #[test]
+    fn groups_by_resource_and_tags_with_coralogix_metadata() {
+        let records = fixture();
+        let grouped = to_resource_spans(&records, "my-app", "my-sub");
+
+        assert!(grouped.len() > 1, "distinct resources must stay separate");
+
+        for rs in &grouped {
+            let attrs = &rs.resource.as_ref().unwrap().attributes;
+            let has = |k: &str| attrs.iter().any(|kv| kv.key == k);
+            assert!(has("cx.application.name") && has("cx.subsystem.name"));
+        }
+
+        // The state machine's own resource keeps service.name for the APM service map.
+        assert!(grouped.iter().any(|rs| {
+            rs.resource.as_ref().unwrap().attributes.iter().any(|kv| {
+                kv.key == "service.name"
+                    && kv.value.as_ref().and_then(|v| v.value.clone())
+                        == Some(any_value::Value::StringValue("cx-span-sample".to_string()))
+            })
+        }));
+    }
+
+    /// Failed spans must arrive as ERROR *with* their exception event intact. Without the
+    /// event, APM shows a red span and no reason; without the ERROR status, a failed Step
+    /// Functions run renders as a success.
+    #[test]
+    fn maps_error_status_and_exception_events() {
+        let records = fixture();
+        let spans = all_spans(&records);
+
+        let errors: Vec<&Span> = spans
+            .iter()
+            .filter(|s| s.status.as_ref().map(|st| st.code) == Some(StatusCode::Error as i32))
+            .collect();
+        assert_eq!(errors.len(), 9, "error spans lost");
+
+        let failed = spans
+            .iter()
+            .find(|s| s.span_id == hex_id("7df80a2dabf4fdf3", 8).unwrap())
+            .expect("known failed span missing");
+
+        assert_eq!(
+            failed.status.as_ref().unwrap().code,
+            StatusCode::Error as i32
+        );
+        assert_eq!(failed.events.len(), 1);
+
+        let event = &failed.events[0];
+        assert_eq!(event.name, "exception");
+        assert_eq!(event.time_unix_nano, 1785830814611000064);
+
+        let attr = |key: &str| {
+            event
+                .attributes
+                .iter()
+                .find(|kv| kv.key == key)
+                .and_then(|kv| kv.value.clone())
+                .and_then(|v| v.value)
+        };
+        assert_eq!(
+            attr("exception.type"),
+            Some(any_value::Value::StringValue(
+                "software.amazon.awssdk.services.s3.model.AccessDeniedException".to_string()
+            ))
+        );
+        assert!(
+            matches!(attr("exception.message"), Some(any_value::Value::StringValue(m)) if m.contains("s3:ListAllMyBuckets")),
+            "exception message must survive"
+        );
+        assert!(attr("exception.stacktrace").is_some());
+
+        // Successful spans stay clean — no phantom events, no ERROR bleed.
+        let ok = spans
+            .iter()
+            .find(|s| s.span_id == hex_id("29d03b80232a080a", 8).unwrap())
+            .unwrap();
+        assert!(ok.events.is_empty());
+        assert_eq!(ok.status.as_ref().unwrap().code, StatusCode::Unset as i32);
+    }
+
+    /// Naming must depend only on the record in hand, never on what else shares the batch.
+    ///
+    /// The whole fixture goes in at once, so every root sits alongside its own children -
+    /// the case where borrowing a name from the root would fire. Children must still come
+    /// out unnamed. Measured on live traffic, borrowing named 4 of 18 children and left
+    /// every trace split across two services, because CloudWatch batches a root with its
+    /// first child and not the rest; per-service metrics then cover an arbitrary subset and
+    /// identical executions disagree. Unnamed is the honest, reproducible answer.
+    #[test]
+    fn children_are_unnamed_even_when_batched_with_their_root() {
+        let records = fixture();
+        // Guard the premise: without both kinds present this test proves nothing.
+        assert!(records.iter().any(|r| r.get("parentSpanId").is_none()));
+        assert!(records.iter().any(|r| r.get("parentSpanId").is_some()));
+
+        let roots: Vec<&Value> = records
+            .iter()
+            .filter(|r| r.get("parentSpanId").is_none() && r.get("endTimeUnixNano").is_some())
+            .collect();
+        let named_root_ids: Vec<&str> = roots
+            .iter()
+            .filter(|r| {
+                r.get("resource")
+                    .and_then(|x| x.get("attributes"))
+                    .and_then(|a| a.get("service.name"))
+                    .is_some()
+            })
+            .map(|r| r["spanId"].as_str().unwrap())
+            .collect();
+        assert!(!named_root_ids.is_empty(), "fixture has no named root");
+
+        let grouped = to_resource_spans(&records, "aws", "traces");
+
+        // Every span that carries a service name must be one of the roots that already had
+        // one in the raw record - nothing else may acquire a name.
+        for rs in &grouped {
+            if service_name_of(rs).is_none() {
+                continue;
+            }
+            assert_eq!(
+                service_name_of(rs),
+                Some("cx-span-sample".to_string()),
+                "unexpected service name"
+            );
+            for span in rs.scope_spans.iter().flat_map(|ss| ss.spans.iter()) {
+                let id = hex(&span.span_id);
+                assert!(
+                    named_root_ids.contains(&id.as_str()),
+                    "span {id} was named but is not a root that carried service.name"
+                );
+            }
+        }
+
+        let total: usize = grouped
+            .iter()
+            .flat_map(|rs| rs.scope_spans.iter())
+            .map(|ss| ss.spans.len())
+            .sum();
+        assert_eq!(total, 24, "all spans must still be emitted");
+    }
+
+    /// The handler's input is a gzipped, base64-encoded CloudWatch subscription batch, and
+    /// `Combined` sniffs the event type by trial deserialization. This checks an `aws/spans`
+    /// batch is recognised as CloudWatch Logs and survives the round trip.
+    #[test]
+    fn decodes_a_cloudwatch_subscription_batch() {
+        use base64::Engine;
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let records = fixture();
+        let log_events: Vec<Value> = records
+            .iter()
+            .enumerate()
+            .map(|(i, record)| {
+                serde_json::json!({
+                    "id": i.to_string(),
+                    "timestamp": 1785830304824i64,
+                    "message": record.to_string(),
+                })
+            })
+            .collect();
+
+        let payload = serde_json::json!({
+            "owner": "123456789012",
+            "logGroup": "aws/spans",
+            "logStream": "default",
+            "subscriptionFilters": ["coralogix-traces"],
+            "messageType": "DATA_MESSAGE",
+            "logEvents": log_events,
+        });
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(payload.to_string().as_bytes()).unwrap();
+        let data = base64::engine::general_purpose::STANDARD.encode(encoder.finish().unwrap());
+
+        let event: Combined =
+            serde_json::from_value(serde_json::json!({"awslogs": {"data": data}})).unwrap();
+        let Combined::CloudWatchLogs(logs_event) = event else {
+            panic!("aws/spans batch was not detected as a CloudWatch Logs event");
+        };
+
+        assert_eq!(logs_event.aws_logs.data.log_group, "aws/spans");
+        assert_eq!(logs_event.aws_logs.data.log_events.len(), 42);
+
+        let parsed: Vec<Value> = logs_event
+            .aws_logs
+            .data
+            .log_events
+            .iter()
+            .filter_map(|entry| serde_json::from_str(&entry.message).ok())
+            .collect();
+        assert_eq!(parsed.len(), 42, "records must survive the gzip round trip");
+        assert_eq!(
+            all_spans(&parsed).len(),
+            24,
+            "a real batch must map to the same spans as the raw fixture"
+        );
+    }
+
+    /// A batch of children without their root — what CloudWatch actually delivers — must be
+    /// left unnamed rather than given a made-up name. Pins the known gap: a placeholder would
+    /// be indistinguishable from a real service, so resolution belongs in ingestion.
+    #[test]
+    fn children_without_a_root_are_left_unnamed() {
+        let children: Vec<Value> = fixture()
+            .into_iter()
+            .filter(|r| r.get("parentSpanId").is_some())
+            .collect();
+        assert!(!children.is_empty());
+
+        let grouped = to_resource_spans(&children, "aws", "traces");
+        assert!(!grouped.is_empty());
+        assert!(
+            grouped.iter().all(|rs| service_name_of(rs).is_none()),
+            "no service name should be invented when the root is absent"
+        );
+    }
+
+    /// A batch that fits stays a single request - splitting must not fragment normal traffic.
+    #[test]
+    fn small_batches_are_sent_as_one_request() {
+        let grouped = to_resource_spans(&fixture(), "aws", "traces");
+        let requests = split_requests(grouped, MAX_REQUEST_BYTES);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0]
+                .resource_spans
+                .iter()
+                .flat_map(|rs| rs.scope_spans.iter())
+                .map(|ss| ss.spans.len())
+                .sum::<usize>(),
+            24
+        );
+    }
+
+    /// With a tiny limit every span must still be sent, exactly once, under the cap.
+    #[test]
+    fn oversized_batches_split_without_losing_spans() {
+        let grouped = to_resource_spans(&fixture(), "aws", "traces");
+        let limit = 1024;
+        let requests = split_requests(grouped, limit);
+
+        assert!(requests.len() > 1, "expected the batch to be split");
+
+        let mut ids: Vec<Vec<u8>> = requests
+            .iter()
+            .flat_map(|r| r.resource_spans.iter())
+            .flat_map(|rs| rs.scope_spans.iter())
+            .flat_map(|ss| ss.spans.iter())
+            .map(|s| s.span_id.clone())
+            .collect();
+        assert_eq!(ids.len(), 24, "every span must survive the split");
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 24, "no span may be duplicated across requests");
+
+        // Every request holding more than one span must respect the cap.
+        for r in &requests {
+            let spans: usize = r
+                .resource_spans
+                .iter()
+                .flat_map(|rs| rs.scope_spans.iter())
+                .map(|ss| ss.spans.len())
+                .sum();
+            if spans > 1 {
+                assert!(r.encoded_len() <= limit, "request exceeded the limit");
+            }
+        }
+
+        // Resource attributes must be carried onto each split part, or spans lose their
+        // service name and Coralogix metadata.
+        for r in &requests {
+            for rs in &r.resource_spans {
+                assert!(rs.resource.is_some());
+            }
+        }
+    }
+
+    /// A malformed end time must not be written off as an in-progress duplicate.
+    ///
+    /// `to_span` rejects it either way, but counting it as in-progress removes it from
+    /// `unmappable` and silences the only warning that would reveal AWS changing the
+    /// record format - the exact case that warning exists for.
+    #[test]
+    fn a_malformed_end_time_is_not_an_in_progress_record() {
+        let base = serde_json::json!({
+            "traceId": "6a719ba03dce37b129b5432cd44db5aa",
+            "spanId": "1111111111111111",
+            "startTimeUnixNano": 1_700_000_000_000_000_000u64,
+        });
+
+        // Genuinely in progress: absent, or explicitly null.
+        let mut null_end = base.clone();
+        null_end["endTimeUnixNano"] = Value::Null;
+        for record in [base.clone(), null_end] {
+            assert!(is_in_progress(&record));
+            assert!(to_span(&record).is_none());
+        }
+
+        // Present but unusable: unmappable, and must be reported as such.
+        for bad in [
+            serde_json::json!("1700000000000000001"),
+            serde_json::json!(1.7e18),
+            serde_json::json!(-1),
+        ] {
+            let mut record = base.clone();
+            record["endTimeUnixNano"] = bad.clone();
+            assert!(
+                !is_in_progress(&record),
+                "{bad} must not count as in-progress"
+            );
+            assert!(to_span(&record).is_none(), "{bad} must not map to a span");
+        }
+
+        // Sanity: the fixture's own split is unchanged by this.
+        let recs = fixture();
+        let counted = recs.iter().filter(|r| is_in_progress(r)).count();
+        assert_eq!(counted, 18, "fixture has 18 in-progress records");
+    }
+
+    /// A broken parent id must not be laundered into a root span.
+    #[test]
+    fn rejects_malformed_parent_span_ids() {
+        let base = serde_json::json!({
+            "traceId": "6a719ba03dce37b129b5432cd44db5aa",
+            "spanId": "1111111111111111",
+            "startTimeUnixNano": 1_700_000_000_000_000_000u64,
+            "endTimeUnixNano":   1_700_000_000_000_000_001u64,
+        });
+
+        for bad in ["zzzzzzzzzzzzzzzz", "111", "11111111111111111"] {
+            let mut record = base.clone();
+            record["parentSpanId"] = serde_json::json!(bad);
+            assert!(
+                to_span(&record).is_none(),
+                "malformed parentSpanId {bad:?} must not map to a span"
+            );
+        }
+
+        // Absent, null and empty all mean "root", and must still map.
+        let mut null_parent = base.clone();
+        null_parent["parentSpanId"] = Value::Null;
+        let mut empty_parent = base.clone();
+        empty_parent["parentSpanId"] = serde_json::json!("");
+
+        for record in [base.clone(), null_parent, empty_parent] {
+            let span = to_span(&record).expect("a root span must still map");
+            assert!(span.parent_span_id.is_empty());
+        }
+
+        let mut good = base;
+        good["parentSpanId"] = serde_json::json!("2222222222222222");
+        let span = to_span(&good).expect("a valid child must map");
+        assert_eq!(span.parent_span_id, vec![0x22; 8]);
+    }
+
+    #[test]
+    fn rejects_malformed_ids() {
+        assert!(hex_id("abc", 8).is_none(), "wrong length");
+        assert!(hex_id("zzzzzzzzzzzzzzzz", 8).is_none(), "not hex");
+        assert_eq!(hex_id("00ff", 2), Some(vec![0x00, 0xff]));
+
+        // A record with a bad trace id is dropped rather than shipped detached.
+        let bad = serde_json::json!({
+            "traceId": "nothex", "spanId": "b03258e2e1abc353",
+            "startTimeUnixNano": 1u64, "endTimeUnixNano": 2u64,
+        });
+        assert!(to_span(&bad).is_none());
+    }
+
+    /// The Coralogix API key must never leave for a customer-configured Collector.
+    #[test]
+    fn collector_route_is_unauthenticated() {
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", Some("http://collector.internal:4317")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+                ("SUB_NAME", None::<&str>),
+                ("APP_NAME", None::<&str>),
+            ],
+            || {
+                let conf = Config::load_from_env().expect("config should load");
+                assert_eq!(conf.endpoint, "http://collector.internal:4317");
+                assert!(
+                    conf.api_key().is_none(),
+                    "the API key must not be sent to a Collector"
+                );
+            },
+        );
+    }
+
+    /// The direct route is the only one that authenticates, and it requires a key.
+    #[test]
+    fn direct_route_carries_the_api_key() {
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+            ],
+            || {
+                let conf = Config::load_from_env().expect("config should load");
+                assert_eq!(conf.endpoint, "https://ingress.eu2.coralogix.com:443");
+                assert_eq!(
+                    conf.api_key().map(|k| k.token().to_string()).as_deref(),
+                    Some("secret")
+                );
+            },
+        );
+
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_API_KEY", None::<&str>),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+            ],
+            || {
+                let err = Config::load_from_env()
+                    .err()
+                    .expect("direct delivery without a key must fail");
+                assert!(err.contains("CORALOGIX_API_KEY"), "unexpected error: {err}");
+            },
+        );
+    }
+
+    /// CloudFormation renders unset parameters as empty strings, so empty must mean
+    /// unset - otherwise every default deployment ships an empty subsystem name.
+    #[test]
+    fn empty_env_vars_count_as_unset() {
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", Some("")),
+                ("CORALOGIX_ENDPOINT", Some("")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("SUB_NAME", Some("")),
+                ("APP_NAME", Some("")),
+            ],
+            || {
+                let conf = Config::load_from_env().expect("config should load");
+                // Empty OTLP_ENDPOINT must not select the collector route.
+                assert_eq!(conf.endpoint, "https://ingress.eu2.coralogix.com:443");
+                assert!(conf.api_key().is_some(), "should be the direct route");
+                assert_eq!(conf.sub_name, None, "empty SUB_NAME must fall back");
+                assert_eq!(conf.app_name, "aws");
+            },
+        );
+    }
+
+    /// An unusable collector endpoint must fail at config load, not on every cold start
+    /// inside the exporter.
+    #[test]
+    fn rejects_unusable_collector_endpoints() {
+        for bad in [
+            "collector.internal:4317",         // no scheme
+            "ftp://collector.internal:4317",   // wrong scheme
+            "http://user:pw@collector:4317",   // userinfo
+            "http://collector:4317/v1/traces", // path
+            "http://collector:4317?x=1",       // query
+        ] {
+            temp_env::with_vars(
+                [
+                    ("OTLP_ENDPOINT", Some(bad)),
+                    ("CORALOGIX_API_KEY", Some("secret")),
+                    ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                    ("CORALOGIX_ENDPOINT", None::<&str>),
+                ],
+                || {
+                    assert!(
+                        Config::load_from_env().is_err(),
+                        "{bad:?} should be rejected"
+                    );
+                },
+            );
+        }
+    }
+
+    /// Whitespace must not select the Collector route, and must not survive into a name.
+    #[test]
+    fn whitespace_env_vars_count_as_unset() {
+        temp_env::with_vars(
+            [
+                ("OTLP_ENDPOINT", Some("   ")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+                ("SUB_NAME", Some("  ")),
+                ("APP_NAME", Some(" my-app ")),
+            ],
+            || {
+                let conf = Config::load_from_env().expect("config should load");
+                assert_eq!(conf.endpoint, "https://ingress.eu2.coralogix.com:443");
+                assert!(conf.api_key().is_some(), "should be the direct route");
+                assert_eq!(conf.sub_name, None);
+                assert_eq!(conf.app_name, "my-app");
+            },
+        );
+    }
+
+    /// A collector endpoint must win over the derived `ingress.<domain>`, otherwise a
+    /// PrivateLink deployment silently addresses the public ingress it cannot reach.
+    #[test]
+    fn endpoint_prefers_the_collector_over_the_domain() {
+        let cases = [
+            // (OTLP_ENDPOINT, CORALOGIX_ENDPOINT, CORALOGIX_DOMAIN, expected)
+            (
+                Some("http://collector.internal:4317"),
+                None,
+                Some("eu2.coralogix.com"),
+                "http://collector.internal:4317",
+            ),
+            // Empty is how CloudFormation renders an unset parameter; ignore it.
+            (
+                Some(""),
+                None,
+                Some("eu2.coralogix.com"),
+                "https://ingress.eu2.coralogix.com:443",
+            ),
+            (
+                None,
+                Some("https://override:443"),
+                Some("eu2.coralogix.com"),
+                "https://override:443",
+            ),
+            (
+                None,
+                None,
+                Some("eu2.coralogix.com"),
+                "https://ingress.eu2.coralogix.com:443",
+            ),
+        ];
+
+        for (otlp, cx, domain, expected) in cases {
+            temp_env::with_vars(
+                [
+                    ("CORALOGIX_API_KEY", Some("secret")),
+                    ("OTLP_ENDPOINT", otlp),
+                    ("CORALOGIX_ENDPOINT", cx),
+                    ("CORALOGIX_DOMAIN", domain),
+                ],
+                || {
+                    let conf = Config::load_from_env().expect("config should load");
+                    assert_eq!(conf.endpoint, expected, "otlp={otlp:?} cx={cx:?}");
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn endpoint_requires_a_collector_or_a_domain() {
+        temp_env::with_vars(
+            [
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("OTLP_ENDPOINT", None::<&str>),
+                ("CORALOGIX_ENDPOINT", None::<&str>),
+                ("CORALOGIX_DOMAIN", None::<&str>),
+            ],
+            || {
+                let err = Config::load_from_env()
+                    .err()
+                    .expect("should refuse to guess an endpoint");
+                assert!(err.contains("OTLP_ENDPOINT"), "unexpected error: {err}");
+            },
+        );
+    }
+}

@@ -62,7 +62,9 @@ pub enum LogExportConfig {
 const MAX_CORALOGIX_DOMAIN_BYTES: usize = 245;
 
 impl LogExportConfig {
-    fn validate_collector_endpoint(endpoint: &str) -> Result<(), String> {
+    /// Shared with the traces path so both OTLP routes accept exactly the same shape of
+    /// collector endpoint.
+    pub(crate) fn validate_collector_endpoint(endpoint: &str) -> Result<(), String> {
         let uri: http::Uri = endpoint
             .parse()
             .map_err(|error| format!("invalid OTLP_ENDPOINT: {error}"))?;
