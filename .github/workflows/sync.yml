@@ -150,11 +150,19 @@ jobs:
 
           git -C target config user.name  "coralogix-concourse"
           git -C target config user.email "coralogix-concourse@users.noreply.github.com"
+          # The branch is reused every release, and actions/checkout fetches only the
+          # default branch - so without this there is no remote-tracking ref and
+          # --force-with-lease rejects the second and every later run as "stale info".
+          git -C target fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch" || true
+          lease="$(git -C target rev-parse --verify -q "refs/remotes/origin/$branch" || true)"
+
           git -C target checkout -b "$branch"
           git -C target commit -m "$TITLE"
-          # A fixed branch reused every release, so force-with-lease rather than a
-          # new branch each time - avoids accumulating stale sync branches.
-          git -C target push --force-with-lease -u origin "$branch"
+          if [ -n "$lease" ]; then
+            git -C target push --force-with-lease="$branch:$lease" -u origin "$branch"
+          else
+            git -C target push -u origin "$branch"
+          fi
           head_sha="$(git -C target rev-parse HEAD)"
 
           pr="$(gh pr list -R "${{ env.CLOUDFORMATION_REPO }}" --head "$branch" \
@@ -176,6 +184,9 @@ jobs:
                     --title "$TITLE" --body-file "$body")"
             echo "opened $pr"
           else
+            # The branch is reused, so an unmerged PR from the previous release would
+            # keep its old title - and that title becomes the squash-merge message.
+            gh pr edit "$pr" -R "${{ env.CLOUDFORMATION_REPO }}" --title "$TITLE"
             echo "updated existing PR #$pr"
           fi
 
