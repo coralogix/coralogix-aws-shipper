@@ -2,15 +2,15 @@ name: Cloudformation Template Sync
 
 on:
   workflow_dispatch:
+  # Only after a successful Publish. The template's CodeUri points at the
+  # coralogix-serverless-repo artifacts for its version, so syncing before those exist
+  # produces a template referencing objects that are not there yet. A push trigger on
+  # README.md used to do exactly that: on the 1.4.16 release it opened the sync PR nine
+  # minutes before Publish finished uploading the zips.
   workflow_run:
     workflows: ["Publish"]
     types:
       - completed
-  push:
-    branches:
-      - master
-    paths:
-      - 'README.md'
 env:
   REPO_BUCKET_PREFIX: coralogix-serverless-repo
   REPO_PACKAGE_ZIP: coralogix-aws-shipper.zip
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: checkout coralogix-aws-shipper repository
         uses: actions/checkout@v7
@@ -83,6 +83,13 @@ jobs:
           cat ./template.yaml       
           set +xv
 
+      - name: read the template version
+        id: version
+        run: |
+          set -euo pipefail
+          v="$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
       - name: store artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -93,6 +100,7 @@ jobs:
             ./CHANGELOG.md
     outputs:
       last_commit: ${{ steps.commits.outputs.last_commit }}
+      version: ${{ steps.version.outputs.version }}
 
 
   sync-changes:
@@ -100,7 +108,7 @@ jobs:
     permissions:
       contents: read
     needs: get-template
-    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       # Into a subdirectory: the PR body is written to the runner temp, and keeping the
       # target repo out of the workspace root avoids clobbering anything else.
@@ -139,61 +147,71 @@ jobs:
       # reach the default branch through a pull request ("branch-one-approval-public"),
       # so the previous direct commit is rejected. Modelled on the sync in
       # coralogix/telemetry-shippers (.github/workflows/sync-fleet-manager.yml).
-      - name: open or update the sync PR
+      # One branch and one PR per released version, so nothing is ever reused: no
+      # remote-tracking ref to fetch, no lease, and the PR title always matches its
+      # contents. Both triggers fire for a single release (the README push, then
+      # Publish); the second finds the PR already open and stops.
+      - name: open the sync PR
         if: steps.changes.outputs.updated == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           TITLE: ${{ needs.get-template.outputs.last_commit }}
+          VERSION: ${{ needs.get-template.outputs.version }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MENTION: ${{ vars.SLACK_MENTION || '@team-ido' }}
         run: |
           set -euo pipefail
-          branch="bot/sync-aws-shipper-template"
+          branch="bot/sync-aws-shipper-$VERSION"
+
+          # Only an open or merged PR means this version is handled. A PR closed without
+          # merging leaves the template unsynced, so that case must fall through and
+          # recreate it - otherwise one accidental close strands the version forever.
+          state="$(gh pr list -R "${{ env.CLOUDFORMATION_REPO }}" --head "$branch" \
+                     --state all --json state --jq '.[0].state // empty')"
+          case "$state" in
+            OPEN|MERGED)
+              echo "already synced for $VERSION (PR $state)"
+              exit 0 ;;
+            CLOSED)
+              echo "previous PR for $VERSION was closed unmerged; recreating" ;;
+          esac
 
           git -C target config user.name  "coralogix-concourse"
           git -C target config user.email "coralogix-concourse@users.noreply.github.com"
-          # The branch is reused every release, and actions/checkout fetches only the
-          # default branch - so without this there is no remote-tracking ref and
-          # --force-with-lease rejects the second and every later run as "stale info".
-          git -C target fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch" || true
-          lease="$(git -C target rev-parse --verify -q "refs/remotes/origin/$branch" || true)"
-
           git -C target checkout -b "$branch"
           git -C target commit -m "$TITLE"
-          if [ -n "$lease" ]; then
-            git -C target push --force-with-lease="$branch:$lease" -u origin "$branch"
-          else
-            git -C target push -u origin "$branch"
-          fi
-          head_sha="$(git -C target rev-parse HEAD)"
+          # Force: the branch is per-version and bot-owned, so the only way it already
+          # exists is a previous run that pushed and then failed before opening the PR.
+          git -C target push --force -u origin "$branch"
 
-          pr="$(gh pr list -R "${{ env.CLOUDFORMATION_REPO }}" --head "$branch" \
-                  --state open --json number --jq '.[0].number')"
-          if [ -z "$pr" ]; then
-            body="$RUNNER_TEMP/pr-body.md"
-            {
-              echo "Automated template sync from [coralogix-aws-shipper](https://github.com/coralogix/coralogix-aws-shipper)."
-              echo
-              echo "Generated by \`.github/workflows/sync.yml\` after a successful release."
-              echo "\`CodeUri\` is rewritten to the published \`coralogix-serverless-repo-<region>\`"
-              echo "artifacts and the \`CpuArch\` parameter is added, so do not edit these files"
-              echo "here - change \`template.yaml\` in the shipper repo instead."
-              echo
-              echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            } > "$body"
-            pr="$(gh pr create -R "${{ env.CLOUDFORMATION_REPO }}" \
-                    --base master --head "$branch" \
-                    --title "$TITLE" --body-file "$body")"
-            echo "opened $pr"
-          else
-            # The branch is reused, so an unmerged PR from the previous release would
-            # keep its old title - and that title becomes the squash-merge message.
-            gh pr edit "$pr" -R "${{ env.CLOUDFORMATION_REPO }}" --title "$TITLE"
-            echo "updated existing PR #$pr"
-          fi
+          body="$RUNNER_TEMP/pr-body.md"
+          {
+            echo "Automated template sync from [coralogix-aws-shipper](https://github.com/coralogix/coralogix-aws-shipper), release **$VERSION**."
+            echo
+            echo "Generated by \`.github/workflows/sync.yml\` after a successful release."
+            echo "\`CodeUri\` is rewritten to the published \`coralogix-serverless-repo-<region>\`"
+            echo "artifacts and the \`CpuArch\` parameter is added, so do not edit these files"
+            echo "here - change \`template.yaml\` in the shipper repo instead."
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > "$body"
 
-          # Best effort: the target repo has "Allow auto-merge" disabled, and the
-          # org ruleset requires one approval that no bot can supply. Arming it means
-          # the PR merges the moment a human approves, and a failure here must not
-          # fail the sync - the PR is the deliverable.
-          gh pr merge "$pr" -R "${{ env.CLOUDFORMATION_REPO }}" \
-            --auto --squash --match-head-commit "$head_sha" \
-            || echo "auto-merge not armed (needs 'Allow auto-merge' on the target repo); PR is open for manual merge"
+          pr="$(gh pr create -R "${{ env.CLOUDFORMATION_REPO }}" \
+                  --base master --head "$branch" \
+                  --title "$TITLE" --body-file "$body")"
+          echo "opened $pr"
+
+          # Auto-merge is deliberately not enabled on the target repo, so a person has to
+          # approve and merge. This notification is the only thing that tells them to.
+          # Failure here must not fail a sync that has already done its job.
+          if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+            # link_names makes Slack resolve the @handle into a real mention so the group
+            # is notified. If it ever renders as plain text, replace SLACK_MENTION with
+            # the user-group id form, <!subteam^S0123ABCD>.
+            jq -n --arg text "$SLACK_MENTION shipper *$VERSION* released - CloudFormation template sync needs merge: $pr" \
+              '{text: $text, link_names: 1}' \
+              | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL" \
+              || echo "slack notification failed; continuing"
+          else
+            echo "SLACK_WEBHOOK_URL not set; skipping notification"
+          fi
