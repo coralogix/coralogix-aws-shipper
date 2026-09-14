@@ -190,20 +190,24 @@ jobs:
             -f ref="refs/heads/$branch" -f sha="$base" >/dev/null
 
           # Take the file list from git rather than hardcoding it, so a change to what
-          # get-template produces is carried without editing this step.
-          additions="$(cd target && git diff --cached --name-only | while read -r f; do
+          # get-template produces is carried without editing this step. The additions go
+          # to a file, never through argv: base64 of these artifacts is ~220 KB and a
+          # single argument is capped at 128 KiB, so passing them inline fails with
+          # "Argument list too long" before jq runs.
+          (cd target && git diff --cached --name-only | while read -r f; do
             jq -n --arg path "$f" --arg contents "$(base64 < "$f" | tr -d '\n')" \
               '{path: $path, contents: $contents}'
-          done | jq -s .)"
+          done | jq -s .) > "$RUNNER_TEMP/additions.json"
 
           # query and variables must go in one --input document: the -f/-F flags cannot
           # carry a nested object, which GraphQL needs for fileChanges.
           jq -n --arg repo "${{ env.CLOUDFORMATION_REPO }}" --arg branch "$branch" \
-                --arg oid "$base" --arg msg "$TITLE" --argjson adds "$additions" \
+                --arg oid "$base" --arg msg "$TITLE" \
+                --slurpfile adds "$RUNNER_TEMP/additions.json" \
             '{query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
               variables: {input: {branch: {repositoryNameWithOwner: $repo, branchName: $branch},
                                   expectedHeadOid: $oid,
-                                  fileChanges: {additions: $adds},
+                                  fileChanges: {additions: $adds[0]},
                                   message: {headline: $msg}}}}' > "$RUNNER_TEMP/commit.json"
 
           oid="$(gh api graphql --input "$RUNNER_TEMP/commit.json" \
