@@ -108,6 +108,20 @@ class TemplateContractTest(unittest.TestCase):
                 self.assertEqual(runtime["Default"], "provided.al2023")
                 self.assertEqual(runtime["AllowedValues"], ["provided.al2023"])
 
+    def test_post_metadata_starlark_is_opt_in(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        document = load_template(repository_root / "template.yaml")
+
+        parameter = document["Parameters"]["StarlarkTransformAfterMetadata"]
+        self.assertEqual(parameter["Default"], "false")
+        self.assertEqual(parameter["AllowedValues"], ["true", "false"])
+
+        environment = document["Resources"]["LambdaFunction"]["Properties"]["Environment"]["Variables"]
+        self.assertEqual(
+            environment["STARLARK_TRANSFORM_AFTER_METADATA"],
+            {"Ref": "StarlarkTransformAfterMetadata"},
+        )
+
 
 class OtlpPrivateLinkRuleTest(unittest.TestCase):
     def test_template_loader_restores_fake_boto3_module(self) -> None:
