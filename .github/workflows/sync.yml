@@ -180,11 +180,16 @@ jobs:
           # org ruleset requires verified signatures on the default branch and a runner
           # has no signing key. GitHub signs commits it creates itself, and attributes
           # them to the token holder - so there is also no git identity to fabricate.
-          base="$(gh api "repos/${{ env.CLOUDFORMATION_REPO }}/git/ref/heads/master" --jq .object.sha)"
+          #
+          # Base on the checkout's HEAD, not master's current tip: the additions below
+          # come from `git diff --cached`, which compares against HEAD. Branching from a
+          # newer master would silently keep the target's version of any file master
+          # changed mid-run, because that file would not appear in the diff.
+          base="$(git -C target rev-parse HEAD)"
 
-          # Recreate the branch at master so the commit applies to a known head. Delete
-          # first: a previous run may have pushed a branch and then failed before opening
-          # the PR, and createCommitOnBranch needs expectedHeadOid to match.
+          # Point the branch at that same commit. Deleting first covers a previous run
+          # that created the branch and then failed before opening the PR:
+          # createCommitOnBranch requires expectedHeadOid to match the branch head.
           gh api -X DELETE "repos/${{ env.CLOUDFORMATION_REPO }}/git/refs/heads/$branch" >/dev/null 2>&1 || true
           gh api -X POST "repos/${{ env.CLOUDFORMATION_REPO }}/git/refs" \
             -f ref="refs/heads/$branch" -f sha="$base" >/dev/null
@@ -195,7 +200,8 @@ jobs:
           # single argument is capped at 128 KiB, so passing them inline fails with
           # "Argument list too long" before jq runs.
           (cd target && git diff --cached --name-only | while read -r f; do
-            jq -n --arg path "$f" --arg contents "$(base64 < "$f" | tr -d '\n')" \
+            base64 < "$f" | tr -d '\n' > "$RUNNER_TEMP/b64"
+            jq -n --arg path "$f" --rawfile contents "$RUNNER_TEMP/b64" \
               '{path: $path, contents: $contents}'
           done | jq -s .) > "$RUNNER_TEMP/additions.json"
 
