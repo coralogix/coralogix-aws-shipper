@@ -163,13 +163,18 @@ jobs:
           set -euo pipefail
           branch="bot/sync-aws-shipper-$VERSION"
 
-          existing="$(gh pr list -R "${{ env.CLOUDFORMATION_REPO }}" --head "$branch" \
-                        --state all --json number,state \
-                        --jq '.[0] | select(.) | "#\(.number) \(.state)"')"
-          if [ -n "$existing" ]; then
-            echo "already synced for $VERSION: PR $existing"
-            exit 0
-          fi
+          # Only an open or merged PR means this version is handled. A PR closed without
+          # merging leaves the template unsynced, so that case must fall through and
+          # recreate it - otherwise one accidental close strands the version forever.
+          state="$(gh pr list -R "${{ env.CLOUDFORMATION_REPO }}" --head "$branch" \
+                     --state all --json state --jq '.[0].state // empty')"
+          case "$state" in
+            OPEN|MERGED)
+              echo "already synced for $VERSION (PR $state)"
+              exit 0 ;;
+            CLOSED)
+              echo "previous PR for $VERSION was closed unmerged; recreating" ;;
+          esac
 
           git -C target config user.name  "coralogix-concourse"
           git -C target config user.email "coralogix-concourse@users.noreply.github.com"
