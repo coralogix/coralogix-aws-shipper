@@ -201,14 +201,9 @@ jobs:
                   --title "$TITLE" --body-file "$body")"
           echo "opened $pr"
 
-          # Arm auto-merge so the PR lands the moment someone approves. Needs "Allow
-          # auto-merge" on the target repo; the org ruleset's one approval cannot be
-          # satisfied by a bot, so a human still approves. Never fail the sync for this.
-          gh pr merge "$pr" -R "${{ env.CLOUDFORMATION_REPO }}" --auto --squash \
-            || echo "auto-merge not armed; PR is open for manual merge"
-
-          # The PR needs a human, and nobody is watching that repo. Failure here must not
-          # fail a sync that has already done its job.
+          # Auto-merge is deliberately not enabled on the target repo, so a person has to
+          # approve and merge. This notification is the only thing that tells them to.
+          # Failure here must not fail a sync that has already done its job.
           if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
             # link_names makes Slack resolve the @handle into a real mention so the group
             # is notified. If it ever renders as plain text, replace SLACK_MENTION with
