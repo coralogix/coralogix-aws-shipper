@@ -176,13 +176,49 @@ jobs:
               echo "previous PR for $VERSION was closed unmerged; recreating" ;;
           esac
 
-          git -C target config user.name  "coralogix-concourse"
-          git -C target config user.email "coralogix-concourse@users.noreply.github.com"
-          git -C target checkout -b "$branch"
-          git -C target commit -m "$TITLE"
-          # Force: the branch is per-version and bot-owned, so the only way it already
-          # exists is a previous run that pushed and then failed before opening the PR.
-          git -C target push --force -u origin "$branch"
+          # The commit is created through the GraphQL API rather than git, because the
+          # org ruleset requires verified signatures on the default branch and a runner
+          # has no signing key. GitHub signs commits it creates itself, and attributes
+          # them to the token holder - so there is also no git identity to fabricate.
+          #
+          # Base on the checkout's HEAD, not master's current tip: the additions below
+          # come from `git diff --cached`, which compares against HEAD. Branching from a
+          # newer master would silently keep the target's version of any file master
+          # changed mid-run, because that file would not appear in the diff.
+          base="$(git -C target rev-parse HEAD)"
+
+          # Point the branch at that same commit. Deleting first covers a previous run
+          # that created the branch and then failed before opening the PR:
+          # createCommitOnBranch requires expectedHeadOid to match the branch head.
+          gh api -X DELETE "repos/${{ env.CLOUDFORMATION_REPO }}/git/refs/heads/$branch" >/dev/null 2>&1 || true
+          gh api -X POST "repos/${{ env.CLOUDFORMATION_REPO }}/git/refs" \
+            -f ref="refs/heads/$branch" -f sha="$base" >/dev/null
+
+          # Take the file list from git rather than hardcoding it, so a change to what
+          # get-template produces is carried without editing this step. The additions go
+          # to a file, never through argv: base64 of these artifacts is ~220 KB and a
+          # single argument is capped at 128 KiB, so passing them inline fails with
+          # "Argument list too long" before jq runs.
+          (cd target && git diff --cached --name-only | while read -r f; do
+            base64 < "$f" | tr -d '\n' > "$RUNNER_TEMP/b64"
+            jq -n --arg path "$f" --rawfile contents "$RUNNER_TEMP/b64" \
+              '{path: $path, contents: $contents}'
+          done | jq -s .) > "$RUNNER_TEMP/additions.json"
+
+          # query and variables must go in one --input document: the -f/-F flags cannot
+          # carry a nested object, which GraphQL needs for fileChanges.
+          jq -n --arg repo "${{ env.CLOUDFORMATION_REPO }}" --arg branch "$branch" \
+                --arg oid "$base" --arg msg "$TITLE" \
+                --slurpfile adds "$RUNNER_TEMP/additions.json" \
+            '{query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: {input: {branch: {repositoryNameWithOwner: $repo, branchName: $branch},
+                                  expectedHeadOid: $oid,
+                                  fileChanges: {additions: $adds[0]},
+                                  message: {headline: $msg}}}}' > "$RUNNER_TEMP/commit.json"
+
+          oid="$(gh api graphql --input "$RUNNER_TEMP/commit.json" \
+                   --jq '.data.createCommitOnBranch.commit.oid')"
+          echo "committed $oid"
 
           body="$RUNNER_TEMP/pr-body.md"
           {
