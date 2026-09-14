@@ -2,15 +2,15 @@ name: Cloudformation Template Sync
 
 on:
   workflow_dispatch:
+  # Only after a successful Publish. The template's CodeUri points at the
+  # coralogix-serverless-repo artifacts for its version, so syncing before those exist
+  # produces a template referencing objects that are not there yet. A push trigger on
+  # README.md used to do exactly that: on the 1.4.16 release it opened the sync PR nine
+  # minutes before Publish finished uploading the zips.
   workflow_run:
     workflows: ["Publish"]
     types:
       - completed
-  push:
-    branches:
-      - master
-    paths:
-      - 'README.md'
 env:
   REPO_BUCKET_PREFIX: coralogix-serverless-repo
   REPO_PACKAGE_ZIP: coralogix-aws-shipper.zip
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: checkout coralogix-aws-shipper repository
         uses: actions/checkout@v7
@@ -108,7 +108,7 @@ jobs:
     permissions:
       contents: read
     needs: get-template
-    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       # Into a subdirectory: the PR body is written to the runner temp, and keeping the
       # target repo out of the workspace root avoids clobbering anything else.
@@ -157,6 +157,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           TITLE: ${{ needs.get-template.outputs.last_commit }}
           VERSION: ${{ needs.get-template.outputs.version }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           set -euo pipefail
           branch="bot/sync-aws-shipper-$VERSION"
@@ -193,3 +194,20 @@ jobs:
                   --base master --head "$branch" \
                   --title "$TITLE" --body-file "$body")"
           echo "opened $pr"
+
+          # Arm auto-merge so the PR lands the moment someone approves. Needs "Allow
+          # auto-merge" on the target repo; the org ruleset's one approval cannot be
+          # satisfied by a bot, so a human still approves. Never fail the sync for this.
+          gh pr merge "$pr" -R "${{ env.CLOUDFORMATION_REPO }}" --auto --squash \
+            || echo "auto-merge not armed; PR is open for manual merge"
+
+          # The PR needs a human, and nobody is watching that repo. Failure here must not
+          # fail a sync that has already done its job.
+          if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+            jq -n --arg text "<!subteam^team-ido> shipper *$VERSION* released - CloudFormation template sync needs a review: $pr" \
+              '{text: $text}' \
+              | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL" \
+              || echo "slack notification failed; continuing"
+          else
+            echo "SLACK_WEBHOOK_URL not set; skipping notification"
+          fi
