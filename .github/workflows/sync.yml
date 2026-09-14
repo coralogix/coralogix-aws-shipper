@@ -158,6 +158,17 @@ jobs:
 
           git -C target checkout -b "$branch"
           git -C target commit -m "$TITLE"
+
+          # Both triggers fire for one release (the README push, then Publish), and the
+          # staged diff is against master - so the second run would recommit identical
+          # content under a new timestamp and force-push a new SHA, churning the PR and
+          # re-triggering review. Compare trees instead: identical tree, nothing to do.
+          if [ -n "$lease" ] \
+             && [ "$(git -C target rev-parse 'HEAD^{tree}')" = "$(git -C target rev-parse "$lease^{tree}")" ]; then
+            echo "sync branch already holds this template; nothing to push"
+            exit 0
+          fi
+
           if [ -n "$lease" ]; then
             git -C target push --force-with-lease="$branch:$lease" -u origin "$branch"
           else
@@ -186,7 +197,10 @@ jobs:
           else
             # The branch is reused, so an unmerged PR from the previous release would
             # keep its old title - and that title becomes the squash-merge message.
-            gh pr edit "$pr" -R "${{ env.CLOUDFORMATION_REPO }}" --title "$TITLE"
+            # Best effort: gh pr edit reads reviewRequests, which the sync token cannot
+            # see, and a stale title must not fail a sync that has already pushed.
+            gh pr edit "$pr" -R "${{ env.CLOUDFORMATION_REPO }}" --title "$TITLE" \
+              || echo "could not refresh the title (token cannot read reviewRequests); continuing"
             echo "updated existing PR #$pr"
           fi
 
