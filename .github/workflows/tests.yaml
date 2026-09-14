@@ -213,7 +213,7 @@ jobs:
 
       - name: Install Rust
         if: ${{ (steps.changes.outputs.rust_source == 'true' && !contains(github.event.pull_request.labels.*.name, 'skip-test')) || steps.changes.outputs.rust_deps == 'true' }}
-        uses: dtolnay/rust-toolchain@1.93.0
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: rustfmt, clippy
 
