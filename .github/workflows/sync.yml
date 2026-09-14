@@ -158,6 +158,7 @@ jobs:
           TITLE: ${{ needs.get-template.outputs.last_commit }}
           VERSION: ${{ needs.get-template.outputs.version }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MENTION: ${{ vars.SLACK_MENTION || '@team-ido' }}
         run: |
           set -euo pipefail
           branch="bot/sync-aws-shipper-$VERSION"
@@ -204,8 +205,11 @@ jobs:
           # The PR needs a human, and nobody is watching that repo. Failure here must not
           # fail a sync that has already done its job.
           if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
-            jq -n --arg text "<!subteam^team-ido> shipper *$VERSION* released - CloudFormation template sync needs a review: $pr" \
-              '{text: $text}' \
+            # link_names makes Slack resolve the @handle into a real mention so the group
+            # is notified. If it ever renders as plain text, replace SLACK_MENTION with
+            # the user-group id form, <!subteam^S0123ABCD>.
+            jq -n --arg text "$SLACK_MENTION shipper *$VERSION* released - CloudFormation template sync needs merge: $pr" \
+              '{text: $text, link_names: 1}' \
               | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL" \
               || echo "slack notification failed; continuing"
           else
