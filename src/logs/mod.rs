@@ -446,3 +446,5 @@ mod test {
         assert_eq!(key, "coralogix-aws-shipper/s3 with spaces.log");
     }
 }
+
+// ci-baseline: comment-only marker to trigger CI at pre-#230 master tip
