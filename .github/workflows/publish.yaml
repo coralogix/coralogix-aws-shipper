@@ -238,7 +238,7 @@ jobs:
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
         
       - name: store-arm64-package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         # only store the arm64 package as this is the
         # only one that will be published to SAR
         if: ${{ matrix.target == 'arm64' }}
