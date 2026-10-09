@@ -210,10 +210,7 @@ impl Config {
     /// API. Single source of truth so call sites cannot drift.
     pub fn post_metadata_rebatch_for_rest(&self) -> bool {
         self.starlark_transform_after_metadata
-            && matches!(
-                &self.export,
-                crate::logs::config::LogExportConfig::CoralogixRest { .. }
-            )
+            && matches!(&self.export, LogExportConfig::CoralogixRest { .. })
     }
 }
 
@@ -322,10 +319,8 @@ impl Config {
             dlq_retry_limit: env::var("DLQ_RETRY_LIMIT").ok(),
             dlq_s3_bucket: env::var("DLQ_S3_BUCKET").ok(),
             lambda_assume_role: env::var("LAMBDA_ASSUME_ROLE").ok(),
-            starlark_script: env::var("STARLARK_SCRIPT")
-                .ok()
-                .filter(|s| !s.trim().is_empty()),
-            starlark_transform_after_metadata: load_starlark_transform_after_metadata(),
+            starlark_script,
+            starlark_transform_after_metadata,
             enable_log_group_tags: env::var("ENABLE_LOG_GROUP_TAGS")
                 .unwrap_or("false".to_string())
                 .parse::<bool>()
