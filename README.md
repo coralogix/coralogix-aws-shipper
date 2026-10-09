@@ -565,7 +565,11 @@ Example:
 
 ```python
 def transform(event):
-    event["source_arn"] = event.pop("kinesis.event.source_arn")
+    # The "kinesis.event.source_arn" key exists only when the trigger is Kinesis
+    # and that field is selected in AddMetadata, so pop with a default.
+    source_arn = event.pop("kinesis.event.source_arn", None)
+    if source_arn != None:
+        event["source_arn"] = source_arn
     # "message" is a dict only when the original log was valid JSON; it is a
     # plain string for non-JSON logs.
     if type(event["message"]) == "dict":

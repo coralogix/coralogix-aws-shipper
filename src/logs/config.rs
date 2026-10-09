@@ -204,6 +204,19 @@ pub struct Config {
     pub disable_log_severity_detection: bool,
 }
 
+impl Config {
+    /// True when the post-metadata REST rebatching applies: post-metadata
+    /// transformation is enabled and the export goes through the Coralogix REST
+    /// API. Single source of truth so call sites cannot drift.
+    pub fn post_metadata_rebatch_for_rest(&self) -> bool {
+        self.starlark_transform_after_metadata
+            && matches!(
+                &self.export,
+                crate::logs::config::LogExportConfig::CoralogixRest { .. }
+            )
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum IntegrationType {
     VpcFlow,
@@ -249,6 +262,16 @@ impl fmt::Display for IntegrationType {
 
 impl Config {
     pub fn load_from_env() -> Result<Config, String> {
+        let starlark_script: Option<String> = env::var("STARLARK_SCRIPT")
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+        let starlark_transform_after_metadata = load_starlark_transform_after_metadata();
+        if starlark_transform_after_metadata && starlark_script.is_none() {
+            tracing::warn!(
+                "STARLARK_TRANSFORM_AFTER_METADATA=true but STARLARK_SCRIPT is not set; the flag has no effect"
+            );
+        }
+
         // let conf: Config;
         let conf = Config {
             newline_pattern: env::var("NEWLINE_PATTERN").unwrap_or("".to_string()),
