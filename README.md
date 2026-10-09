@@ -570,9 +570,11 @@ def transform(event):
     source_arn = event.pop("kinesis.event.source_arn", None)
     if source_arn != None:
         event["source_arn"] = source_arn
-    # "message" is a dict only when the original log was valid JSON; it is a
-    # plain string for non-JSON logs.
-    if type(event["message"]) == "dict":
+    # When no metadata is configured (no AddMetadata/CustomMetadata/log-group
+    # tags), the script receives the raw log itself — string or dict — with no
+    # "message" envelope, so guard both the key and its type. A script error
+    # makes the log pass through unchanged with a warning in the Lambda logs.
+    if "message" in event and type(event["message"]) == "dict":
         event["message"]["metadata_was_available"] = True
     return [event]
 ```

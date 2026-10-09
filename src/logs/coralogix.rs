@@ -75,6 +75,10 @@ pub async fn process_batches_with_meta(
     let batches_max_size = config.batches_max_size;
     let batches_max_concurrency = config.batches_max_concurrency.max(1);
 
+    // One global send-budget shared by every export call in this pipeline
+    // (see the note in `process_batches_with_meta`).
+    let send_permits = std::sync::Arc::new(tokio::sync::Semaphore::new(batches_max_concurrency));
+
     // Stream lazily per batch (convert + transform + send as each item is
     // polled) so memory stays bounded to the in-flight batches.
     let results = futures::stream::iter(batches)
@@ -84,6 +88,7 @@ pub async fn process_batches_with_meta(
             let configured_app_name = configured_app_name.clone();
             let configured_sub_name = configured_sub_name.clone();
             let exporter = exporter.clone();
+            let send_permits = std::sync::Arc::clone(&send_permits);
             async move {
                 let processed: Vec<ProcessedLog> = batch
                     .into_iter()
@@ -111,7 +116,7 @@ pub async fn process_batches_with_meta(
                     transformed,
                     post_metadata_rebatch_for_rest,
                     batches_max_size,
-                    batches_max_concurrency,
+                    send_permits,
                 )
                 .await
             }
@@ -236,6 +241,11 @@ pub async fn process_batches(
     let batches_max_size = config.batches_max_size;
     let batches_max_concurrency = config.batches_max_concurrency.max(1);
 
+    // One global send-budget shared by every export call in this pipeline:
+    // the outer stream and the REST-rebatch sub-batch sends would otherwise
+    // multiply to batches_max_concurrency^2 simultaneous exporter calls.
+    let send_permits = std::sync::Arc::new(tokio::sync::Semaphore::new(batches_max_concurrency));
+
     // Stream lazily per batch: convert + transform + send happen as the stream
     // item is polled, so memory stays bounded to the in-flight batches instead
     // of the whole transformed invocation. All captures are owned (Arc clones),
@@ -248,6 +258,7 @@ pub async fn process_batches(
             let configured_app_name = configured_app_name.clone();
             let configured_sub_name = configured_sub_name.clone();
             let exporter = exporter.clone();
+            let send_permits = std::sync::Arc::clone(&send_permits);
             async move {
                 let processed: Vec<ProcessedLog> = batch
                     .into_iter()
@@ -275,7 +286,7 @@ pub async fn process_batches(
                     transformed,
                     post_metadata_rebatch_for_rest,
                     batches_max_size,
-                    batches_max_concurrency,
+                    send_permits,
                 )
                 .await
             }
@@ -349,12 +360,15 @@ async fn send_transformed_logs(
     logs: Vec<ProcessedLog>,
     config: &Config,
 ) -> Result<(), Error> {
+    let send_permits = std::sync::Arc::new(tokio::sync::Semaphore::new(
+        config.batches_max_concurrency.max(1),
+    ));
     send_transformed_batch(
         exporter,
         logs,
         config.post_metadata_rebatch_for_rest(),
         config.batches_max_size,
-        config.batches_max_concurrency.max(1),
+        send_permits,
     )
     .await
 }
@@ -366,28 +380,42 @@ async fn send_transformed_batch(
     logs: Vec<ProcessedLog>,
     rebatch_for_rest: bool,
     batches_max_size: usize,
-    batches_max_concurrency: usize,
+    send_permits: std::sync::Arc<tokio::sync::Semaphore>,
 ) -> Result<(), Error> {
     if logs.is_empty() {
         return Ok(());
     }
 
+    // Every export call draws from the pipeline-wide permit budget, capping
+    // total in-flight exports at BATCHES_MAX_CONCURRENCY regardless of how
+    // the batches and their REST-rebatch sub-batches nest.
+    let send = |exporter: DynLogExporter, batch: Vec<ProcessedLog>| {
+        let send_permits = std::sync::Arc::clone(&send_permits);
+        async move {
+            let _permit = send_permits
+                .acquire_owned()
+                .await
+                .map_err(|_| Error::from("send permit semaphore closed".to_string()))?;
+            send_logs(exporter, batch).await
+        }
+    };
+
     if !rebatch_for_rest {
-        return send_logs(exporter, logs).await;
+        return send(exporter, logs).await;
     }
 
-    // Send the size-limited sub-batches concurrently (bounded by the caller's
-    // concurrency limit) instead of strictly sequentially, matching the
-    // pre-PR pipeline's throughput when a single source batch fans out.
+    // Send the size-limited sub-batches concurrently (bounded by the shared
+    // permit budget) instead of strictly sequentially, matching the pre-PR
+    // pipeline's throughput when a single source batch fans out.
     let results = futures::stream::iter(into_processed_log_batches_of_estimated_size_limit(
         logs,
         batches_max_size,
     ))
-    .map(|batch| {
+    .map(move |batch| {
         let exporter = exporter.clone();
-        async move { send_logs(exporter, batch).await }
+        async move { send(exporter, batch).await }
     })
-    .buffer_unordered(batches_max_concurrency)
+    .buffer_unordered(usize::MAX)
     .inspect_err(|error| error!(?error, "Failed to send logs"))
     .collect::<Vec<_>>()
     .await;

@@ -11,7 +11,7 @@
 
 - **Send-path future Send compliance:** Rework the send pipeline so stream futures capture only owned data, restoring compilation under the `#[async_recursion]` handler's `Send` requirement; batches are converted, transformed, and sent lazily per stream item so memory stays bounded during fan-out.
 
-### 🧰 Chore 🧰
+### 💡 Chore 💡
 
 - **Dependency updates:** Bump `rustls` to 0.23.45 (RUSTSEC-2026-0285: TLS 1.3 handshake messages incorrectly accepted across encryption level boundaries), unyank `spin` (0.10.1) and `libssh2-sys` (0.3.3).
 
