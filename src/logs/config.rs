@@ -184,6 +184,7 @@ impl LogExportConfig {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Config {
     pub newline_pattern: String,          // this should be regex
     pub blocking_pattern: String,         // this should be regex

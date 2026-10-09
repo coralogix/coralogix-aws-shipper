@@ -65,9 +65,12 @@ pub async fn process_batches_with_meta(
         number_of_logs / batches.len()
     );
 
-    let results = futures::stream::iter(batches)
-        .then(|batch| async move {
-            let batch = batch
+    // Convert to ProcessedLog synchronously: borrows here never cross an await,
+    // mirroring how the default pipeline has always used them.
+    let processed_batches: Vec<Vec<ProcessedLog>> = batches
+        .into_iter()
+        .map(|batch| {
+            batch
                 .into_iter()
                 .map(|lm| {
                     convert_to_processed_log(
@@ -78,14 +81,48 @@ pub async fn process_batches_with_meta(
                         config,
                     )
                 })
-                .collect_vec();
-            transform_processed_logs_after_metadata(batch, config, aws_config).await
+                .collect_vec()
         })
-        .map(|batch| {
+        .collect_vec();
+
+    // Post-metadata transformation runs sequentially: transform_logs serializes on
+    // its global script-cache lock, so transforming inside the concurrent stream
+    // adds no throughput. Keeping the borrow-holding await out of the stream
+    // combinators also keeps their futures reference-free, which the
+    // #[async_recursion] handler's Send-for-all-lifetimes obligation requires
+    // ("implementation of `Send` is not general enough" otherwise).
+    let mut transformed_batches = Vec::with_capacity(processed_batches.len());
+    for batch in processed_batches {
+        let transformed = transform_processed_logs_after_metadata(batch, config, aws_config)
+            .await
+            .map_err(|error| {
+                error!("Post-metadata log transformation failed: {}", error);
+                Error::from(error.to_string())
+            })?;
+        transformed_batches.push(transformed);
+    }
+
+    // Send concurrently. The stream futures capture only owned data (flag, batch
+    // limit, exporter clones) — no references, so the generic combinator cannot
+    // introduce lifetime obligations the handler cannot generalize.
+    let post_metadata_rebatch_for_rest = config.starlark_transform_after_metadata
+        && matches!(
+            &config.export,
+            crate::logs::config::LogExportConfig::CoralogixRest { .. }
+        );
+    let batches_max_size = config.batches_max_size;
+
+    let results = futures::stream::iter(transformed_batches)
+        .map(move |batch| {
             let exporter = exporter.clone();
             async move {
-                let batch = batch?;
-                send_transformed_logs(exporter, batch, config).await
+                send_transformed_batch(
+                    exporter,
+                    batch,
+                    post_metadata_rebatch_for_rest,
+                    batches_max_size,
+                )
+                .await
             }
         })
         .buffer_unordered(config.batches_max_concurrency.max(1))
@@ -104,7 +141,18 @@ fn into_batches_by_estimated_size<T>(
     config: &Config,
     estimate_size: impl Fn(&T) -> usize,
 ) -> Vec<Vec<T>> {
-    let target_batch_size = config.batches_max_size * 1024 * 1024;
+    into_batches_by_estimated_size_limit(
+        items,
+        config.batches_max_size * 1024 * 1024,
+        estimate_size,
+    )
+}
+
+fn into_batches_by_estimated_size_limit<T>(
+    items: Vec<T>,
+    target_batch_size: usize,
+    estimate_size: impl Fn(&T) -> usize,
+) -> Vec<Vec<T>> {
     let mut batches = Vec::new();
     let mut batch = Vec::new();
     let mut batch_size = 0;
@@ -184,10 +232,12 @@ pub async fn process_batches(
         number_of_logs / batches.len()
     );
 
-    // Process and send batches concurrently, limited by config
-    let results = futures::stream::iter(batches)
-        .then(|batch| async move {
-            let batch = batch
+    // Convert to ProcessedLog synchronously: borrows here never cross an await,
+    // mirroring how the default pipeline has always used them.
+    let processed_batches: Vec<Vec<ProcessedLog>> = batches
+        .into_iter()
+        .map(|batch| {
+            batch
                 .into_iter()
                 .map(|log| {
                     convert_to_processed_log(
@@ -198,14 +248,48 @@ pub async fn process_batches(
                         config,
                     )
                 })
-                .collect_vec();
-            transform_processed_logs_after_metadata(batch, config, aws_config).await
+                .collect_vec()
         })
-        .map(|batch| {
+        .collect_vec();
+
+    // Post-metadata transformation runs sequentially: transform_logs serializes on
+    // its global script-cache lock, so transforming inside the concurrent stream
+    // adds no throughput. Keeping the borrow-holding await out of the stream
+    // combinators also keeps their futures reference-free, which the
+    // #[async_recursion] handler's Send-for-all-lifetimes obligation requires
+    // ("implementation of `Send` is not general enough" otherwise).
+    let mut transformed_batches = Vec::with_capacity(processed_batches.len());
+    for batch in processed_batches {
+        let transformed = transform_processed_logs_after_metadata(batch, config, aws_config)
+            .await
+            .map_err(|error| {
+                error!("Post-metadata log transformation failed: {}", error);
+                Error::from(error.to_string())
+            })?;
+        transformed_batches.push(transformed);
+    }
+
+    // Send concurrently. The stream futures capture only owned data (flag, batch
+    // limit, exporter clones) — no references, so the generic combinator cannot
+    // introduce lifetime obligations the handler cannot generalize.
+    let post_metadata_rebatch_for_rest = config.starlark_transform_after_metadata
+        && matches!(
+            &config.export,
+            crate::logs::config::LogExportConfig::CoralogixRest { .. }
+        );
+    let batches_max_size = config.batches_max_size;
+
+    let results = futures::stream::iter(transformed_batches)
+        .map(move |batch| {
             let exporter = exporter.clone();
             async move {
-                let batch = batch?;
-                send_transformed_logs(exporter, batch, config).await
+                send_transformed_batch(
+                    exporter,
+                    batch,
+                    post_metadata_rebatch_for_rest,
+                    batches_max_size,
+                )
+                .await
             }
         })
         .buffer_unordered(config.batches_max_concurrency.max(1))
@@ -262,35 +346,52 @@ async fn transform_processed_logs_after_metadata(
     Ok(transformed_logs)
 }
 
-fn into_processed_log_batches_of_estimated_size(
-    logs: Vec<ProcessedLog>,
-    config: &Config,
-) -> Vec<Vec<ProcessedLog>> {
-    into_batches_by_estimated_size(logs, config, |log| log.body.to_string().len())
-}
-
+#[cfg(test)]
 async fn send_transformed_logs(
     exporter: DynLogExporter,
     logs: Vec<ProcessedLog>,
     config: &Config,
 ) -> Result<(), Error> {
+    let rebatch_for_rest = config.starlark_transform_after_metadata
+        && matches!(
+            &config.export,
+            crate::logs::config::LogExportConfig::CoralogixRest { .. }
+        );
+    send_transformed_batch(exporter, logs, rebatch_for_rest, config.batches_max_size).await
+}
+
+/// Owned-data core of the send path so stream-combinator futures stay
+/// reference-free (see the pipeline comments in `process_batches`).
+async fn send_transformed_batch(
+    exporter: DynLogExporter,
+    logs: Vec<ProcessedLog>,
+    rebatch_for_rest: bool,
+    batches_max_size: usize,
+) -> Result<(), Error> {
     if logs.is_empty() {
         return Ok(());
     }
 
-    if !config.starlark_transform_after_metadata
-        || !matches!(
-            &config.export,
-            crate::logs::config::LogExportConfig::CoralogixRest { .. }
-        )
-    {
+    if !rebatch_for_rest {
         return send_logs(exporter, logs).await;
     }
 
-    for batch in into_processed_log_batches_of_estimated_size(logs, config) {
+    for batch in into_processed_log_batches_of_estimated_size_limit(logs, batches_max_size) {
         send_logs(exporter.clone(), batch).await?;
     }
     Ok(())
+}
+
+/// Like `into_processed_log_batches_of_estimated_size` but taking the byte limit
+/// directly, so the send path needs no `&Config` (keeps stream futures
+/// reference-free; see the pipeline comments in `process_batches`).
+fn into_processed_log_batches_of_estimated_size_limit(
+    logs: Vec<ProcessedLog>,
+    batches_max_size: usize,
+) -> Vec<Vec<ProcessedLog>> {
+    into_batches_by_estimated_size_limit(logs, batches_max_size * 1024 * 1024, |log| {
+        log.body.to_string().len()
+    })
 }
 
 #[derive(Serialize, Deserialize, Default)]
