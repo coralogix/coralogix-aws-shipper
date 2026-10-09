@@ -177,6 +177,90 @@ pub async fn transform_logs(
     Ok(transformed)
 }
 
+/// Like `transform_logs` but preserves per-input attribution: output slot `i`
+/// holds all results derived from input log `i`. Resolves the cached
+/// transformer once for the whole batch instead of per log.
+///
+/// A log whose script evaluation fails is passed through unchanged in its own
+/// slot, matching `transform_logs`' per-input error handling.
+pub async fn transform_logs_grouped(
+    logs: Vec<String>,
+    config: &Config,
+    aws_config: &SdkConfig,
+) -> Result<Vec<Vec<String>>, TransformError> {
+    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
+    let has_script_config = config.starlark_script.is_some();
+
+    let should_resolve = {
+        let guard = CACHED_TRANSFORMER.lock().await;
+        match guard.as_ref() {
+            None => true,
+            Some(CacheState::Ready(None)) => has_script_config, // Config now has script, retry
+            Some(CacheState::Ready(Some(_))) => !has_script_config, // Config no longer has script
+            Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
+        }
+    };
+
+    if should_resolve {
+        let resolved_script = match config.resolve_starlark_script(aws_config).await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(
+                    "Starlark script resolution failed, passing through {} logs unchanged: {}",
+                    logs.len(),
+                    e
+                );
+                *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
+                    failed_at: Instant::now(),
+                });
+                return Ok(logs.into_iter().map(|log| vec![log]).collect());
+            }
+        };
+
+        let transformer = match resolved_script {
+            Some(script) => match StarlarkTransformer::new(&script) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    warn!(
+                        "Starlark script compilation failed, passing through {} logs unchanged: {}",
+                        logs.len(),
+                        e
+                    );
+                    *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
+                        failed_at: Instant::now(),
+                    });
+                    return Ok(logs.into_iter().map(|log| vec![log]).collect());
+                }
+            },
+            None => {
+                debug!("No Starlark script configured, caching None");
+                None
+            }
+        };
+        *CACHED_TRANSFORMER.lock().await = Some(CacheState::Ready(transformer));
+    }
+
+    let guard = CACHED_TRANSFORMER.lock().await;
+    let state = guard.as_ref().unwrap();
+    let transformer = match state {
+        CacheState::Ready(t) => t,
+        CacheState::Failed { .. } => return Ok(logs.into_iter().map(|log| vec![log]).collect()),
+    };
+
+    let Some(transformer) = transformer else {
+        return Ok(logs.into_iter().map(|log| vec![log]).collect());
+    };
+
+    info!("Applying Starlark transformation to {} logs", logs.len());
+    let transformed = transformer.transform_batch_grouped(logs)?;
+    info!(
+        "Starlark transformation complete: {} groups after transformation",
+        transformed.len()
+    );
+
+    Ok(transformed)
+}
+
 /// Reset the cached transformer. For use in tests only, to ensure test isolation
 /// when different tests need different STARLARK_SCRIPT configuration.
 #[doc(hidden)]
@@ -307,16 +391,30 @@ impl StarlarkTransformer {
 
     /// Transform multiple logs, flattening the results
     pub fn transform_batch(&self, logs: Vec<String>) -> Result<Vec<String>, TransformError> {
-        let mut results = Vec::new();
+        let grouped = self.transform_batch_grouped(logs)?;
+        Ok(grouped.into_iter().flatten().collect())
+    }
+
+    /// Transform multiple logs, keeping each input's outputs separate.
+    ///
+    /// Unlike `transform_batch` this preserves fan-out attribution: output slot
+    /// `i` holds all results derived from input log `i`. A log whose script
+    /// evaluation fails is passed through unchanged in its own slot, matching
+    /// `transform_batch`'s per-input error handling.
+    pub fn transform_batch_grouped(
+        &self,
+        logs: Vec<String>,
+    ) -> Result<Vec<Vec<String>>, TransformError> {
+        let mut results = Vec::with_capacity(logs.len());
         for log in logs {
             match self.transform(&log) {
-                Ok(transformed) => results.extend(transformed),
+                Ok(transformed) => results.push(transformed),
                 Err(e) => {
                     warn!(
                         "Starlark transform failed for log, passing through unchanged: {}",
                         e
                     );
-                    results.push(log);
+                    results.push(vec![log]);
                 }
             }
         }
