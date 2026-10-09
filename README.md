@@ -566,7 +566,10 @@ Example:
 ```python
 def transform(event):
     event["source_arn"] = event.pop("kinesis.event.source_arn")
-    event["message"]["metadata_was_available"] = True
+    # "message" is a dict only when the original log was valid JSON; it is a
+    # plain string for non-JSON logs.
+    if type(event["message"]) == "dict":
+        event["message"]["metadata_was_available"] = True
     return [event]
 ```
 

@@ -65,67 +65,61 @@ pub async fn process_batches_with_meta(
         number_of_logs / batches.len()
     );
 
-    // Convert to ProcessedLog synchronously: borrows here never cross an await,
-    // mirroring how the default pipeline has always used them.
-    let processed_batches: Vec<Vec<ProcessedLog>> = batches
-        .into_iter()
-        .map(|batch| {
-            batch
-                .into_iter()
-                .map(|lm| {
-                    convert_to_processed_log(
-                        lm.log,
-                        configured_app_name,
-                        configured_sub_name,
-                        &lm.mctx,
-                        config,
-                    )
-                })
-                .collect_vec()
-        })
-        .collect_vec();
-
-    // Post-metadata transformation runs sequentially: transform_logs serializes on
-    // its global script-cache lock, so transforming inside the concurrent stream
-    // adds no throughput. Keeping the borrow-holding await out of the stream
-    // combinators also keeps their futures reference-free, which the
-    // #[async_recursion] handler's Send-for-all-lifetimes obligation requires
-    // ("implementation of `Send` is not general enough" otherwise).
-    let mut transformed_batches = Vec::with_capacity(processed_batches.len());
-    for batch in processed_batches {
-        let transformed = transform_processed_logs_after_metadata(batch, config, aws_config)
-            .await
-            .map_err(|error| {
-                error!("Post-metadata log transformation failed: {}", error);
-                Error::from(error.to_string())
-            })?;
-        transformed_batches.push(transformed);
-    }
-
-    // Send concurrently. The stream futures capture only owned data (flag, batch
-    // limit, exporter clones) — no references, so the generic combinator cannot
-    // introduce lifetime obligations the handler cannot generalize.
+    // Extract the owned values the stream futures need (no reference captures —
+    // see the Send note in `process_batches`).
+    let config = std::sync::Arc::new(config.clone());
+    let aws_config = aws_config.clone();
+    let configured_app_name = configured_app_name.to_string();
+    let configured_sub_name = configured_sub_name.to_string();
     let post_metadata_rebatch_for_rest = config.starlark_transform_after_metadata
         && matches!(
             &config.export,
             crate::logs::config::LogExportConfig::CoralogixRest { .. }
         );
     let batches_max_size = config.batches_max_size;
+    let batches_max_concurrency = config.batches_max_concurrency.max(1);
 
-    let results = futures::stream::iter(transformed_batches)
+    // Stream lazily per batch (convert + transform + send as each item is
+    // polled) so memory stays bounded to the in-flight batches.
+    let results = futures::stream::iter(batches)
         .map(move |batch| {
+            let config = std::sync::Arc::clone(&config);
+            let aws_config = aws_config.clone();
+            let configured_app_name = configured_app_name.clone();
+            let configured_sub_name = configured_sub_name.clone();
             let exporter = exporter.clone();
             async move {
+                let processed: Vec<ProcessedLog> = batch
+                    .into_iter()
+                    .map(|lm| {
+                        convert_to_processed_log(
+                            lm.log,
+                            &configured_app_name,
+                            &configured_sub_name,
+                            &lm.mctx,
+                            &config,
+                        )
+                    })
+                    .collect_vec();
+
+                let transformed =
+                    transform_processed_logs_after_metadata(processed, &config, &aws_config)
+                        .await
+                        .map_err(|error| {
+                            error!("Post-metadata log transformation failed: {}", error);
+                            Error::from(error.to_string())
+                        })?;
+
                 send_transformed_batch(
                     exporter,
-                    batch,
+                    transformed,
                     post_metadata_rebatch_for_rest,
                     batches_max_size,
                 )
                 .await
             }
         })
-        .buffer_unordered(config.batches_max_concurrency.max(1))
+        .buffer_unordered(batches_max_concurrency)
         .inspect_err(|error| error!(?error, "Failed to send logs"))
         .collect::<Vec<_>>()
         .await;
@@ -232,67 +226,67 @@ pub async fn process_batches(
         number_of_logs / batches.len()
     );
 
-    // Convert to ProcessedLog synchronously: borrows here never cross an await,
-    // mirroring how the default pipeline has always used them.
-    let processed_batches: Vec<Vec<ProcessedLog>> = batches
-        .into_iter()
-        .map(|batch| {
-            batch
-                .into_iter()
-                .map(|log| {
-                    convert_to_processed_log(
-                        log,
-                        configured_app_name,
-                        configured_sub_name,
-                        mctx,
-                        config,
-                    )
-                })
-                .collect_vec()
-        })
-        .collect_vec();
-
-    // Post-metadata transformation runs sequentially: transform_logs serializes on
-    // its global script-cache lock, so transforming inside the concurrent stream
-    // adds no throughput. Keeping the borrow-holding await out of the stream
-    // combinators also keeps their futures reference-free, which the
-    // #[async_recursion] handler's Send-for-all-lifetimes obligation requires
-    // ("implementation of `Send` is not general enough" otherwise).
-    let mut transformed_batches = Vec::with_capacity(processed_batches.len());
-    for batch in processed_batches {
-        let transformed = transform_processed_logs_after_metadata(batch, config, aws_config)
-            .await
-            .map_err(|error| {
-                error!("Post-metadata log transformation failed: {}", error);
-                Error::from(error.to_string())
-            })?;
-        transformed_batches.push(transformed);
-    }
-
-    // Send concurrently. The stream futures capture only owned data (flag, batch
-    // limit, exporter clones) — no references, so the generic combinator cannot
-    // introduce lifetime obligations the handler cannot generalize.
+    // Extract the owned values the stream futures need. The futures must capture
+    // no references: the #[async_recursion] handler requires every awaited
+    // future to be Send for ALL lifetimes, and borrow-capturing futures fail
+    // that check ("implementation of `Send` is not general enough").
+    let config = std::sync::Arc::new(config.clone());
+    let aws_config = aws_config.clone();
+    let mctx = mctx.clone();
+    let configured_app_name = configured_app_name.to_string();
+    let configured_sub_name = configured_sub_name.to_string();
     let post_metadata_rebatch_for_rest = config.starlark_transform_after_metadata
         && matches!(
             &config.export,
             crate::logs::config::LogExportConfig::CoralogixRest { .. }
         );
     let batches_max_size = config.batches_max_size;
+    let batches_max_concurrency = config.batches_max_concurrency.max(1);
 
-    let results = futures::stream::iter(transformed_batches)
+    // Stream lazily per batch: convert + transform + send happen as the stream
+    // item is polled, so memory stays bounded to the in-flight batches instead
+    // of the whole transformed invocation. All captures are owned (Arc clones),
+    // keeping the combinator futures reference-free for the handler's Send bound.
+    let results = futures::stream::iter(batches)
         .map(move |batch| {
+            let config = std::sync::Arc::clone(&config);
+            let aws_config = aws_config.clone();
+            let mctx = mctx.clone();
+            let configured_app_name = configured_app_name.clone();
+            let configured_sub_name = configured_sub_name.clone();
             let exporter = exporter.clone();
             async move {
+                let processed: Vec<ProcessedLog> = batch
+                    .into_iter()
+                    .map(|log| {
+                        convert_to_processed_log(
+                            log,
+                            &configured_app_name,
+                            &configured_sub_name,
+                            &mctx,
+                            &config,
+                        )
+                    })
+                    .collect_vec();
+
+                let transformed =
+                    transform_processed_logs_after_metadata(processed, &config, &aws_config)
+                        .await
+                        .map_err(|error| {
+                            error!("Post-metadata log transformation failed: {}", error);
+                            Error::from(error.to_string())
+                        })?;
+
                 send_transformed_batch(
                     exporter,
-                    batch,
+                    transformed,
                     post_metadata_rebatch_for_rest,
                     batches_max_size,
                 )
                 .await
             }
         })
-        .buffer_unordered(config.batches_max_concurrency.max(1))
+        .buffer_unordered(batches_max_concurrency)
         .inspect_err(|error| error!(?error, "Failed to send logs"))
         .collect::<Vec<_>>()
         .await;
@@ -316,20 +310,25 @@ async fn transform_processed_logs_after_metadata(
         return Ok(processed_logs);
     }
 
-    let mut transformed_logs = Vec::with_capacity(processed_logs.len());
-    for source_log in processed_logs {
-        let transform_input = match &source_log.body {
+    let inputs: Vec<String> = processed_logs
+        .iter()
+        .map(|source_log| match &source_log.body {
             Value::String(text) => Ok(text.clone()),
             body => serde_json::to_string(body).map_err(|error| Error::from(error.to_string())),
-        }?;
-        let transformed_bodies =
-            transform::transform_logs(vec![transform_input], config, aws_config)
-                .await
-                .map_err(|error| {
-                    error!("Post-metadata log transformation failed: {}", error);
-                    Error::from(error.to_string())
-                })?;
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
 
+    // One cache-resolution + lock cycle for the whole batch; per-input fan-out
+    // attribution is preserved by the grouped API.
+    let grouped = transform::transform_logs_grouped(inputs, config, aws_config)
+        .await
+        .map_err(|error| {
+            error!("Post-metadata log transformation failed: {}", error);
+            Error::from(error.to_string())
+        })?;
+
+    let mut transformed_logs = Vec::with_capacity(processed_logs.len());
+    for (source_log, transformed_bodies) in processed_logs.into_iter().zip(grouped) {
         for transformed_body in transformed_bodies {
             if transformed_body.trim().is_empty() {
                 continue;

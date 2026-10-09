@@ -18,13 +18,13 @@ const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
 const DISABLE_LOG_SEVERITY_DETECTION_ENV: &str = "DISABLE_LOG_SEVERITY_DETECTION";
 const STARLARK_TRANSFORM_AFTER_METADATA_ENV: &str = "STARLARK_TRANSFORM_AFTER_METADATA";
 
-fn load_disable_log_severity_detection() -> bool {
-    match env::var(DISABLE_LOG_SEVERITY_DETECTION_ENV) {
+fn load_bool_env(name: &str) -> bool {
+    match env::var(name) {
         Ok(value) => match value.parse::<bool>() {
             Ok(value) => value,
             Err(_) => {
                 tracing::warn!(
-                    environment_variable = DISABLE_LOG_SEVERITY_DETECTION_ENV,
+                    environment_variable = name,
                     "Invalid boolean value; using default false"
                 );
                 false
@@ -34,20 +34,12 @@ fn load_disable_log_severity_detection() -> bool {
     }
 }
 
+fn load_disable_log_severity_detection() -> bool {
+    load_bool_env(DISABLE_LOG_SEVERITY_DETECTION_ENV)
+}
+
 fn load_starlark_transform_after_metadata() -> bool {
-    match env::var(STARLARK_TRANSFORM_AFTER_METADATA_ENV) {
-        Ok(value) => match value.parse::<bool>() {
-            Ok(value) => value,
-            Err(_) => {
-                tracing::warn!(
-                    environment_variable = STARLARK_TRANSFORM_AFTER_METADATA_ENV,
-                    "Invalid boolean value; using default false"
-                );
-                false
-            }
-        },
-        Err(_) => false,
-    }
+    load_bool_env(STARLARK_TRANSFORM_AFTER_METADATA_ENV)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
