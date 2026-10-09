@@ -71,11 +71,7 @@ pub async fn process_batches_with_meta(
     let aws_config = aws_config.clone();
     let configured_app_name = configured_app_name.to_string();
     let configured_sub_name = configured_sub_name.to_string();
-    let post_metadata_rebatch_for_rest = config.starlark_transform_after_metadata
-        && matches!(
-            &config.export,
-            crate::logs::config::LogExportConfig::CoralogixRest { .. }
-        );
+    let post_metadata_rebatch_for_rest = config.post_metadata_rebatch_for_rest();
     let batches_max_size = config.batches_max_size;
     let batches_max_concurrency = config.batches_max_concurrency.max(1);
 
@@ -115,6 +111,7 @@ pub async fn process_batches_with_meta(
                     transformed,
                     post_metadata_rebatch_for_rest,
                     batches_max_size,
+                    batches_max_concurrency,
                 )
                 .await
             }
@@ -235,11 +232,7 @@ pub async fn process_batches(
     let mctx = mctx.clone();
     let configured_app_name = configured_app_name.to_string();
     let configured_sub_name = configured_sub_name.to_string();
-    let post_metadata_rebatch_for_rest = config.starlark_transform_after_metadata
-        && matches!(
-            &config.export,
-            crate::logs::config::LogExportConfig::CoralogixRest { .. }
-        );
+    let post_metadata_rebatch_for_rest = config.post_metadata_rebatch_for_rest();
     let batches_max_size = config.batches_max_size;
     let batches_max_concurrency = config.batches_max_concurrency.max(1);
 
@@ -282,6 +275,7 @@ pub async fn process_batches(
                     transformed,
                     post_metadata_rebatch_for_rest,
                     batches_max_size,
+                    batches_max_concurrency,
                 )
                 .await
             }
@@ -310,11 +304,15 @@ async fn transform_processed_logs_after_metadata(
         return Ok(processed_logs);
     }
 
+    // Serialize every body uniformly (including string bodies): the script must
+    // see the same JSON type the body would be exported with. Reading a string
+    // body's raw text instead would present a log whose content happens to be
+    // valid JSON (e.g. `"123"`) to the script as a number/dict and change the
+    // exported type after even an identity transform.
     let inputs: Vec<String> = processed_logs
         .iter()
-        .map(|source_log| match &source_log.body {
-            Value::String(text) => Ok(text.clone()),
-            body => serde_json::to_string(body).map_err(|error| Error::from(error.to_string())),
+        .map(|source_log| {
+            serde_json::to_string(&source_log.body).map_err(|error| Error::from(error.to_string()))
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
@@ -351,12 +349,14 @@ async fn send_transformed_logs(
     logs: Vec<ProcessedLog>,
     config: &Config,
 ) -> Result<(), Error> {
-    let rebatch_for_rest = config.starlark_transform_after_metadata
-        && matches!(
-            &config.export,
-            crate::logs::config::LogExportConfig::CoralogixRest { .. }
-        );
-    send_transformed_batch(exporter, logs, rebatch_for_rest, config.batches_max_size).await
+    send_transformed_batch(
+        exporter,
+        logs,
+        config.post_metadata_rebatch_for_rest(),
+        config.batches_max_size,
+        config.batches_max_concurrency.max(1),
+    )
+    .await
 }
 
 /// Owned-data core of the send path so stream-combinator futures stay
@@ -366,6 +366,7 @@ async fn send_transformed_batch(
     logs: Vec<ProcessedLog>,
     rebatch_for_rest: bool,
     batches_max_size: usize,
+    batches_max_concurrency: usize,
 ) -> Result<(), Error> {
     if logs.is_empty() {
         return Ok(());
@@ -375,9 +376,23 @@ async fn send_transformed_batch(
         return send_logs(exporter, logs).await;
     }
 
-    for batch in into_processed_log_batches_of_estimated_size_limit(logs, batches_max_size) {
-        send_logs(exporter.clone(), batch).await?;
-    }
+    // Send the size-limited sub-batches concurrently (bounded by the caller's
+    // concurrency limit) instead of strictly sequentially, matching the
+    // pre-PR pipeline's throughput when a single source batch fans out.
+    let results = futures::stream::iter(into_processed_log_batches_of_estimated_size_limit(
+        logs,
+        batches_max_size,
+    ))
+    .map(|batch| {
+        let exporter = exporter.clone();
+        async move { send_logs(exporter, batch).await }
+    })
+    .buffer_unordered(batches_max_concurrency)
+    .inspect_err(|error| error!(?error, "Failed to send logs"))
+    .collect::<Vec<_>>()
+    .await;
+
+    results.into_iter().collect::<Result<Vec<()>, Error>>()?;
     Ok(())
 }
 

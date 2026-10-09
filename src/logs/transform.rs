@@ -188,20 +188,24 @@ pub async fn transform_logs_grouped(
     config: &Config,
     aws_config: &SdkConfig,
 ) -> Result<Vec<Vec<String>>, TransformError> {
-    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
-    let has_script_config = config.starlark_script.is_some();
+    let passthrough = || Ok(logs.iter().map(|log| vec![log.clone()]).collect::<Vec<_>>());
 
-    let should_resolve = {
-        let guard = CACHED_TRANSFORMER.lock().await;
-        match guard.as_ref() {
-            None => true,
-            Some(CacheState::Ready(None)) => has_script_config, // Config now has script, retry
-            Some(CacheState::Ready(Some(_))) => !has_script_config, // Config no longer has script
-            Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
-        }
+    // Snapshot the retry window before touching the cache.
+    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
+
+    // Acquire the cache lock once: cold-start callers queue here, so exactly one
+    // task performs the script resolution (download/compile) while the others
+    // observe the published result after the lock is released — no thundering
+    // herd, no duplicate downloads, no late failure clobbering a good cache.
+    let mut guard = CACHED_TRANSFORMER.lock().await;
+    let needs_resolution = match guard.as_ref() {
+        None => true,
+        Some(CacheState::Ready(None)) => config.starlark_script.is_some(), // config now has a script
+        Some(CacheState::Ready(Some(_))) => config.starlark_script.is_none(), // script removed
+        Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
     };
 
-    if should_resolve {
+    if needs_resolution {
         let resolved_script = match config.resolve_starlark_script(aws_config).await {
             Ok(s) => s,
             Err(e) => {
@@ -210,10 +214,14 @@ pub async fn transform_logs_grouped(
                     logs.len(),
                     e
                 );
-                *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
-                    failed_at: Instant::now(),
-                });
-                return Ok(logs.into_iter().map(|log| vec![log]).collect());
+                // Only mark Failed when no other task published a good state
+                // while this one was resolving.
+                if !matches!(guard.as_ref(), Some(CacheState::Ready(Some(_)))) {
+                    *guard = Some(CacheState::Failed {
+                        failed_at: Instant::now(),
+                    });
+                }
+                return passthrough();
             }
         };
 
@@ -226,10 +234,12 @@ pub async fn transform_logs_grouped(
                         logs.len(),
                         e
                     );
-                    *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
-                        failed_at: Instant::now(),
-                    });
-                    return Ok(logs.into_iter().map(|log| vec![log]).collect());
+                    if !matches!(guard.as_ref(), Some(CacheState::Ready(Some(_)))) {
+                        *guard = Some(CacheState::Failed {
+                            failed_at: Instant::now(),
+                        });
+                    }
+                    return passthrough();
                 }
             },
             None => {
@@ -237,18 +247,16 @@ pub async fn transform_logs_grouped(
                 None
             }
         };
-        *CACHED_TRANSFORMER.lock().await = Some(CacheState::Ready(transformer));
+        *guard = Some(CacheState::Ready(transformer));
     }
 
-    let guard = CACHED_TRANSFORMER.lock().await;
-    let state = guard.as_ref().unwrap();
-    let transformer = match state {
+    let transformer = match guard.as_ref().unwrap() {
         CacheState::Ready(t) => t,
-        CacheState::Failed { .. } => return Ok(logs.into_iter().map(|log| vec![log]).collect()),
+        CacheState::Failed { .. } => return passthrough(),
     };
 
     let Some(transformer) = transformer else {
-        return Ok(logs.into_iter().map(|log| vec![log]).collect());
+        return passthrough();
     };
 
     info!("Applying Starlark transformation to {} logs", logs.len());
