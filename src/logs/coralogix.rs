@@ -326,6 +326,7 @@ async fn transform_processed_logs_after_metadata(
             serde_json::to_string(&source_log.body).map_err(|error| Error::from(error.to_string()))
         })
         .collect::<Result<Vec<_>, Error>>()?;
+    let inputs_for_comparison = inputs.clone();
 
     // One cache-resolution + lock cycle for the whole batch; per-input fan-out
     // attribution is preserved by the grouped API.
@@ -337,14 +338,25 @@ async fn transform_processed_logs_after_metadata(
         })?;
 
     let mut transformed_logs = Vec::with_capacity(processed_logs.len());
-    for (source_log, transformed_bodies) in processed_logs.into_iter().zip(grouped) {
-        for transformed_body in transformed_bodies {
-            if transformed_body.trim().is_empty() {
+    for ((source_log, input), transformed_bodies) in processed_logs
+        .into_iter()
+        .zip(inputs_for_comparison)
+        .zip(grouped)
+    {
+        for transformed_value in transformed_bodies {
+            // Empty string results are dropped (the script filtered the log out).
+            if matches!(&transformed_value, Value::String(s) if s.trim().is_empty()) {
                 continue;
             }
 
-            let body = serde_json::from_str(&transformed_body)
-                .unwrap_or_else(|_| Value::String(transformed_body));
+            // A string slot that is byte-identical to the input text means the
+            // script returned the input unchanged OR the script failed and the
+            // log passed through. Either way the original body (with its exact
+            // prior type) is the correct output — not a re-serialization of it.
+            let body = match transformed_value {
+                Value::String(ref s) if *s == input => source_log.body.clone(),
+                other => other,
+            };
             let mut transformed_log = source_log.clone();
             transformed_log.body = body;
             transformed_logs.push(transformed_log);
