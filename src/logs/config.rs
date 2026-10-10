@@ -16,14 +16,15 @@ use thiserror::Error;
 /// Maximum allowed size for a downloaded Starlark script (1 MiB).
 const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
 const DISABLE_LOG_SEVERITY_DETECTION_ENV: &str = "DISABLE_LOG_SEVERITY_DETECTION";
+const STARLARK_TRANSFORM_AFTER_METADATA_ENV: &str = "STARLARK_TRANSFORM_AFTER_METADATA";
 
-fn load_disable_log_severity_detection() -> bool {
-    match env::var(DISABLE_LOG_SEVERITY_DETECTION_ENV) {
+fn load_bool_env(name: &str) -> bool {
+    match env::var(name) {
         Ok(value) => match value.parse::<bool>() {
             Ok(value) => value,
             Err(_) => {
                 tracing::warn!(
-                    environment_variable = DISABLE_LOG_SEVERITY_DETECTION_ENV,
+                    environment_variable = name,
                     "Invalid boolean value; using default false"
                 );
                 false
@@ -31,6 +32,14 @@ fn load_disable_log_severity_detection() -> bool {
         },
         Err(_) => false,
     }
+}
+
+fn load_disable_log_severity_detection() -> bool {
+    load_bool_env(DISABLE_LOG_SEVERITY_DETECTION_ENV)
+}
+
+fn load_starlark_transform_after_metadata() -> bool {
+    load_bool_env(STARLARK_TRANSFORM_AFTER_METADATA_ENV)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +176,7 @@ impl LogExportConfig {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Config {
     pub newline_pattern: String,          // this should be regex
     pub blocking_pattern: String,         // this should be regex
@@ -188,9 +198,20 @@ pub struct Config {
     pub dlq_s3_bucket: Option<String>,
     pub lambda_assume_role: Option<String>,
     pub starlark_script: Option<String>,
+    pub starlark_transform_after_metadata: bool,
     pub enable_log_group_tags: bool,
     pub log_group_tags_cache_ttl_seconds: u64,
     pub disable_log_severity_detection: bool,
+}
+
+impl Config {
+    /// True when the post-metadata REST rebatching applies: post-metadata
+    /// transformation is enabled and the export goes through the Coralogix REST
+    /// API. Single source of truth so call sites cannot drift.
+    pub fn post_metadata_rebatch_for_rest(&self) -> bool {
+        self.starlark_transform_after_metadata
+            && matches!(&self.export, LogExportConfig::CoralogixRest { .. })
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -238,6 +259,16 @@ impl fmt::Display for IntegrationType {
 
 impl Config {
     pub fn load_from_env() -> Result<Config, String> {
+        let starlark_script: Option<String> = env::var("STARLARK_SCRIPT")
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+        let starlark_transform_after_metadata = load_starlark_transform_after_metadata();
+        if starlark_transform_after_metadata && starlark_script.is_none() {
+            tracing::warn!(
+                "STARLARK_TRANSFORM_AFTER_METADATA=true but STARLARK_SCRIPT is not set; the flag has no effect"
+            );
+        }
+
         // let conf: Config;
         let conf = Config {
             newline_pattern: env::var("NEWLINE_PATTERN").unwrap_or("".to_string()),
@@ -288,9 +319,8 @@ impl Config {
             dlq_retry_limit: env::var("DLQ_RETRY_LIMIT").ok(),
             dlq_s3_bucket: env::var("DLQ_S3_BUCKET").ok(),
             lambda_assume_role: env::var("LAMBDA_ASSUME_ROLE").ok(),
-            starlark_script: env::var("STARLARK_SCRIPT")
-                .ok()
-                .filter(|s| !s.trim().is_empty()),
+            starlark_script,
+            starlark_transform_after_metadata,
             enable_log_group_tags: env::var("ENABLE_LOG_GROUP_TAGS")
                 .unwrap_or("false".to_string())
                 .parse::<bool>()
@@ -698,6 +728,20 @@ mod destination_config_tests {
         temp_env::with_var("DISABLE_LOG_SEVERITY_DETECTION", Some("yes"), || {
             assert!(!load_disable_log_severity_detection())
         });
+    }
+
+    #[test]
+    fn starlark_transform_after_metadata_flag_defaults_and_parsing() {
+        for (value, expected) in [
+            (None, false),
+            (Some("false"), false),
+            (Some("true"), true),
+            (Some("yes"), false),
+        ] {
+            temp_env::with_var(STARLARK_TRANSFORM_AFTER_METADATA_ENV, value, || {
+                assert_eq!(load_starlark_transform_after_metadata(), expected);
+            });
+        }
     }
 
     #[test]
