@@ -177,9 +177,10 @@ pub async fn transform_logs(
     Ok(transformed)
 }
 
-/// Like `transform_logs` but preserves per-input attribution: output slot `i`
-/// holds all results derived from input log `i`. Resolves the cached
-/// transformer once for the whole batch instead of per log.
+/// Like `transform_logs` but preserves per-input attribution as typed JSON
+/// values: output slot `i` holds all results derived from input log `i`, with
+/// Starlark strings kept as JSON strings (not unquoted contents). Resolves the
+/// cached transformer once for the whole batch instead of per log.
 ///
 /// A log whose script evaluation fails is passed through unchanged in its own
 /// slot, matching `transform_logs`' per-input error handling.
@@ -187,8 +188,13 @@ pub async fn transform_logs_grouped(
     logs: Vec<String>,
     config: &Config,
     aws_config: &SdkConfig,
-) -> Result<Vec<Vec<String>>, TransformError> {
-    let passthrough = || Ok(logs.iter().map(|log| vec![log.clone()]).collect::<Vec<_>>());
+) -> Result<Vec<Vec<serde_json::Value>>, TransformError> {
+    let passthrough = || {
+        Ok(logs
+            .iter()
+            .map(|log| vec![serde_json::Value::String(log.clone())])
+            .collect::<Vec<_>>())
+    };
 
     // Snapshot the retry window before touching the cache.
     let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
@@ -260,7 +266,7 @@ pub async fn transform_logs_grouped(
     };
 
     info!("Applying Starlark transformation to {} logs", logs.len());
-    let transformed = transformer.transform_batch_grouped(logs)?;
+    let transformed = transformer.transform_batch_grouped_values(logs)?;
     info!(
         "Starlark transformation complete: {} groups after transformation",
         transformed.len()
@@ -397,10 +403,73 @@ impl StarlarkTransformer {
         starlark_to_json_strings(result)
     }
 
+    /// Transform a single log, returning typed JSON values: Starlark strings
+    /// come back as JSON strings (not unquoted contents), preserving types.
+    pub fn transform_value(&self, log: &str) -> Result<Vec<serde_json::Value>, TransformError> {
+        // Parse the input as JSON
+        let json_value: serde_json::Value = serde_json::from_str(log)
+            .unwrap_or_else(|_| serde_json::Value::String(log.to_string()));
+
+        // Create a new module for this evaluation, importing from frozen
+        let module = Module::new();
+        module.import_public_symbols(&self.frozen_module);
+
+        // Get the transform function
+        let transform_fn = self
+            .frozen_module
+            .get("transform")
+            .map_err(|_| TransformError::TransformFunctionNotFound)?;
+
+        let mut eval = Evaluator::new(&module);
+        eval.set_print_handler(&PRINT_HANDLER);
+
+        // Convert JSON to Starlark value
+        let heap = module.heap();
+        let starlark_input =
+            json_to_starlark(heap, &json_value).map_err(TransformError::ConversionError)?;
+
+        // Call transform(event)
+        let result = eval
+            .eval_function(transform_fn.value(), &[starlark_input], &[])
+            .map_err(|e| TransformError::EvalError(e.to_string()))?;
+
+        starlark_to_json_values(result)
+    }
+
     /// Transform multiple logs, flattening the results
     pub fn transform_batch(&self, logs: Vec<String>) -> Result<Vec<String>, TransformError> {
         let grouped = self.transform_batch_grouped(logs)?;
         Ok(grouped.into_iter().flatten().collect())
+    }
+
+    /// Transform multiple logs, keeping each input's outputs separate as typed
+    /// JSON values.
+    ///
+    /// Unlike `transform_batch` this preserves fan-out attribution: output slot
+    /// `i` holds all results derived from input log `i`. A log whose script
+    /// evaluation fails is passed through unchanged in its own slot, matching
+    /// `transform_batch`'s per-input error handling.
+    ///
+    /// Starlark strings are returned as JSON strings — NOT their unquoted
+    /// contents — so the caller sees the same type the script produced.
+    pub fn transform_batch_grouped_values(
+        &self,
+        logs: Vec<String>,
+    ) -> Result<Vec<Vec<serde_json::Value>>, TransformError> {
+        let mut results = Vec::with_capacity(logs.len());
+        for log in logs {
+            match self.transform_value(&log) {
+                Ok(transformed) => results.push(transformed),
+                Err(e) => {
+                    warn!(
+                        "Starlark transform failed for log, passing through unchanged: {}",
+                        e
+                    );
+                    results.push(vec![serde_json::Value::String(log)]);
+                }
+            }
+        }
+        Ok(results)
     }
 
     /// Transform multiple logs, keeping each input's outputs separate.
@@ -413,20 +482,18 @@ impl StarlarkTransformer {
         &self,
         logs: Vec<String>,
     ) -> Result<Vec<Vec<String>>, TransformError> {
-        let mut results = Vec::with_capacity(logs.len());
-        for log in logs {
-            match self.transform(&log) {
-                Ok(transformed) => results.push(transformed),
-                Err(e) => {
-                    warn!(
-                        "Starlark transform failed for log, passing through unchanged: {}",
-                        e
-                    );
-                    results.push(vec![log]);
-                }
-            }
-        }
-        Ok(results)
+        let values = self.transform_batch_grouped_values(logs)?;
+        Ok(values
+            .into_iter()
+            .map(|slot| {
+                slot.into_iter()
+                    .map(|value| match value {
+                        serde_json::Value::String(s) => s,
+                        other => other.to_string(),
+                    })
+                    .collect()
+            })
+            .collect())
     }
 }
 
@@ -667,6 +734,28 @@ fn starlark_to_json(value: Value) -> Result<serde_json::Value, String> {
 
     // Fallback: represent as string
     Ok(serde_json::Value::String(value.to_string()))
+}
+
+/// Convert a Starlark result (expected to be a list) to JSON values.
+///
+/// Unlike `starlark_to_json_strings` this keeps Starlark strings as JSON
+/// strings (not their unquoted contents), so callers can round-trip typed
+/// data without re-parsing ambiguity.
+fn starlark_to_json_values(value: Value) -> Result<Vec<serde_json::Value>, TransformError> {
+    if let Some(list) = ListRef::from_value(value) {
+        let mut results = Vec::new();
+        for item in list.iter() {
+            let json = starlark_to_json(item).map_err(TransformError::ConversionError)?;
+            results.push(json);
+        }
+        Ok(results)
+    } else {
+        Err(TransformError::InvalidReturnType(format!(
+            "got {} (type: {}), expected a list. Example: return [event] or return []",
+            value,
+            value.get_type()
+        )))
+    }
 }
 
 /// Convert a Starlark result (expected to be a list) to JSON strings.

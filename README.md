@@ -550,7 +550,7 @@ The default is backward compatible with existing deployments and scripts.
 
 When `StarlarkTransformAfterMetadata` is `true`, the script receives the body that would otherwise be exported. It contains only metadata configured for output through `AddMetadata`, `CustomMetadata`, or enabled CloudWatch log group tags. Internal metadata that was not selected is not exposed.
 
-When metadata is attached, the existing output envelope places the original log under `event["message"]` and metadata at the root:
+When metadata is attached through `AddMetadata` or `CustomMetadata`, the existing output envelope places the original log under `event["message"]` and metadata at the root:
 
 ```json
 {
@@ -578,6 +578,8 @@ def transform(event):
         event["message"]["metadata_was_available"] = True
     return [event]
 ```
+
+Note: when enabled CloudWatch log-group tags are the **only** metadata, the body follows the pre-existing tags-only shape instead of the envelope above: a JSON-object log gets `cw.tags` merged at its root, a plain-text log is wrapped as `{"text": <log>, "cw.tags": {...}}`, and other JSON values are wrapped as `{"message": <log>, "cw.tags": {...}}`. With no metadata at all, the script simply receives the raw log itself (string or dict).
 
 The structure of `event` depends on the source that triggered the Lambda:
 
