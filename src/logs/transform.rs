@@ -182,17 +182,19 @@ pub async fn transform_logs(
 /// Starlark strings kept as JSON strings (not unquoted contents). Resolves the
 /// cached transformer once for the whole batch instead of per log.
 ///
-/// A log whose script evaluation fails is passed through unchanged in its own
-/// slot, matching `transform_logs`' per-input error handling.
+/// A log whose script evaluation fails (or whose transformer is unavailable)
+/// yields a [`TransformOutcome::PassThrough`] slot so callers can restore the
+/// original body explicitly, matching `transform_logs`' per-input error
+/// handling without relying on value equality.
 pub async fn transform_logs_grouped(
-    logs: Vec<String>,
+    logs: &[String],
     config: &Config,
     aws_config: &SdkConfig,
-) -> Result<Vec<Vec<serde_json::Value>>, TransformError> {
+) -> Result<Vec<Vec<TransformOutcome>>, TransformError> {
     let passthrough = || {
         Ok(logs
             .iter()
-            .map(|log| vec![serde_json::Value::String(log.clone())])
+            .map(|_| vec![TransformOutcome::PassThrough])
             .collect::<Vec<_>>())
     };
 
@@ -312,6 +314,20 @@ pub enum TransformError {
 
 // Keep the old name as an alias for backwards compatibility with tests
 pub type StarlarkError = TransformError;
+
+/// Outcome of transforming one input log in the grouped API.
+///
+/// `Transformed` carries the typed JSON values the script produced.
+/// `PassThrough` marks a log that was NOT transformed (script evaluation
+/// failed, or the cached transformer is unavailable) so callers can restore
+/// the original body instead of inferring from value equality — an identity
+/// script or `to_json(event)` can legitimately produce text identical to the
+/// serialized input.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransformOutcome {
+    Transformed(serde_json::Value),
+    PassThrough,
+}
 
 // ============================================================================
 // Starlark Transformer
@@ -438,7 +454,7 @@ impl StarlarkTransformer {
 
     /// Transform multiple logs, flattening the results
     pub fn transform_batch(&self, logs: Vec<String>) -> Result<Vec<String>, TransformError> {
-        let grouped = self.transform_batch_grouped(logs)?;
+        let grouped = self.transform_batch_grouped(&logs)?;
         Ok(grouped.into_iter().flatten().collect())
     }
 
@@ -454,18 +470,23 @@ impl StarlarkTransformer {
     /// contents — so the caller sees the same type the script produced.
     pub fn transform_batch_grouped_values(
         &self,
-        logs: Vec<String>,
-    ) -> Result<Vec<Vec<serde_json::Value>>, TransformError> {
+        logs: &[String],
+    ) -> Result<Vec<Vec<TransformOutcome>>, TransformError> {
         let mut results = Vec::with_capacity(logs.len());
         for log in logs {
-            match self.transform_value(&log) {
-                Ok(transformed) => results.push(transformed),
+            match self.transform_value(log) {
+                Ok(transformed) => results.push(
+                    transformed
+                        .into_iter()
+                        .map(TransformOutcome::Transformed)
+                        .collect(),
+                ),
                 Err(e) => {
                     warn!(
                         "Starlark transform failed for log, passing through unchanged: {}",
                         e
                     );
-                    results.push(vec![serde_json::Value::String(log)]);
+                    results.push(vec![TransformOutcome::PassThrough]);
                 }
             }
         }
@@ -480,16 +501,18 @@ impl StarlarkTransformer {
     /// `transform_batch`'s per-input error handling.
     pub fn transform_batch_grouped(
         &self,
-        logs: Vec<String>,
+        logs: &[String],
     ) -> Result<Vec<Vec<String>>, TransformError> {
         let values = self.transform_batch_grouped_values(logs)?;
         Ok(values
             .into_iter()
-            .map(|slot| {
+            .zip(logs.iter())
+            .map(|(slot, original)| {
                 slot.into_iter()
-                    .map(|value| match value {
-                        serde_json::Value::String(s) => s,
-                        other => other.to_string(),
+                    .map(|outcome| match outcome {
+                        TransformOutcome::Transformed(serde_json::Value::String(s)) => s,
+                        TransformOutcome::Transformed(other) => other.to_string(),
+                        TransformOutcome::PassThrough => original.clone(),
                     })
                     .collect()
             })

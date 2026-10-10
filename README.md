@@ -565,17 +565,18 @@ Example:
 
 ```python
 def transform(event):
-    # The "kinesis.event.source_arn" key exists only when the trigger is Kinesis
-    # and that field is selected in AddMetadata, so pop with a default.
-    source_arn = event.pop("kinesis.event.source_arn", None)
-    if source_arn != None:
-        event["source_arn"] = source_arn
     # When no metadata is configured (no AddMetadata/CustomMetadata/log-group
-    # tags), the script receives the raw log itself — string or dict — with no
-    # "message" envelope, so guard both the key and its type. A script error
-    # makes the log pass through unchanged with a warning in the Lambda logs.
-    if "message" in event and type(event["message"]) == "dict":
-        event["message"]["metadata_was_available"] = True
+    # tags), the script receives the raw log itself — a plain string for
+    # non-JSON logs, which has no dict methods — so guard on the type first.
+    if type(event) == "dict":
+        # The "kinesis.event.source_arn" key exists only when the trigger is
+        # Kinesis and that field is selected in AddMetadata, so pop with a
+        # default.
+        source_arn = event.pop("kinesis.event.source_arn", None)
+        if source_arn != None:
+            event["source_arn"] = source_arn
+        if "message" in event and type(event["message"]) == "dict":
+            event["message"]["metadata_was_available"] = True
     return [event]
 ```
 
