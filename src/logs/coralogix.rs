@@ -326,11 +326,9 @@ async fn transform_processed_logs_after_metadata(
             serde_json::to_string(&source_log.body).map_err(|error| Error::from(error.to_string()))
         })
         .collect::<Result<Vec<_>, Error>>()?;
-    let inputs_for_comparison = inputs.clone();
-
     // One cache-resolution + lock cycle for the whole batch; per-input fan-out
     // attribution is preserved by the grouped API.
-    let grouped = transform::transform_logs_grouped(inputs, config, aws_config)
+    let grouped = transform::transform_logs_grouped(&inputs, config, aws_config)
         .await
         .map_err(|error| {
             error!("Post-metadata log transformation failed: {}", error);
@@ -338,27 +336,30 @@ async fn transform_processed_logs_after_metadata(
         })?;
 
     let mut transformed_logs = Vec::with_capacity(processed_logs.len());
-    for ((source_log, input), transformed_bodies) in processed_logs
-        .into_iter()
-        .zip(inputs_for_comparison)
-        .zip(grouped)
-    {
-        for transformed_value in transformed_bodies {
+    for (source_log, transformed_bodies) in processed_logs.into_iter().zip(grouped) {
+        for outcome in transformed_bodies {
+            let transformed_value = match outcome {
+                // Explicit passthrough marker: the script failed (or the
+                // transformer was unavailable), so restore the original body
+                // with its exact prior type — no value-equality inference.
+                transform::TransformOutcome::PassThrough => {
+                    transformed_logs.push(source_log.clone());
+                    continue;
+                }
+                transform::TransformOutcome::Transformed(value) => value,
+            };
+
             // Empty string results are dropped (the script filtered the log out).
             if matches!(&transformed_value, Value::String(s) if s.trim().is_empty()) {
                 continue;
             }
 
-            // A string slot that is byte-identical to the input text means the
-            // script returned the input unchanged OR the script failed and the
-            // log passed through. Either way the original body (with its exact
-            // prior type) is the correct output — not a re-serialization of it.
-            let body = match transformed_value {
-                Value::String(ref s) if *s == input => source_log.body.clone(),
-                other => other,
-            };
+            // Typed results need no reparse: Starlark strings stay strings and
+            // structured values stay structured — the exported type is exactly
+            // what the script produced (including deliberate `to_json`
+            // stringification).
             let mut transformed_log = source_log.clone();
-            transformed_log.body = body;
+            transformed_log.body = transformed_value;
             transformed_logs.push(transformed_log);
         }
     }
