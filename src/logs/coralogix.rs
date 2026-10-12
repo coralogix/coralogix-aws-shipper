@@ -244,6 +244,7 @@ pub async fn process_batches(
     // One global send-budget shared by every export call in this pipeline:
     // the outer stream and the REST-rebatch sub-batch sends would otherwise
     // multiply to batches_max_concurrency^2 simultaneous exporter calls.
+    // (See the identical note in `process_batches` for the full rationale.)
     let send_permits = std::sync::Arc::new(tokio::sync::Semaphore::new(batches_max_concurrency));
 
     // Stream lazily per batch: convert + transform + send happen as the stream
@@ -437,9 +438,9 @@ async fn send_transformed_batch(
     Ok(())
 }
 
-/// Like `into_processed_log_batches_of_estimated_size` but taking the byte limit
-/// directly, so the send path needs no `&Config` (keeps stream futures
-/// reference-free; see the pipeline comments in `process_batches`).
+/// Like `into_batches_by_estimated_size` but taking the byte limit directly,
+/// so the send path needs no `&Config` (keeps stream futures reference-free;
+/// see the pipeline comments in `process_batches`).
 fn into_processed_log_batches_of_estimated_size_limit(
     logs: Vec<ProcessedLog>,
     batches_max_size: usize,
