@@ -201,10 +201,12 @@ pub async fn transform_logs_grouped(
     // Snapshot the retry window before touching the cache.
     let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
 
-    // Acquire the cache lock once: cold-start callers queue here, so exactly one
-    // task performs the script resolution (download/compile) while the others
-    // observe the published result after the lock is released — no thundering
-    // herd, no duplicate downloads, no late failure clobbering a good cache.
+    // Acquire the cache lock once, holding it across script resolution:
+    // cold-start callers queue on the mutex, so exactly one task performs the
+    // download/compile while the others observe the published result when the
+    // lock is released — no thundering herd, no duplicate downloads. Because
+    // the lock is never released during resolution, no concurrent publish is
+    // possible and the error paths below can write Failed unconditionally.
     let mut guard = CACHED_TRANSFORMER.lock().await;
     let needs_resolution = match guard.as_ref() {
         None => true,
@@ -222,13 +224,11 @@ pub async fn transform_logs_grouped(
                     logs.len(),
                     e
                 );
-                // Only mark Failed when no other task published a good state
-                // while this one was resolving.
-                if !matches!(guard.as_ref(), Some(CacheState::Ready(Some(_)))) {
-                    *guard = Some(CacheState::Failed {
-                        failed_at: Instant::now(),
-                    });
-                }
+                // The lock is held across resolution, so no other task could
+                // have published a Ready state meanwhile: write Failed directly.
+                *guard = Some(CacheState::Failed {
+                    failed_at: Instant::now(),
+                });
                 return passthrough();
             }
         };
@@ -242,11 +242,9 @@ pub async fn transform_logs_grouped(
                         logs.len(),
                         e
                     );
-                    if !matches!(guard.as_ref(), Some(CacheState::Ready(Some(_)))) {
-                        *guard = Some(CacheState::Failed {
-                            failed_at: Instant::now(),
-                        });
-                    }
+                    *guard = Some(CacheState::Failed {
+                        failed_at: Instant::now(),
+                    });
                     return passthrough();
                 }
             },
