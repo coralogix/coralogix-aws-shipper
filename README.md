@@ -839,86 +839,52 @@ The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east
 > [!NOTE]
 > FIPS is enabled at runtime via environment variables on a single shipper binary; there is no separate GovCloud build. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment.
 
-### Terraform deployment (recommended)
+### Deployment artifacts
 
-We recommend deploying the GovCloud shipper with the Coralogix Terraform module. The same module used in commercial regions, [`terraform-coralogix-aws`](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper), supports GovCloud through the `govcloud_deployment = true` flag, which selects the GovCloud template and the matching FIPS-enabled Lambda artifact.
+The shipper Lambda and the GovCloud custom resource load their code from S3 in the
+same GovCloud region. By default, `template-govcloud.yaml` uses the Coralogix-hosted
+bucket `coralogix-serverless-repo-<region>` and the versioned artifacts of the release
+the template belongs to:
 
-### Manual deployment with CloudFormation/SAM
-
-If Terraform is not an option, you can deploy `template-govcloud.yaml` directly. The shipper Lambda package is **downloaded from Coralogix’s published artifacts** and uploaded to a GovCloud S3 bucket before deployment, since the AWS Serverless Application Repository is not available in GovCloud.
-
-#### Prerequisites
-
-- AWS CLI configured for **GovCloud** (`aws-us-gov`) with the correct region (e.g. `us-gov-west-1` or `us-gov-east-1`).
-- An **S3 bucket in that GovCloud region** for Lambda deployment packages.
-- For metrics, REST logs, or direct Coralogix OTLP: Coralogix ingress domain
-  (`CustomDomain`, e.g. `cx….coralogix.com`) and **API key** (or Secrets
-  Manager ARN). For Collector OTLP, use `OTLPEndpoint` and leave `ApiKey`
-  empty.
-- Integration parameters ready (e.g. `IntegrationType`, `S3BucketName`, SNS/SQS ARNs, CloudWatch log groups) for your use case.
-
-#### Step 1 — Download the shipper Lambda (`bootstrap.zip`)
-
-Coralogix publishes the same package the AWS Serverless Application Repository uses. Download it over HTTPS and save it as `bootstrap.zip`. Pick **one** regional URL (the object path is identical across regions):
-
-| Region | Base URL |
+| Artifact | Key |
 | --- | --- |
-| Asia Pacific (Hong Kong) | `https://coralogix-serverless-repo-ap-east-1.s3.ap-east-1.amazonaws.com` |
-| Europe (Frankfurt) | `https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com` |
-| US East (N. Virginia) | `https://coralogix-serverless-repo-us-east-1.s3.us-east-1.amazonaws.com` |
+| Shipper Lambda (arm64) | `coralogix-aws-shipper-arm64-<version>.zip` |
+| Shipper Lambda (x86_64) | `coralogix-aws-shipper-x86-64-<version>.zip` |
+| GovCloud custom resource | `coralogix-aws-shipper-custom-resource-govcloud-<version>.zip` |
 
-Example (Frankfurt):
+Versioned artifacts never change once published. Each one has a `<key>.sha256`
+checksum file next to it, so a download can be verified with `sha256sum -c`.
 
-```bash
-curl -fLsS -o bootstrap.zip \
-  'https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com/coralogix-aws-shipper.zip'
-```
+To load the code from your own bucket instead, set `LambdaCodeBucket` and
+`CustomResourceCodeBucket` (see [Using your own bucket](#using-your-own-bucket)).
 
-> [!NOTE]
-> These URLs point at the current published object; there is no version in the path. Keep your own copy or checksum if you need a pinned release.
+### Terraform deployment
 
-#### Step 2 — Package the custom resource (`custom-resource.zip`)
+The Coralogix Terraform module used in commercial regions,
+[`terraform-coralogix-aws`](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper),
+also deploys in GovCloud. Set `govcloud_deployment = true` to enable FIPS on the Lambda
+(`ENABLE_AWS_FIPS` and `AWS_USE_FIPS_ENDPOINT`). The Lambda code is loaded from
+`coralogix-serverless-repo-<region>` unless `custom_s3_bucket` is set. Set
+`source_code_version` to pin a release.
 
-Package the GovCloud custom resource so the zip contains a single top-level `index.py` (handler `index.lambda_handler`):
+### CloudFormation deployment
 
-```bash
-cd custom-resource-govcloud
-zip -j custom-resource.zip index.py
-cd ..
-```
-
-#### Step 3 — Upload to GovCloud S3
+Minimal example using the Coralogix-hosted artifacts (adjust parameters for your
+integration):
 
 ```bash
-GOVCLOUD_BUCKET="your-govcloud-artifacts-bucket"
+VERSION="1.4.16"
 GOVCLOUD_REGION="us-gov-west-1"
-VERSION="1.4.8"
-PREFIX="coralogix-aws-shipper"
 
-aws s3 cp bootstrap.zip \
-  "s3://${GOVCLOUD_BUCKET}/${PREFIX}/${VERSION}/bootstrap.zip" \
-  --region "${GOVCLOUD_REGION}"
+git clone --depth 1 --branch "${VERSION}" https://github.com/coralogix/coralogix-aws-shipper.git
+cd coralogix-aws-shipper
 
-aws s3 cp custom-resource-govcloud/custom-resource.zip \
-  "s3://${GOVCLOUD_BUCKET}/${PREFIX}/${VERSION}/custom-resource.zip" \
-  --region "${GOVCLOUD_REGION}"
-```
-
-#### Step 4 — Deploy the stack
-
-Minimal example (adjust parameters for your integration):
-
-```bash
 aws cloudformation deploy \
   --template-file template-govcloud.yaml \
   --stack-name coralogix-shipper \
   --region "${GOVCLOUD_REGION}" \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
   --parameter-overrides \
-    LambdaCodeBucket="${GOVCLOUD_BUCKET}" \
-    LambdaCodeKey="${PREFIX}/${VERSION}/bootstrap.zip" \
-    CustomResourceCodeBucket="${GOVCLOUD_BUCKET}" \
-    CustomResourceCodeKey="${PREFIX}/${VERSION}/custom-resource.zip" \
     CustomDomain="YOUR_CORALOGIX_DOMAIN" \
     ApiKey="YOUR_API_KEY_OR_SECRET_ARN" \
     ApplicationName="your-app" \
@@ -926,12 +892,75 @@ aws cloudformation deploy \
     S3BucketName="your-log-bucket"
 ```
 
-Change `IntegrationType` and add the parameters required for that integration (refer to [Configuration parameters](#configuration-parameters)).
+Use the template from the release tag you deploy: it selects that release's artifacts.
+Change `IntegrationType` and add the parameters required for that integration (refer to
+[Configuration parameters](#configuration-parameters)).
 
-#### Step 5 — Verify
+#### Prerequisites
+
+- AWS CLI configured for **GovCloud** (`aws-us-gov`) with the correct region (e.g. `us-gov-west-1` or `us-gov-east-1`).
+- For metrics, REST logs, or direct Coralogix OTLP: Coralogix ingress domain
+  (`CustomDomain`, e.g. `cx….coralogix.com`) and **API key** (or Secrets
+  Manager ARN). For Collector OTLP, use `OTLPEndpoint` and leave `ApiKey`
+  empty.
+- Integration parameters ready (e.g. `IntegrationType`, `S3BucketName`, SNS/SQS ARNs, CloudWatch log groups) for your use case.
+
+### Using your own bucket
+
+To keep the artifacts in an S3 bucket you own (in the same GovCloud region as the
+stack), copy them there under the same keys and point the template at the bucket.
+
+1. Download the shipper Lambda for your release and architecture, and verify it.
+   Coralogix publishes the same artifacts in its commercial regional buckets, for
+   example Frankfurt:
+
+   ```bash
+   VERSION="1.4.16"
+   ARCH="arm64"   # or x86-64
+   BASE="https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com"
+   KEY="coralogix-aws-shipper-${ARCH}-${VERSION}.zip"
+
+   curl -fLsSO "${BASE}/${KEY}"
+   curl -fLsSO "${BASE}/${KEY}.sha256"
+   sha256sum -c "${KEY}.sha256"
+   ```
+
+   Releases published before checksum files were introduced have no `.sha256` file.
+
+2. Build the GovCloud custom resource from the same release tag. The zip must contain a
+   single top-level `index.py` (handler `index.lambda_handler`):
+
+   ```bash
+   git clone --depth 1 --branch "${VERSION}" https://github.com/coralogix/coralogix-aws-shipper.git
+   CR_KEY="coralogix-aws-shipper-custom-resource-govcloud-${VERSION}.zip"
+   zip -j "${CR_KEY}" coralogix-aws-shipper/custom-resource-govcloud/index.py
+   ```
+
+3. Upload both to your GovCloud bucket:
+
+   ```bash
+   GOVCLOUD_BUCKET="your-govcloud-artifacts-bucket"
+   GOVCLOUD_REGION="us-gov-west-1"
+
+   aws s3 cp "${KEY}" "s3://${GOVCLOUD_BUCKET}/${KEY}" --region "${GOVCLOUD_REGION}"
+   aws s3 cp "${CR_KEY}" "s3://${GOVCLOUD_BUCKET}/${CR_KEY}" --region "${GOVCLOUD_REGION}"
+   ```
+
+4. Deploy as in [CloudFormation deployment](#cloudformation-deployment), adding:
+
+   ```bash
+       LambdaCodeBucket="${GOVCLOUD_BUCKET}" \
+       CustomResourceCodeBucket="${GOVCLOUD_BUCKET}" \
+       FunctionArchitectures="arm64" \
+   ```
+
+   Set `FunctionArchitectures="x86_64"` if you downloaded the x86-64 package. To use
+   different object keys, also set `LambdaCodeKey` and `CustomResourceCodeKey`.
+
+### Verify the deployment
 
 - The CloudFormation stack reaches **CREATE_COMPLETE** or **UPDATE_COMPLETE**.
-- Confirm the shipper Lambda and `{stack-name}-custom-resource` reference the S3 keys you uploaded.
+- Confirm the shipper Lambda and `{stack-name}-custom-resource` use the expected S3 bucket and keys.
 - Confirm the shipper Lambda has `AWS_USE_FIPS_ENDPOINT=true` and `ENABLE_AWS_FIPS=true` set.
 - On cold start the Lambda log group `/aws/lambda/<stack-name>` should contain `AWS FIPS mode enabled for SDK HTTP client`.
 - If something fails, check the custom resource log group `/aws/lambda/<stack-name>-custom-resource` and the main shipper Lambda’s log group.

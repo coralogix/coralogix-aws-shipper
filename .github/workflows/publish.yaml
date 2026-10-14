@@ -233,9 +233,10 @@ jobs:
       
       - name: s3upload-${{ matrix.target }}-build-versioned
         run: |
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
+          bash ci/upload-versioned.sh \
+            "$(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml)" \
+            ${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }} \
+            coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
         
       - name: store-arm64-package
         uses: actions/upload-artifact@v7
@@ -245,6 +246,20 @@ jobs:
         with:
           name: packaged.yaml
           path: packaged.yaml
+
+      # GovCloud is a separate partition, so publish-govcloud cannot read the
+      # commercial bucket. Hand the zip over as a workflow artifact instead.
+      - name: stage-${{ matrix.target }}-zip-for-govcloud
+        run: |
+          aws s3 cp \
+            "$(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml)" \
+            coralogix-aws-shipper-${{ matrix.target }}.zip
+
+      - name: store-${{ matrix.target }}-zip-for-govcloud
+        uses: actions/upload-artifact@v7
+        with:
+          name: govcloud-${{ matrix.target }}
+          path: coralogix-aws-shipper-${{ matrix.target }}.zip
 
   publish:
     name: publish
@@ -263,6 +278,9 @@ jobs:
           role-to-assume: arn:aws:iam::597078901540:role/github-actions-coralogix-aws-shipper-publish
           role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: checkout
+        uses: actions/checkout@v7
 
       - name: download
         uses: actions/download-artifact@v8
@@ -304,6 +322,75 @@ jobs:
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
 
           # upload custom resource
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml) \
+          CUSTOM_RESOURCE_URI=$(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml)
+          aws s3 cp "$CUSTOM_RESOURCE_URI" \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-custom-resource.zip
+
+      - name: store versioned custom resources
+        run: |
+          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+          BUCKET=${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}
+
+          bash ci/upload-versioned.sh \
+            "$(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml)" \
+            "$BUCKET" "coralogix-aws-shipper-custom-resource-${VERSION}.zip"
+
+          # template-govcloud.yaml defaults to this key; built from the same commit.
+          zip -j custom-resource-govcloud.zip custom-resource-govcloud/index.py
+          bash ci/upload-versioned.sh custom-resource-govcloud.zip \
+            "$BUCKET" "coralogix-aws-shipper-custom-resource-govcloud-${VERSION}.zip"
+
+  publish-govcloud:
+    name: publish-govcloud
+    needs: [check_version, build]
+    if: ${{ github.event_name == 'workflow_dispatch' || (success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master') }}
+    runs-on: ubuntu-latest
+    # Trust policy on the publish role matches this environment's sub claim.
+    environment: govcloud
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          audience: sts.amazonaws.com
+          role-to-assume: arn:aws-us-gov:iam::309801239943:role/coralogix-serverless-repo-publisher
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
+          aws-region: us-gov-west-1
+
+      - name: download govcloud zips
+        uses: actions/download-artifact@v8
+        with:
+          pattern: govcloud-*
+          merge-multiple: true
+
+      - name: install yq
+        run: sudo snap install yq
+
+      - name: get_version
+        run: |
+          echo "current_version=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)" >> $GITHUB_ENV
+
+      - name: upload
+        run: |
+          zip -j custom-resource-govcloud.zip custom-resource-govcloud/index.py
+
+          # Uploaded per region rather than relying on replication, so a missing
+          # replication rule cannot leave a region without artifacts. Versioned
+          # keys are immutable, so a replicated object makes this a no-op.
+          for region in us-gov-west-1 us-gov-east-1; do
+            export AWS_DEFAULT_REGION="$region"
+            bucket="coralogix-serverless-repo-${region}"
+
+            for arch in arm64 x86-64; do
+              bash ci/upload-versioned.sh \
+                "coralogix-aws-shipper-${arch}.zip" \
+                "$bucket" "coralogix-aws-shipper-${arch}-${current_version}.zip"
+            done
+
+            bash ci/upload-versioned.sh custom-resource-govcloud.zip \
+              "$bucket" "coralogix-aws-shipper-custom-resource-govcloud-${current_version}.zip"
+          done

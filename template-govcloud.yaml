@@ -103,31 +103,36 @@ Metadata:
 Parameters:
 
   # ---------------------------------------------------------------
-  # GovCloud artifact parameters (required – no SAR in GovCloud)
+  # GovCloud artifact parameters. Leave empty to use the Coralogix-hosted
+  # artifacts for this template's release (coralogix-serverless-repo-<region>).
   # ---------------------------------------------------------------
   LambdaCodeBucket:
     Type: String
     Description: |
       S3 bucket (in the same GovCloud region) that holds the shipper Lambda deployment package.
-    MinLength: 1
+      Leave empty to use coralogix-serverless-repo-<region>.
+    Default: ''
 
   LambdaCodeKey:
     Type: String
     Description: |
-      S3 key of the shipper Lambda deployment package (e.g. coralogix-aws-shipper/bootstrap.zip).
-    MinLength: 1
+      S3 key of the shipper Lambda deployment package.
+      Leave empty to use coralogix-aws-shipper-<arch>-<version>.zip for this template's release.
+    Default: ''
 
   CustomResourceCodeBucket:
     Type: String
     Description: |
       S3 bucket (in the same GovCloud region) that holds the custom-resource Lambda deployment package.
-    MinLength: 1
+      Leave empty to use coralogix-serverless-repo-<region>.
+    Default: ''
 
   CustomResourceCodeKey:
     Type: String
     Description: |
-      S3 key of the custom-resource Lambda deployment package (e.g. coralogix-aws-shipper/custom-resource.zip).
-    MinLength: 1
+      S3 key of the custom-resource Lambda deployment package.
+      Leave empty to use coralogix-aws-shipper-custom-resource-govcloud-<version>.zip for this template's release.
+    Default: ''
 
   # ---------------------------------------------------------------
   # Coralogix configuration
@@ -572,9 +577,27 @@ Parameters:
     Default: 4
 
 # ---------------------------------------------------------------
+# Mappings
+# ---------------------------------------------------------------
+Mappings:
+  # Release this template ships with. Must match SemanticVersion in template.yaml
+  # (checked in tests.yaml); it selects the versioned artifacts below.
+  Release:
+    Shipper:
+      Version: 1.4.16
+
+# ---------------------------------------------------------------
 # Conditions
 # ---------------------------------------------------------------
 Conditions:
+  # Artifact locations (empty = Coralogix-hosted artifacts)
+  LambdaCodeBucketIsSet: !Not [ !Equals [ !Ref LambdaCodeBucket, '' ] ]
+  LambdaCodeKeyIsSet: !Not [ !Equals [ !Ref LambdaCodeKey, '' ] ]
+  CustomResourceCodeBucketIsSet: !Not [ !Equals [ !Ref CustomResourceCodeBucket, '' ] ]
+  CustomResourceCodeKeyIsSet: !Not [ !Equals [ !Ref CustomResourceCodeKey, '' ] ]
+  # Artifact keys spell x86_64 as x86-64.
+  IsX86: !Equals [ !Ref FunctionArchitectures, x86_64 ]
+
   # DLQ
   DLQEnabled: !Equals [ !Ref EnableDLQ, 'true' ]
 
@@ -1219,8 +1242,17 @@ Resources:
       MemorySize: !Ref FunctionMemorySize
       Timeout: !Ref FunctionTimeout
       Code:
-        S3Bucket: !Ref LambdaCodeBucket
-        S3Key: !Ref LambdaCodeKey
+        S3Bucket: !If
+          - LambdaCodeBucketIsSet
+          - !Ref LambdaCodeBucket
+          - !Sub 'coralogix-serverless-repo-${AWS::Region}'
+        S3Key: !If
+          - LambdaCodeKeyIsSet
+          - !Ref LambdaCodeKey
+          - !Sub
+            - 'coralogix-aws-shipper-${Arch}-${Version}.zip'
+            - Arch: !If [ IsX86, x86-64, arm64 ]
+              Version: !FindInMap [ Release, Shipper, Version ]
       Role: !If
         - ExecutionRoleARNIsSet
         - !Ref ExecutionRoleARN
@@ -1720,8 +1752,16 @@ Resources:
       Timeout: 900
       Role: !GetAtt CustomResourceFunctionRole.Arn
       Code:
-        S3Bucket: !Ref CustomResourceCodeBucket
-        S3Key: !Ref CustomResourceCodeKey
+        S3Bucket: !If
+          - CustomResourceCodeBucketIsSet
+          - !Ref CustomResourceCodeBucket
+          - !Sub 'coralogix-serverless-repo-${AWS::Region}'
+        S3Key: !If
+          - CustomResourceCodeKeyIsSet
+          - !Ref CustomResourceCodeKey
+          - !Sub
+            - 'coralogix-aws-shipper-custom-resource-govcloud-${Version}.zip'
+            - Version: !FindInMap [ Release, Shipper, Version ]
 
   ##################################
   # -- Custom::ConfigureLambda    -#
