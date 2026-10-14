@@ -342,7 +342,10 @@ jobs:
             "$BUCKET" "coralogix-aws-shipper-custom-resource-${VERSION}.zip"
 
           # template-govcloud.yaml defaults to this key; built from the same commit.
-          zip -j custom-resource-govcloud.zip custom-resource-govcloud/index.py
+          # Pinned mtime and -X: zip stores timestamps, so without these the same
+          # source produces a different archive on every run.
+          TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
+          zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
           bash ci/upload-versioned.sh custom-resource-govcloud.zip \
             "$BUCKET" "coralogix-aws-shipper-custom-resource-govcloud-${VERSION}.zip"
 
@@ -382,7 +385,10 @@ jobs:
 
       - name: upload
         run: |
-          zip -j custom-resource-govcloud.zip custom-resource-govcloud/index.py
+          # Pinned mtime and -X: zip stores timestamps, so without these the same
+          # source produces a different archive on every run.
+          TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
+          zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
 
           # Uploaded per region rather than relying on replication, so a missing
           # replication rule cannot leave a region without artifacts. Versioned
