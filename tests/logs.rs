@@ -1723,25 +1723,25 @@ async fn run_sqs_event() {
     let singles = exporter.take_singles();
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 1);
-    let log_lines = ["[INFO] some test log line"];
-
-    for (i, log_line) in log_lines.iter().enumerate() {
-        assert!(
-            singles[0].entries[i].body == *log_line,
-            "log line: {}",
-            singles[0].entries[i].body
+    let entry = &singles[0].entries[0];
+    if config.starlark_transform_after_metadata {
+        assert_eq!(
+            entry.body["metadata_seen_by_script"],
+            "00000000-0000-0000-0000-000000000000"
         );
+    } else {
+        assert_eq!(entry.body, "[INFO] some test log line");
     }
 
     assert!(
-        singles[0].entries[0].application_name == "integration-testing",
+        entry.application_name == "integration-testing",
         "got application_name: {}",
-        singles[0].entries[0].application_name
+        entry.application_name
     );
     assert!(
-        singles[0].entries[0].subsystem_name == "lambda",
+        entry.subsystem_name == "lambda",
         "got subsystem_name: {}",
-        singles[0].entries[0].subsystem_name
+        entry.subsystem_name
     );
 }
 #[tokio::test]
@@ -1786,6 +1786,37 @@ async fn test_sqs_event_starlark() {
             ("STARLARK_SCRIPT", Some(starlark_script_base64.as_str())),
         ],
         run_sqs_event_starlark(),
+    )
+    .await;
+}
+
+async fn run_sqs_event_starlark_after_metadata() {
+    coralogix_aws_shipper::logs::transform::reset_cache().await;
+    run_sqs_event().await;
+    coralogix_aws_shipper::logs::transform::reset_cache().await;
+}
+
+#[tokio::test]
+async fn test_sqs_event_starlark_after_metadata() {
+    let script = r#"
+def transform(event):
+    event["metadata_seen_by_script"] = event["sqs.event.id"]
+    return [event]
+"#;
+
+    temp_env::async_with_vars(
+        [
+            ("CORALOGIX_API_KEY", Some("test-key")),
+            ("APP_NAME", Some("integration-testing")),
+            ("CORALOGIX_ENDPOINT", Some("localhost:8080")),
+            ("SAMPLING", Some("1")),
+            ("SUB_NAME", Some("lambda")),
+            ("INTEGRATION_TYPE", Some("Sqs")),
+            ("ADD_METADATA", Some("sqs.event.id")),
+            ("STARLARK_SCRIPT", Some(script)),
+            ("STARLARK_TRANSFORM_AFTER_METADATA", Some("true")),
+        ],
+        run_sqs_event_starlark_after_metadata(),
     )
     .await;
 }

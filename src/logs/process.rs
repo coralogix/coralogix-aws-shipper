@@ -553,15 +553,20 @@ pub async fn kinesis_logs(
         // dynamic APP_NAME/SUB_NAME templates and add_metadata enrichment resolve correctly.
         let record_snapshot = mctx.snapshot();
 
-        // Apply the Starlark transform per-record so that expanded logs inherit this record's context.
-        let transformed_logs: Vec<String> =
+        // The default transform runs per-record so expanded logs inherit this
+        // record's context. Post-metadata mode defers transformation until the
+        // metadata-aware conversion step.
+        let transformed_logs: Vec<String> = if config.starlark_transform_after_metadata {
+            record_logs
+        } else {
             match transform::transform_logs(record_logs, config, aws_config).await {
                 Ok(logs) => logs,
                 Err(e) => {
                     tracing::error!("Log transformation failed for Kinesis record: {}", e);
                     return Err(Error::from(e.to_string().as_str()));
                 }
-            };
+            }
+        };
 
         for log in transformed_logs {
             if !log.trim().is_empty() {
@@ -611,17 +616,21 @@ pub async fn sqs_logs(
 
     tracing::debug!("SQS messages: {} to process", messages_with_meta.len());
 
-    // Apply transform per-message so that transformed logs inherit their source message's context.
+    // Apply the default transform per-message so transformed logs inherit their
+    // source message's context. Post-metadata mode defers it until conversion.
     let mut all_logs_with_meta: Vec<coralogix::LogWithMeta> = Vec::new();
     for (message, msg_mctx) in messages_with_meta {
-        let transformed: Vec<String> =
+        let transformed: Vec<String> = if config.starlark_transform_after_metadata {
+            vec![message]
+        } else {
             match transform::transform_logs(vec![message], config, aws_config).await {
                 Ok(logs) => logs,
                 Err(e) => {
                     tracing::error!("Log transformation failed for SQS message: {}", e);
                     return Err(Error::from(e.to_string().as_str()));
                 }
-            };
+            }
+        };
         for log in transformed {
             if !log.trim().is_empty() {
                 all_logs_with_meta.push(coralogix::LogWithMeta {

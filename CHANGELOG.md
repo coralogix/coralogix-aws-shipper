@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.4.17 / 2026-09-22
+
+### 💡 Enhancements 💡
+
+- **Post-metadata Starlark transformation:** Add the opt-in `StarlarkTransformAfterMetadata` parameter so scripts can inspect and modify configured AWS and custom metadata before export. The default remains the existing pre-metadata behavior.
+- **Transformed log batching:** Recompute REST request batches from final transformed bodies when post-metadata transformation is enabled, preventing fan-out or expanded events from creating oversized requests.
+
 ## v1.4.16 / 2026-09-10
 
 ### 🧰 Bug fixes 🧰
