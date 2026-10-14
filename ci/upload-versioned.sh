@@ -19,17 +19,31 @@ name=$(basename "$key")
 # Writes the object only if the key is absent. Returns 1 if it already exists, and fails
 # loudly on anything else.
 put_if_absent() {
-  local body=$1 target=$2 out
-  if out=$(aws s3api put-object \
-    --bucket "$bucket" --key "$target" --body "$body" \
-    --checksum-algorithm SHA256 --if-none-match '*' 2>&1); then
-    return 0
-  fi
-  if grep -qE 'PreconditionFailed|At least one of the pre-conditions' <<<"$out"; then
-    return 1
-  fi
-  echo "$out" >&2
-  exit 1
+  local body=$1 target=$2 out attempt=0
+  while :; do
+    if out=$(aws s3api put-object \
+      --bucket "$bucket" --key "$target" --body "$body" \
+      --checksum-algorithm SHA256 --if-none-match '*' 2>&1); then
+      return 0
+    fi
+
+    # 412: the key is already there, which is the immutability guarantee holding.
+    if grep -qE 'PreconditionFailed|At least one of the pre-conditions' <<<"$out"; then
+      return 1
+    fi
+
+    # 409: another request touched this key while ours was in flight. S3 documents this
+    # as transient and retryable, unlike the 412 above which is a settled answer.
+    if grep -q 'ConditionalRequestConflict' <<<"$out" && [ "$attempt" -lt 5 ]; then
+      attempt=$((attempt + 1))
+      echo "::warning::Conflict writing s3://$bucket/$target, retry $attempt of 5."
+      sleep $((attempt * 2))
+      continue
+    fi
+
+    echo "$out" >&2
+    exit 1
+  done
 }
 
 if out=$(aws s3api head-object --bucket "$bucket" --key "$key" 2>&1); then

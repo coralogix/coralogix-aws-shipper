@@ -239,10 +239,15 @@ jobs:
 
       # GovCloud is a separate partition, so publish-govcloud cannot read the
       # commercial bucket. Hand the zip over as a workflow artifact instead.
+      #
+      # Staged from the versioned key the step above just guaranteed, not from the
+      # freshly built package: sam build records archive timestamps, so a rerun of an
+      # already-published version produces different bytes, and GovCloud would end up
+      # holding a different artifact from commercial under the same version.
       - name: stage-${{ matrix.target }}-zip-for-govcloud
         run: |
           aws s3 cp \
-            "$(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml)" \
+            "s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip" \
             coralogix-aws-shipper-${{ matrix.target }}.zip
 
       - name: store-${{ matrix.target }}-zip-for-govcloud
