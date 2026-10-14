@@ -7,6 +7,15 @@ on:
 
   workflow_dispatch:
 
+# Scoped to the commit, not the workflow: a group only keeps one run pending, so a
+# shared group would let a later release evict an earlier one that had not started yet
+# and leave it with no artifacts and no tag. Concurrent releases are already safe --
+# every upload is a conditional write and an existing SAR version is tolerated -- so
+# this only stops a rerun of the same commit from racing itself.
+concurrency:
+  group: publish-${{ github.sha }}
+  cancel-in-progress: false
+
 env:
   AWS_DEFAULT_REGION: eu-central-1
   AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
@@ -21,6 +30,7 @@ jobs:
       contents: write
     outputs:
       template_updated: ${{ env.updated }}
+      version: ${{ env.current_version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -50,26 +60,6 @@ jobs:
           [[ $lastcommit =~ .*skip-version-check.* ]] && echo "updated=true" >> $GITHUB_ENV
 
           set +xv
-
-      - name: create tag
-        if: env.updated == 'true'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            try {
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: 'refs/tags/${{ env.current_version }}',
-                sha: context.sha
-              })
-            } catch (e) {
-              if (e.status === 422 && e.message.includes('Reference already exists')) {
-                core.warning(`Tag ${{ env.current_version }} already exists — skipping.`)
-              } else {
-                throw e
-              }
-            }
 
   validate:
     name: validate
@@ -233,9 +223,10 @@ jobs:
       
       - name: s3upload-${{ matrix.target }}-build-versioned
         run: |
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
+          bash ci/upload-versioned.sh \
+            "$(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml)" \
+            ${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }} \
+            coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
         
       - name: store-arm64-package
         uses: actions/upload-artifact@v7
@@ -245,6 +236,20 @@ jobs:
         with:
           name: packaged.yaml
           path: packaged.yaml
+
+      # GovCloud is a separate partition, so publish-govcloud cannot read the
+      # commercial bucket. Hand the zip over as a workflow artifact instead.
+      - name: stage-${{ matrix.target }}-zip-for-govcloud
+        run: |
+          aws s3 cp \
+            "$(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml)" \
+            coralogix-aws-shipper-${{ matrix.target }}.zip
+
+      - name: store-${{ matrix.target }}-zip-for-govcloud
+        uses: actions/upload-artifact@v7
+        with:
+          name: govcloud-${{ matrix.target }}
+          path: coralogix-aws-shipper-${{ matrix.target }}.zip
 
   publish:
     name: publish
@@ -264,6 +269,9 @@ jobs:
           role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
+      - name: checkout
+        uses: actions/checkout@v7
+
       - name: download
         uses: actions/download-artifact@v8
         with:
@@ -271,6 +279,36 @@ jobs:
 
       - name: install yq
         run: sudo snap install yq
+
+      # Ahead of the SAR version deliberately: create-application-version is not
+      # idempotent, so a rerun stops at a 409 and never reaches what follows it.
+      - name: store
+        run: |
+          aws s3 cp \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
+
+          # upload custom resource
+          CUSTOM_RESOURCE_URI=$(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml)
+          aws s3 cp "$CUSTOM_RESOURCE_URI" \
+            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-custom-resource.zip
+
+      - name: store versioned custom resources
+        run: |
+          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+          BUCKET=${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}
+
+          bash ci/upload-versioned.sh \
+            "$(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml)" \
+            "$BUCKET" "coralogix-aws-shipper-custom-resource-${VERSION}.zip"
+
+          # template-govcloud.yaml defaults to this key; built from the same commit.
+          # Pinned mtime and -X: zip stores timestamps, so without these the same
+          # source produces a different archive on every run.
+          TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
+          zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
+          bash ci/upload-versioned.sh custom-resource-govcloud.zip \
+            "$BUCKET" "coralogix-aws-shipper-custom-resource-govcloud-${VERSION}.zip"
 
       - name: publish
         run: |
@@ -291,19 +329,108 @@ jobs:
             --application-id "${APP_ID}" \
             --description "${DESCRIPTION}"
 
-          aws serverlessrepo create-application-version \
+          # A 409 means this version is already published, which is the state this step
+          # exists to reach. Failing on it would make the job unrepeatable, and the tag
+          # job below depends on it succeeding.
+          if ! out=$(aws serverlessrepo create-application-version \
             --application-id "${APP_ID}" \
             --semantic-version "${VERSION}" \
             --template-url "${TEMPLATE_URL}" \
-            --source-code-url "${SOURCE_CODE_URL}"
+            --source-code-url "${SOURCE_CODE_URL}" 2>&1); then
+            if grep -q 'ConflictException' <<<"$out"; then
+              echo "::warning::SAR version ${VERSION} already exists, leaving it alone."
+            else
+              echo "$out" >&2
+              exit 1
+            fi
+          fi
 
-      - name: store
+  publish-govcloud:
+    name: publish-govcloud
+    needs: [check_version, build]
+    if: ${{ github.event_name == 'workflow_dispatch' || (success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master') }}
+    runs-on: ubuntu-latest
+    # Trust policy on the publish role matches this environment's sub claim.
+    environment: govcloud
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          audience: sts.amazonaws.com
+          role-to-assume: arn:aws-us-gov:iam::309801239943:role/coralogix-serverless-repo-publisher
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
+          aws-region: us-gov-west-1
+
+      - name: download govcloud zips
+        uses: actions/download-artifact@v8
+        with:
+          pattern: govcloud-*
+          merge-multiple: true
+
+      - name: install yq
+        run: sudo snap install yq
+
+      - name: get_version
         run: |
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
+          echo "current_version=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)" >> $GITHUB_ENV
 
-          # upload custom resource
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-custom-resource.zip
+      - name: upload
+        run: |
+          # Pinned mtime and -X: zip stores timestamps, so without these the same
+          # source produces a different archive on every run.
+          TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
+          zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
+
+          # Uploaded per region rather than relying on replication, so a missing
+          # replication rule cannot leave a region without artifacts. Versioned
+          # keys are immutable, so a replicated object makes this a no-op.
+          for region in us-gov-west-1 us-gov-east-1; do
+            export AWS_DEFAULT_REGION="$region"
+            bucket="coralogix-serverless-repo-${region}"
+
+            for arch in arm64 x86-64; do
+              bash ci/upload-versioned.sh \
+                "coralogix-aws-shipper-${arch}.zip" \
+                "$bucket" "coralogix-aws-shipper-${arch}-${current_version}.zip"
+            done
+
+            bash ci/upload-versioned.sh custom-resource-govcloud.zip \
+              "$bucket" "coralogix-aws-shipper-custom-resource-govcloud-${current_version}.zip"
+          done
+
+  # Tagged only once both publishes have succeeded. template-govcloud.yaml resolves its
+  # Lambda code to this release's versioned keys, so a tag created any earlier points at
+  # artifacts that do not exist yet -- and would keep pointing at them if a publish
+  # failed.
+  tag:
+    name: tag
+    needs: [check_version, publish, publish-govcloud]
+    if: ${{ success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: create tag
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const version = '${{ needs.check_version.outputs.version }}'
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${version}`,
+                sha: context.sha
+              })
+            } catch (e) {
+              if (e.status === 422 && e.message.includes('Reference already exists')) {
+                core.warning(`Tag ${version} already exists — skipping.`)
+              } else {
+                throw e
+              }
+            }

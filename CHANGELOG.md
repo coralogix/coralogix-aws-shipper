@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.4.18 / 2026-10-15
+
+### 🚀 Enhancements 🚀
+
+- **GovCloud artifacts are hosted by Coralogix:** `template-govcloud.yaml` required
+  `LambdaCodeBucket`, `LambdaCodeKey`, `CustomResourceCodeBucket` and
+  `CustomResourceCodeKey`, so every GovCloud customer had to stage the Lambda packages
+  in a bucket of their own before deploying. They are now optional and default to
+  `coralogix-serverless-repo-<region>` with this release's versioned keys. Supplying
+  your own bucket still works unchanged.
+- **Release artifacts carry checksums:** each versioned object is published with a
+  `<key>.sha256` sidecar, verifiable with `sha256sum -c`. Versioned keys are immutable —
+  republishing a version can no longer replace what a deployment pinned.
+
 ## v1.4.17 / 2026-10-14
 
 ### 🧰 Bug fixes 🧰
