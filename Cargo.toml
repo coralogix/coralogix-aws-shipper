@@ -1,6 +1,6 @@
 [package]
 name = "coralogix-aws-shipper"
-version = "1.4.16"
+version = "1.4.17"
 edition = "2021"
 license = "Apache-2.0"
 

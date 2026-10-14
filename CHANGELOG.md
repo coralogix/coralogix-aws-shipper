@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.4.17 / 2026-10-14
+
+### 🧰 Bug fixes 🧰
+
+- **Clear dependency advisories (INFOSEC-9164):** updated the dependency tree to resolve
+  eight reported advisories — `aws-smithy-json` (CVE-2026-18140), `lru`
+  (RUSTSEC-2026-0253), `quinn-proto` (RUSTSEC-2026-0338/0339/0340/0341/0342), and `scc`
+  (RUSTSEC-2026-0205), which leaves the tree entirely. This bumps the AWS SDK crates and
+  raises the minimum supported Rust version to 1.94.1.
+- **Hold the validated FIPS module:** `rustls`, `rustls-webpki` and `aws-lc-rs` stay
+  pinned so the NIST-validated AWS-LC FIPS v3 module (certificates #5314 and #5298) is
+  retained rather than the uncertified v4. `cargo-deny` now bans `aws-lc-rs >= 1.18`
+  outright so the upgrade cannot return unnoticed.
+
 ## v1.4.16 / 2026-09-10
 
 ### 🧰 Bug fixes 🧰
