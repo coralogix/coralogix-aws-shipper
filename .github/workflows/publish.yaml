@@ -326,11 +326,21 @@ jobs:
             --application-id "${APP_ID}" \
             --description "${DESCRIPTION}"
 
-          aws serverlessrepo create-application-version \
+          # A 409 means this version is already published, which is the state this step
+          # exists to reach. Failing on it would make the job unrepeatable, and the tag
+          # job below depends on it succeeding.
+          if ! out=$(aws serverlessrepo create-application-version \
             --application-id "${APP_ID}" \
             --semantic-version "${VERSION}" \
             --template-url "${TEMPLATE_URL}" \
-            --source-code-url "${SOURCE_CODE_URL}"
+            --source-code-url "${SOURCE_CODE_URL}" 2>&1); then
+            if grep -q 'ConflictException' <<<"$out"; then
+              echo "::warning::SAR version ${VERSION} already exists, leaving it alone."
+            else
+              echo "$out" >&2
+              exit 1
+            fi
+          fi
 
   publish-govcloud:
     name: publish-govcloud
