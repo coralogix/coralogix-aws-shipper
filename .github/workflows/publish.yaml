@@ -7,10 +7,13 @@ on:
 
   workflow_dispatch:
 
-# Serialise releases. Versioned keys are immutable, so two runs for the same version
-# would have one of them skipping every upload; queueing is the useful behaviour.
+# Scoped to the commit, not the workflow: a group only keeps one run pending, so a
+# shared group would let a later release evict an earlier one that had not started yet
+# and leave it with no artifacts and no tag. Concurrent releases are already safe --
+# every upload is a conditional write and an existing SAR version is tolerated -- so
+# this only stops a rerun of the same commit from racing itself.
 concurrency:
-  group: publish
+  group: publish-${{ github.sha }}
   cancel-in-progress: false
 
 env:
