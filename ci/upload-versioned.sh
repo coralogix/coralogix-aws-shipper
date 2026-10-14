@@ -57,11 +57,18 @@ fi
 (cd "$tmp" && sha256sum "$name" > "$name.sha256")
 
 # The checksum goes first and doubles as the lock: whichever run creates it owns this
-# version. A run that loses the race stops here rather than uploading an artifact that
-# would not match the winner's checksum.
+# version.
 if ! put_if_absent "$tmp/$name.sha256" "$key.sha256"; then
-  echo "::warning::s3://$bucket/$key.sha256 already exists; another run published this version, skipping."
-  exit 0
+  # A checksum with no artifact beside it means either another run is mid-publish, or an
+  # earlier run died between the two writes. Compare before deciding: a matching checksum
+  # is this same build, so finish what the dead run started rather than leaving the
+  # version permanently unpublished.
+  aws s3 cp "s3://$bucket/$key.sha256" "$tmp/published.sha256"
+  if ! cmp -s "$tmp/published.sha256" "$tmp/$name.sha256"; then
+    echo "::warning::s3://$bucket/$key.sha256 belongs to a different build; versioned artifacts are immutable, skipping."
+    exit 0
+  fi
+  echo "::warning::s3://$bucket/$key.sha256 matches this build; resuming its interrupted artifact upload."
 fi
 
 if [ "$artifact_exists" = false ]; then
