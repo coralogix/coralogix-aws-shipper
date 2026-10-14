@@ -27,6 +27,7 @@ jobs:
       contents: write
     outputs:
       template_updated: ${{ env.updated }}
+      version: ${{ env.current_version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -56,26 +57,6 @@ jobs:
           [[ $lastcommit =~ .*skip-version-check.* ]] && echo "updated=true" >> $GITHUB_ENV
 
           set +xv
-
-      - name: create tag
-        if: env.updated == 'true'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            try {
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: 'refs/tags/${{ env.current_version }}',
-                sha: context.sha
-              })
-            } catch (e) {
-              if (e.status === 422 && e.message.includes('Reference already exists')) {
-                core.warning(`Tag ${{ env.current_version }} already exists — skipping.`)
-              } else {
-                throw e
-              }
-            }
 
   validate:
     name: validate
@@ -408,3 +389,35 @@ jobs:
             bash ci/upload-versioned.sh custom-resource-govcloud.zip \
               "$bucket" "coralogix-aws-shipper-custom-resource-govcloud-${current_version}.zip"
           done
+
+  # Tagged only once both publishes have succeeded. template-govcloud.yaml resolves its
+  # Lambda code to this release's versioned keys, so a tag created any earlier points at
+  # artifacts that do not exist yet -- and would keep pointing at them if a publish
+  # failed.
+  tag:
+    name: tag
+    needs: [check_version, publish, publish-govcloud]
+    if: ${{ success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: create tag
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const version = '${{ needs.check_version.outputs.version }}'
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${version}`,
+                sha: context.sha
+              })
+            } catch (e) {
+              if (e.status === 422 && e.message.includes('Reference already exists')) {
+                core.warning(`Tag ${version} already exists — skipping.`)
+              } else {
+                throw e
+              }
+            }
