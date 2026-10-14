@@ -13,6 +13,7 @@ ignore = [
   { id = "RUSTSEC-2024-0388", reason = "Transitive through starlark; requires upstream dependency replacement." },
   { id = "RUSTSEC-2024-0436", reason = "Transitive through starlark; requires upstream dependency replacement." },
   { id = "RUSTSEC-2025-0057", reason = "Transitive through starlark_map; requires upstream dependency replacement." },
+  { id = "RUSTSEC-2026-0285", reason = "The fix (rustls >= 0.23.45) requires aws-lc-rs ^1.18, which replaces the NIST-validated AWS-LC FIPS v3 module (certificates #5314 and #5298) with v4, submitted to NIST but not yet certified. GovCloud deployments run ENABLE_AWS_FIPS=true and the README claims FIPS 140-3 compliance, so taking the upgrade would break that claim. The advisory is a TLS 1.3 conformance bug: the handshake transcript stays authenticated, so a peer can only send in plaintext what should have been encrypted; it cannot alter or complete a handshake. Revisit once AWS-LC FIPS v4 is certified." },
 ]
 
 [licenses]
