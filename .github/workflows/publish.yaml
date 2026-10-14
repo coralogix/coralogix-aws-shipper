@@ -7,6 +7,12 @@ on:
 
   workflow_dispatch:
 
+# Serialise releases. Versioned keys are immutable, so two runs for the same version
+# would have one of them skipping every upload; queueing is the useful behaviour.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 env:
   AWS_DEFAULT_REGION: eu-central-1
   AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
