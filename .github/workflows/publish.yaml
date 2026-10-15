@@ -97,8 +97,14 @@ jobs:
 
   build:
     name: build
-    needs: validate
+    needs: [validate, check_version]
     if: ${{ github.event_name == 'workflow_dispatch' || success() }}
+    # A master push that edits template.yaml without bumping the version still builds,
+    # as a check that it compiles, but must not touch S3: it would overwrite the public
+    # mutable key with an unreleased build, and the versioned key for the current
+    # version already belongs to the commit that released it.
+    env:
+      RELEASING: ${{ github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true' }}
     # Each arch builds on its own native runner so the FIPS binary is compiled
     # natively inside the Amazon Linux 2023 container (no cross-compile, glibc 2.34).
     runs-on: ${{ matrix.runner }}
@@ -218,13 +224,14 @@ jobs:
       
 
       - name: s3upload-x86-64-build
-        if: ${{ matrix.target == 'x86-64' }}
+        if: ${{ matrix.target == 'x86-64' && env.RELEASING == 'true' }}
         run: |
           aws s3 cp \
             $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}.zip
       
       - name: s3upload-${{ matrix.target }}-build-versioned
+        if: ${{ env.RELEASING == 'true' }}
         run: |
           bash ci/upload-versioned.sh \
             "$(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml)" \
@@ -248,12 +255,14 @@ jobs:
       # already-published version produces different bytes, and GovCloud would end up
       # holding a different artifact from commercial under the same version.
       - name: stage-${{ matrix.target }}-zip-for-govcloud
+        if: ${{ env.RELEASING == 'true' }}
         run: |
           aws s3 cp \
             "s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip" \
             coralogix-aws-shipper-${{ matrix.target }}.zip
 
       - name: store-${{ matrix.target }}-zip-for-govcloud
+        if: ${{ env.RELEASING == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: govcloud-${{ matrix.target }}
