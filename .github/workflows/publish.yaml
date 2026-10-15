@@ -267,6 +267,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # check_version is skipped on workflow_dispatch, so its version output is empty
+    # there. The tag job takes the version from here instead, which is also the one
+    # actually published rather than one re-read from the tree.
+    outputs:
+      version: ${{ steps.publish.outputs.version }}
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
     steps:
@@ -319,8 +324,10 @@ jobs:
             "$BUCKET" "coralogix-aws-shipper-custom-resource-govcloud-${VERSION}.zip"
 
       - name: publish
+        id: publish
         run: |
           VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           DESCRIPTION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".Description' packaged.yaml)
           SOURCE_CODE_URL=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SourceCodeUrl' packaged.yaml)
 
@@ -449,7 +456,11 @@ jobs:
   tag:
     name: tag
     needs: [check_version, publish, publish-govcloud]
-    if: ${{ success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master' }}
+    # check_version is skipped on workflow_dispatch, leaving template_updated empty, so
+    # requiring it would leave a dispatched recovery run permanently untagged -- and
+    # dispatch is the only way to finish a release that died after its artifacts went up.
+    if: ${{ success() && github.ref == 'refs/heads/master' &&
+            (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -458,7 +469,7 @@ jobs:
         uses: actions/github-script@v9
         with:
           script: |
-            const version = '${{ needs.check_version.outputs.version }}'
+            const version = '${{ needs.publish.outputs.version }}'
             try {
               await github.rest.git.createRef({
                 owner: context.repo.owner,

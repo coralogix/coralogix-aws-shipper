@@ -47,7 +47,25 @@ put_if_absent() {
   done
 }
 
+# Versioned keys are immutable, so whoever created one owns that version. Refuse to
+# build a release on top of another commit's artifact: the upload would be skipped and
+# this release would ship the earlier binaries under its own template and changelog.
+assert_owner() {
+  local target=$1 owner
+  [ -n "${GITHUB_SHA:-}" ] || return 0
+  owner=$(aws s3api head-object --bucket "$bucket" --key "$target" \
+    --query 'Metadata.commit' --output text 2>/dev/null || true)
+  if [ "$owner" = "None" ]; then
+    owner=""
+  fi
+  if [ -n "$owner" ] && [ "$owner" != "$GITHUB_SHA" ]; then
+    echo "::error::s3://$bucket/$target was published by $owner, not $GITHUB_SHA. Versioned artifacts are immutable, so this release cannot replace it. Bump the version instead of republishing." >&2
+    exit 1
+  fi
+}
+
 if out=$(aws s3api head-object --bucket "$bucket" --key "$key" 2>&1); then
+  assert_owner "$key"
   if aws s3api head-object --bucket "$bucket" --key "$key.sha256" >/dev/null 2>&1; then
     echo "::warning::s3://$bucket/$key already exists; versioned artifacts are immutable, skipping."
     exit 0
@@ -72,7 +90,8 @@ if [ "$artifact_exists" = false ]; then
   fi
   # The artifact is the lock: whichever run creates the key owns this version.
   if ! put_if_absent "$tmp/$name" "$key"; then
-    echo "::warning::s3://$bucket/$key was published by another run; checksumming that instead."
+    assert_owner "$key"
+    echo "::warning::s3://$bucket/$key was published by another run of this commit; checksumming that instead."
     artifact_exists=true
   fi
 fi

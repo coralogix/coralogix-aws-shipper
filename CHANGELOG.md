@@ -18,7 +18,8 @@
 - **A republished version now fails the release:** versioned artifacts are write-once, so
   a commit reusing an already-published version kept the earlier build while syncing its
   own template on top of it. Each artifact now records the commit that published it, and
-  a SAR version conflict is tolerated only when that commit is this one. The
+  a release that finds an artifact belonging to another commit stops before it can build
+  on top of it. The
   `skip-version-check` commit-message escape, which forced a publish of an unchanged
   version, is removed: it can no longer replace anything, so its only effect was to reach
   this state. Re-run a release with `workflow_dispatch` instead.
