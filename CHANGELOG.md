@@ -15,6 +15,11 @@
   referenced the mutable `coralogix-aws-shipper*.zip` keys, so updating a stack to a new
   release changed only SAR metadata and CloudFormation kept the old Lambda package. It
   now points at the versioned artifacts for the release it names.
+- **A republished version now fails the release:** versioned artifacts and release tags
+  are write-once, so a commit reusing an already-published version kept the earlier
+  build while syncing its own template on top of it. The publish step now tolerates a
+  SAR version conflict only when the existing tag names this commit, or when no tag
+  exists yet because an earlier release was interrupted.
 - **Release artifacts carry checksums:** each versioned object is published with a
   `<key>.sha256` sidecar, verifiable with `sha256sum -c`. Versioned keys are immutable —
   republishing a version can no longer replace what a deployment pinned.

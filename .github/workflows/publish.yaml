@@ -334,16 +334,36 @@ jobs:
             --application-id "${APP_ID}" \
             --description "${DESCRIPTION}"
 
-          # A 409 means this version is already published, which is the state this step
-          # exists to reach. Failing on it would make the job unrepeatable, and the tag
-          # job below depends on it succeeding.
+          # A 409 means this version is already published. That is the intended state
+          # when this commit is being re-run after an interrupted release, so failing on
+          # it would make the job unrepeatable and the tag job below depends on it.
+          #
+          # It is NOT acceptable when a different commit reuses a published version,
+          # which check_version allows through a skip-version-check commit message. The
+          # versioned artifacts and the tag are both write-once, so that release would
+          # keep the earlier commit's code while this commit's template and changelog
+          # were synced on top of it -- a template describing one build and deploying
+          # another. The tag records which commit published a version, so it settles
+          # which case this is.
           if ! out=$(aws serverlessrepo create-application-version \
             --application-id "${APP_ID}" \
             --semantic-version "${VERSION}" \
             --template-url "${TEMPLATE_URL}" \
             --source-code-url "${SOURCE_CODE_URL}" 2>&1); then
             if grep -q 'ConflictException' <<<"$out"; then
-              echo "::warning::SAR version ${VERSION} already exists, leaving it alone."
+              # ^{} dereferences an annotated tag to its commit and prints nothing for a
+              # lightweight one, which is what the tag job creates.
+              tag_sha=$(git ls-remote origin "refs/tags/${VERSION}^{}" | cut -f1)
+              [ -n "$tag_sha" ] || tag_sha=$(git ls-remote origin "refs/tags/${VERSION}" | cut -f1)
+
+              if [ -z "$tag_sha" ]; then
+                echo "::warning::SAR version ${VERSION} already exists and carries no tag; treating this as a re-run of an interrupted release."
+              elif [ "$tag_sha" = "$GITHUB_SHA" ]; then
+                echo "::warning::SAR version ${VERSION} was already published by this commit, leaving it alone."
+              else
+                echo "::error::SAR version ${VERSION} was published by ${tag_sha}, not ${GITHUB_SHA}. Its artifacts are immutable, so this commit cannot replace them. Bump the version instead of republishing."
+                exit 1
+              fi
             else
               echo "$out" >&2
               exit 1
