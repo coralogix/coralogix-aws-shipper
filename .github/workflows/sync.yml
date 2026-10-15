@@ -23,7 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # head_branch pins this to master. A non-master push that touches template.yaml
+    # also starts Publish, and the guarantee that it cannot reach here otherwise rests
+    # on every one of its jobs skipping, which is a property of their own conditions
+    # rather than of this workflow.
+    if: ${{ github.event_name == 'workflow_dispatch' ||
+            (github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.head_branch == 'master') }}
     steps:
       - name: checkout coralogix-aws-shipper repository
         uses: actions/checkout@v7
@@ -124,7 +130,13 @@ jobs:
     permissions:
       contents: read
     needs: get-template
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # head_branch pins this to master. A non-master push that touches template.yaml
+    # also starts Publish, and the guarantee that it cannot reach here otherwise rests
+    # on every one of its jobs skipping, which is a property of their own conditions
+    # rather than of this workflow.
+    if: ${{ github.event_name == 'workflow_dispatch' ||
+            (github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.head_branch == 'master') }}
     steps:
       # Into a subdirectory: the PR body is written to the runner temp, and keeping the
       # target repo out of the workspace root avoids clobbering anything else.
