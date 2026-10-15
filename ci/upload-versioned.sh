@@ -23,7 +23,8 @@ put_if_absent() {
   while :; do
     if out=$(aws s3api put-object \
       --bucket "$bucket" --key "$target" --body "$body" \
-      --checksum-algorithm SHA256 --if-none-match '*' 2>&1); then
+      --checksum-algorithm SHA256 --if-none-match '*' \
+      ${GITHUB_SHA:+--metadata "commit=$GITHUB_SHA"} 2>&1); then
       return 0
     fi
 
