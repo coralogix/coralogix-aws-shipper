@@ -27,7 +27,7 @@ jobs:
     # also starts Publish, and the guarantee that it cannot reach here otherwise rests
     # on every one of its jobs skipping, which is a property of their own conditions
     # rather than of this workflow.
-    if: ${{ github.event_name == 'workflow_dispatch' ||
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
             (github.event.workflow_run.conclusion == 'success' &&
              github.event.workflow_run.head_branch == 'master') }}
     steps:
@@ -134,7 +134,7 @@ jobs:
     # also starts Publish, and the guarantee that it cannot reach here otherwise rests
     # on every one of its jobs skipping, which is a property of their own conditions
     # rather than of this workflow.
-    if: ${{ github.event_name == 'workflow_dispatch' ||
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
             (github.event.workflow_run.conclusion == 'success' &&
              github.event.workflow_run.head_branch == 'master') }}
     steps:

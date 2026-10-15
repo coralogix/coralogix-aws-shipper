@@ -336,6 +336,19 @@ jobs:
       # idempotent, so a rerun stops at a 409 and never reaches what follows it.
       - name: store
         run: |
+          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+
+          # These keys carry no version, so they mean "latest" to everyone fetching them.
+          # Ownership above establishes that this commit may publish this version, not
+          # that the version is the newest one: re-running an older release still owns
+          # its own artifacts, and would roll the unversioned URL back to it. Releases
+          # are tagged, so the highest tag is the newest version published.
+          latest=$(git ls-remote --tags origin | awk -F'refs/tags/' '{print $2}' | grep -v '\^{}' | sort -V | tail -1)
+          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$VERSION" "$latest" | sort -V | tail -1)" != "$VERSION" ]; then
+            echo "::warning::${VERSION} is older than the published ${latest}; leaving the unversioned keys pointing at ${latest}."
+            exit 0
+          fi
+
           aws s3 cp \
             $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
