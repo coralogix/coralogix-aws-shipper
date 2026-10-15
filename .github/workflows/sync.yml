@@ -27,6 +27,11 @@ jobs:
     steps:
       - name: checkout coralogix-aws-shipper repository
         uses: actions/checkout@v7
+        with:
+          # workflow_run sets GITHUB_SHA to the default branch tip, not the commit whose
+          # Publish finished. Without this, a push landing while Publish runs would sync
+          # that newer template and version, whose artifacts are not published yet.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: get last commit_message
         id: commits
@@ -39,6 +44,8 @@ jobs:
       - run: sudo snap install yq
         # Update the CodeUri property of all AWS::Serverless::Function resources using Yq
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
       - name: update-template
         run: |
           set -xv
