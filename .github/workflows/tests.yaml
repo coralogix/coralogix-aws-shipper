@@ -184,6 +184,18 @@ jobs:
           cfn-lint --template template.yaml --region us-east-1 --config-file .cfnlintrc
           cfn-lint --template template-govcloud.yaml --region us-gov-west-1 --config-file .cfnlintrc
 
+      # template-govcloud.yaml defaults to the versioned artifacts of its release, so its
+      # Release mapping has to follow template.yaml's SemanticVersion.
+      - name: Check GovCloud template release version
+        if: ${{ steps.changes.outputs.cfn_lint == 'true' }}
+        run: |
+          want=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
+          got=$(yq '.Mappings.Release.Shipper.Version' template-govcloud.yaml)
+          if [ "$want" != "$got" ]; then
+            echo "::error file=template-govcloud.yaml::Mappings.Release.Shipper.Version is $got but template.yaml SemanticVersion is $want; update template-govcloud.yaml."
+            exit 1
+          fi
+
       - name: Run Checkov (CloudFormation)
         if: ${{ steps.changes.outputs.cfn_lint == 'true' }}
         run: |
