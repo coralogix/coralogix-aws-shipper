@@ -179,6 +179,17 @@ jobs:
           current=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
           echo "current_version=$current" >> $GITHUB_ENV
 
+          # The unversioned key means "latest" to everyone fetching it, so only the
+          # newest release may write it. Re-running an older release owns its own
+          # artifacts and passes every ownership check, but must not roll that key back.
+          # Releases are tagged, so the highest tag is the newest version published.
+          latest=$(git ls-remote --tags origin | awk -F'refs/tags/' '{print $2}' | grep -v '\^{}' | sort -V | tail -1)
+          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" != "$current" ]; then
+            echo "is_latest=false" >> $GITHUB_ENV
+          else
+            echo "is_latest=true" >> $GITHUB_ENV
+          fi
+
       - name: build FIPS bootstrap (AL2023, native ${{ matrix.target }})
         run: |
           mkdir -p ~/.cargo-registry
@@ -224,7 +235,9 @@ jobs:
       
 
       - name: s3upload-x86-64-build
-        if: ${{ matrix.target == 'x86-64' && env.RELEASING == 'true' }}
+        # env.is_latest guards the unversioned key the same way the store step in
+        # publish guards the arm64 and custom-resource ones.
+        if: ${{ matrix.target == 'x86-64' && env.RELEASING == 'true' && env.is_latest == 'true' }}
         run: |
           aws s3 cp \
             $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
