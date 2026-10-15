@@ -10,6 +10,11 @@
   in a bucket of their own before deploying. They are now optional and default to
   `coralogix-serverless-repo-<region>` with this release's versioned keys. Supplying
   your own bucket still works unchanged.
+- **Synced CloudFormation template pins its release:** the template published to
+  [`cloudformation-coralogix-aws`](https://github.com/coralogix/cloudformation-coralogix-aws)
+  referenced the mutable `coralogix-aws-shipper*.zip` keys, so updating a stack to a new
+  release changed only SAR metadata and CloudFormation kept the old Lambda package. It
+  now points at the versioned artifacts for the release it names.
 - **Release artifacts carry checksums:** each versioned object is published with a
   `<key>.sha256` sidecar, verifiable with `sha256sum -c`. Versioned keys are immutable —
   republishing a version can no longer replace what a deployment pinned.

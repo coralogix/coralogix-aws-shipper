@@ -57,23 +57,32 @@ jobs:
                 "x86_64" ] 
             }' ./template.yaml
 
+          # Point CodeUri at this release's versioned artifacts, not the mutable
+          # coralogix-aws-shipper*.zip keys. CloudFormation only re-fetches a Lambda
+          # package when the S3 location changes, so a mutable key means a stack update
+          # to a new release silently keeps the old code (the version in Metadata is SAR
+          # metadata and does not drive resource updates). Versioned keys are immutable
+          # and published per release, so each sync produces a template that deploys
+          # exactly the release it names.
+          version="$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)"
+
           # update the CodeUri property of LambdaFunction resources
           # based on the CpuArch condition
-          yq -i '.Resources.LambdaFunction.Properties.CodeUri |= {
-              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"}, 
+          VERSION="$version" yq -i '.Resources.LambdaFunction.Properties.CodeUri |= {
+              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"},
               "Key": {
                   "Fn::If": [
-                      "CpuArchIsx8664", 
-                      "coralogix-aws-shipper-x86-64.zip", 
-                      "coralogix-aws-shipper.zip"
+                      "CpuArchIsx8664",
+                      "coralogix-aws-shipper-x86-64-" + strenv(VERSION) + ".zip",
+                      "coralogix-aws-shipper-arm64-" + strenv(VERSION) + ".zip"
                   ]
               }
           }' template.yaml
 
           # set custom resource CodeUri
-          yq -i '.Resources.CustomResourceFunction.Properties.CodeUri = {
-              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"}, 
-              "Key": "coralogix-aws-shipper-custom-resource.zip"
+          VERSION="$version" yq -i '.Resources.CustomResourceFunction.Properties.CodeUri = {
+              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"},
+              "Key": "coralogix-aws-shipper-custom-resource-" + strenv(VERSION) + ".zip"
           }' template.yaml
 
           # sed -i '3a\#Created automatically from coralogix\/coralogix-aws-shipper' ./template.yaml
