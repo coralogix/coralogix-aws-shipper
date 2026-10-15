@@ -398,8 +398,25 @@ jobs:
 
           # Upload template to S3 to bypass SAR's 51,200-byte TemplateBody limit
           # (sam publish always uses TemplateBody; our template exceeds this limit)
+          #
+          # Write-once, like the artifacts it points at. sam package names its upload
+          # after the content hash, and a rebuild is not byte-identical -- zip stores
+          # mtimes -- so a retry of an interrupted release produces a template naming a
+          # different object. The versioned key, GovCloud and the synced template all
+          # keep the first run's bytes, so letting SAR take the retry's would leave it
+          # serving different bytes under the same version. Reusing the published
+          # template keeps every channel on one artifact.
           TEMPLATE_KEY="${{ env.AWS_S3_PREFIX }}/templates/packaged-${VERSION}.yaml"
-          aws s3 cp packaged.yaml "s3://${{ env.AWS_SERVERLESS_BUCKET }}/${TEMPLATE_KEY}"
+          if ! out=$(aws s3api put-object \
+            --bucket "${{ env.AWS_SERVERLESS_BUCKET }}" --key "${TEMPLATE_KEY}" \
+            --body packaged.yaml --if-none-match '*' 2>&1); then
+            if grep -qE 'PreconditionFailed|At least one of the pre-conditions' <<<"$out"; then
+              echo "::warning::Template for ${VERSION} is already published; reusing it so SAR keeps the artifact this version shipped with."
+            else
+              echo "$out" >&2
+              exit 1
+            fi
+          fi
           TEMPLATE_URL="https://s3.${{ env.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.AWS_SERVERLESS_BUCKET }}/${TEMPLATE_KEY}"
 
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
