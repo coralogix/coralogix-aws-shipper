@@ -75,8 +75,10 @@ pub async fn process_batches_with_meta(
     let batches_max_size = config.batches_max_size;
     let batches_max_concurrency = config.batches_max_concurrency.max(1);
 
-    // One global send-budget shared by every export call in this pipeline
-    // (see the note in `process_batches_with_meta`).
+    // One global send-budget shared by every export call in this pipeline:
+    // the outer stream and the REST-rebatch sub-batch sends would otherwise
+    // multiply to batches_max_concurrency^2 simultaneous exporter calls.
+    // (See the identical note in `process_batches` for the full rationale.)
     let send_permits = std::sync::Arc::new(tokio::sync::Semaphore::new(batches_max_concurrency));
 
     // Stream lazily per batch (convert + transform + send as each item is
@@ -244,7 +246,6 @@ pub async fn process_batches(
     // One global send-budget shared by every export call in this pipeline:
     // the outer stream and the REST-rebatch sub-batch sends would otherwise
     // multiply to batches_max_concurrency^2 simultaneous exporter calls.
-    // (See the identical note in `process_batches` for the full rationale.)
     let send_permits = std::sync::Arc::new(tokio::sync::Semaphore::new(batches_max_concurrency));
 
     // Stream lazily per batch: convert + transform + send happen as the stream
@@ -446,8 +447,36 @@ fn into_processed_log_batches_of_estimated_size_limit(
     batches_max_size: usize,
 ) -> Vec<Vec<ProcessedLog>> {
     into_batches_by_estimated_size_limit(logs, batches_max_size * 1024 * 1024, |log| {
-        log.body.to_string().len()
+        estimated_json_size(&log.body)
     })
+}
+
+/// Cheap size estimate for a JSON body without serializing it: strings report
+/// their length plus quotes, scalars a small constant, containers the sum of
+/// their parts. Exactness is not required — this only drives batch splitting,
+/// and the exporter re-serializes the body anyway.
+fn estimated_json_size(value: &Value) -> usize {
+    match value {
+        Value::String(s) => s.len() + 2,
+        Value::Null => 4,
+        Value::Bool(_) => 5,
+        Value::Number(n) => n.to_string().len(),
+        Value::Array(items) => {
+            2 + items.iter().map(estimated_json_size).sum::<usize>() + items.len().saturating_sub(1)
+        }
+        Value::Object(map) => {
+            2 + items_size(map.len())
+                + map
+                    .iter()
+                    .map(|(key, value)| key.len() + 4 + estimated_json_size(value))
+                    .sum::<usize>()
+        }
+    }
+}
+
+/// Comma separator budget: n items contribute n-1 commas; clamp at zero.
+fn items_size(count: usize) -> usize {
+    count.saturating_sub(1)
 }
 
 #[derive(Serialize, Deserialize, Default)]

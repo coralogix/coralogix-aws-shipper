@@ -12,3 +12,4 @@ examples/**/parameters.json
 
 # Terraform provider lock files (run terraform init locally to regenerate)
 **/.terraform.lock.hcl
+.cargo/config.toml
