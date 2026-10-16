@@ -69,7 +69,7 @@ static PRINT_HANDLER: StderrPrintHandler = StderrPrintHandler;
 /// - Ready: permanent (no script configured or successfully compiled)
 /// - Failed: retryable after TTL; used for transient S3/HTTP/STS errors
 enum CacheState {
-    Ready(Option<StarlarkTransformer>),
+    Ready(Option<std::sync::Arc<StarlarkTransformer>>),
     Failed { failed_at: Instant },
 }
 
@@ -153,7 +153,8 @@ pub async fn transform_logs(
                 None
             }
         };
-        *CACHED_TRANSFORMER.lock().await = Some(CacheState::Ready(transformer));
+        *CACHED_TRANSFORMER.lock().await =
+            Some(CacheState::Ready(transformer.map(std::sync::Arc::new)));
     }
 
     let guard = CACHED_TRANSFORMER.lock().await;
@@ -253,13 +254,19 @@ pub async fn transform_logs_grouped(
                 None
             }
         };
-        *guard = Some(CacheState::Ready(transformer));
+        *guard = Some(CacheState::Ready(transformer.map(std::sync::Arc::new)));
     }
 
+    // Clone the Arc handle and release the cache lock before running the
+    // CPU-bound per-record Starlark evaluation: concurrent batches must be
+    // able to transform in parallel. The single-flight guarantee is unaffected
+    // — the lock is still held across resolve_starlark_script/compile above,
+    // so exactly one task downloads and compiles the script.
     let transformer = match guard.as_ref().unwrap() {
-        CacheState::Ready(t) => t,
+        CacheState::Ready(t) => t.as_ref().map(std::sync::Arc::clone),
         CacheState::Failed { .. } => return passthrough(),
     };
+    drop(guard);
 
     let Some(transformer) = transformer else {
         return passthrough();
