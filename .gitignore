@@ -12,4 +12,6 @@ examples/**/parameters.json
 
 # Terraform provider lock files (run terraform init locally to regenerate)
 **/.terraform.lock.hcl
+
+# Local cargo config (FIPS/toolchain overrides); do not commit
 .cargo/config.toml
