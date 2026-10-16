@@ -69,7 +69,7 @@ static PRINT_HANDLER: StderrPrintHandler = StderrPrintHandler;
 /// - Ready: permanent (no script configured or successfully compiled)
 /// - Failed: retryable after TTL; used for transient S3/HTTP/STS errors
 enum CacheState {
-    Ready(Option<StarlarkTransformer>),
+    Ready(Option<std::sync::Arc<StarlarkTransformer>>),
     Failed { failed_at: Instant },
 }
 
@@ -88,6 +88,82 @@ static CACHED_TRANSFORMER: Mutex<Option<CacheState>> = Mutex::const_new(None);
 // Public API
 // ============================================================================
 
+/// Resolve (or reuse) the cached transformer, single-flight.
+///
+/// Both production transform paths call this: the cache mutex is acquired once
+/// and held across `resolve_starlark_script`/`StarlarkTransformer::new`, so on
+/// a cold start exactly one task downloads and compiles the script while the
+/// others queue on the mutex and observe the published `Ready` state — no
+/// thundering herd, no duplicate downloads. Error paths publish `Failed`
+/// unconditionally (safe: the lock is never released during resolution, so no
+/// concurrent publish is possible).
+///
+/// Returns `None` when no usable transformer exists (no script configured, or
+/// the last resolution failed and the retry window has not elapsed); callers
+/// then pass their logs through unchanged. On success the `Arc` handle is
+/// cloned and the lock is released before returning, so the CPU-bound
+/// evaluation never runs under the cache mutex.
+async fn resolve_cached_transformer(
+    config: &Config,
+    aws_config: &SdkConfig,
+) -> Option<std::sync::Arc<StarlarkTransformer>> {
+    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
+
+    let mut guard = CACHED_TRANSFORMER.lock().await;
+    let needs_resolution = match guard.as_ref() {
+        None => true,
+        Some(CacheState::Ready(None)) => config.starlark_script.is_some(), // config now has a script
+        Some(CacheState::Ready(Some(_))) => config.starlark_script.is_none(), // script removed
+        Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
+    };
+
+    if needs_resolution {
+        let resolved_script = match config.resolve_starlark_script(aws_config).await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(
+                    "Starlark script resolution failed, passing through logs unchanged: {}",
+                    e
+                );
+                // The lock is held across resolution, so no other task could
+                // have published a Ready state meanwhile: write Failed directly.
+                *guard = Some(CacheState::Failed {
+                    failed_at: Instant::now(),
+                });
+                return None;
+            }
+        };
+
+        let transformer = match resolved_script {
+            Some(script) => match StarlarkTransformer::new(&script) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    warn!(
+                        "Starlark script compilation failed, passing through logs unchanged: {}",
+                        e
+                    );
+                    *guard = Some(CacheState::Failed {
+                        failed_at: Instant::now(),
+                    });
+                    return None;
+                }
+            },
+            None => {
+                debug!("No Starlark script configured, caching None");
+                None
+            }
+        };
+        *guard = Some(CacheState::Ready(transformer.map(std::sync::Arc::new)));
+    }
+
+    let handle = match guard.as_ref().unwrap() {
+        CacheState::Ready(t) => t.as_ref().map(std::sync::Arc::clone),
+        CacheState::Failed { .. } => None,
+    };
+    drop(guard);
+    handle
+}
+
 /// Apply log transformation based on config.
 ///
 /// Resolves the Starlark script from S3, URL, Base64, or raw script (in that priority order).
@@ -103,67 +179,7 @@ pub async fn transform_logs(
     config: &Config,
     aws_config: &SdkConfig,
 ) -> Result<Vec<String>, TransformError> {
-    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
-    let has_script_config = config.starlark_script.is_some();
-
-    let should_resolve = {
-        let guard = CACHED_TRANSFORMER.lock().await;
-        match guard.as_ref() {
-            None => true,
-            Some(CacheState::Ready(None)) => has_script_config, // Config now has script, retry
-            Some(CacheState::Ready(Some(_))) => !has_script_config, // Config no longer has script
-            Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
-        }
-    };
-
-    if should_resolve {
-        // Lock released (should_resolve block ended) before await
-        let resolved_script = match config.resolve_starlark_script(aws_config).await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(
-                    "Starlark script resolution failed, passing through {} logs unchanged: {}",
-                    logs.len(),
-                    e
-                );
-                *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
-                    failed_at: Instant::now(),
-                });
-                return Ok(logs);
-            }
-        };
-
-        let transformer = match resolved_script {
-            Some(script) => match StarlarkTransformer::new(&script) {
-                Ok(t) => Some(t),
-                Err(e) => {
-                    warn!(
-                        "Starlark script compilation failed, passing through {} logs unchanged: {}",
-                        logs.len(),
-                        e
-                    );
-                    *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
-                        failed_at: Instant::now(),
-                    });
-                    return Ok(logs);
-                }
-            },
-            None => {
-                debug!("No Starlark script configured, caching None");
-                None
-            }
-        };
-        *CACHED_TRANSFORMER.lock().await = Some(CacheState::Ready(transformer));
-    }
-
-    let guard = CACHED_TRANSFORMER.lock().await;
-    let state = guard.as_ref().unwrap();
-    let transformer = match state {
-        CacheState::Ready(t) => t,
-        CacheState::Failed { .. } => return Ok(logs),
-    };
-
-    let Some(transformer) = transformer else {
+    let Some(transformer) = resolve_cached_transformer(config, aws_config).await else {
         return Ok(logs);
     };
 
@@ -171,6 +187,41 @@ pub async fn transform_logs(
     let transformed = transformer.transform_batch(logs)?;
     info!(
         "Starlark transformation complete: {} logs after transformation",
+        transformed.len()
+    );
+
+    Ok(transformed)
+}
+
+/// Like `transform_logs` but preserves per-input attribution as typed JSON
+/// values: output slot `i` holds all results derived from input log `i`, with
+/// Starlark strings kept as JSON strings (not unquoted contents). Resolves the
+/// cached transformer once for the whole batch instead of per log.
+///
+/// A log whose script evaluation fails (or whose transformer is unavailable)
+/// yields a [`TransformOutcome::PassThrough`] slot so callers can restore the
+/// original body explicitly, matching `transform_logs`' per-input error
+/// handling without relying on value equality.
+pub async fn transform_logs_grouped(
+    logs: &[String],
+    config: &Config,
+    aws_config: &SdkConfig,
+) -> Result<Vec<Vec<TransformOutcome>>, TransformError> {
+    let passthrough = || {
+        Ok(logs
+            .iter()
+            .map(|_| vec![TransformOutcome::PassThrough])
+            .collect::<Vec<_>>())
+    };
+
+    let Some(transformer) = resolve_cached_transformer(config, aws_config).await else {
+        return passthrough();
+    };
+
+    info!("Applying Starlark transformation to {} logs", logs.len());
+    let transformed = transformer.transform_batch_grouped_values(logs)?;
+    info!(
+        "Starlark transformation complete: {} groups after transformation",
         transformed.len()
     );
 
@@ -214,6 +265,20 @@ pub enum TransformError {
 
 // Keep the old name as an alias for backwards compatibility with tests
 pub type StarlarkError = TransformError;
+
+/// Outcome of transforming one input log in the grouped API.
+///
+/// `Transformed` carries the typed JSON values the script produced.
+/// `PassThrough` marks a log that was NOT transformed (script evaluation
+/// failed, or the cached transformer is unavailable) so callers can restore
+/// the original body instead of inferring from value equality — an identity
+/// script or `to_json(event)` can legitimately produce text identical to the
+/// serialized input.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransformOutcome {
+    Transformed(serde_json::Value),
+    PassThrough,
+}
 
 // ============================================================================
 // Starlark Transformer
@@ -305,22 +370,104 @@ impl StarlarkTransformer {
         starlark_to_json_strings(result)
     }
 
+    /// Transform a single log, returning typed JSON values: Starlark strings
+    /// come back as JSON strings (not unquoted contents), preserving types.
+    pub fn transform_value(&self, log: &str) -> Result<Vec<serde_json::Value>, TransformError> {
+        // Parse the input as JSON
+        let json_value: serde_json::Value = serde_json::from_str(log)
+            .unwrap_or_else(|_| serde_json::Value::String(log.to_string()));
+
+        // Create a new module for this evaluation, importing from frozen
+        let module = Module::new();
+        module.import_public_symbols(&self.frozen_module);
+
+        // Get the transform function
+        let transform_fn = self
+            .frozen_module
+            .get("transform")
+            .map_err(|_| TransformError::TransformFunctionNotFound)?;
+
+        let mut eval = Evaluator::new(&module);
+        eval.set_print_handler(&PRINT_HANDLER);
+
+        // Convert JSON to Starlark value
+        let heap = module.heap();
+        let starlark_input =
+            json_to_starlark(heap, &json_value).map_err(TransformError::ConversionError)?;
+
+        // Call transform(event)
+        let result = eval
+            .eval_function(transform_fn.value(), &[starlark_input], &[])
+            .map_err(|e| TransformError::EvalError(e.to_string()))?;
+
+        starlark_to_json_values(result)
+    }
+
     /// Transform multiple logs, flattening the results
     pub fn transform_batch(&self, logs: Vec<String>) -> Result<Vec<String>, TransformError> {
-        let mut results = Vec::new();
+        let grouped = self.transform_batch_grouped(&logs)?;
+        Ok(grouped.into_iter().flatten().collect())
+    }
+
+    /// Transform multiple logs, keeping each input's outputs separate as typed
+    /// JSON values.
+    ///
+    /// Unlike `transform_batch` this preserves fan-out attribution: output slot
+    /// `i` holds all results derived from input log `i`. A log whose script
+    /// evaluation fails is passed through unchanged in its own slot, matching
+    /// `transform_batch`'s per-input error handling.
+    ///
+    /// Starlark strings are returned as JSON strings — NOT their unquoted
+    /// contents — so the caller sees the same type the script produced.
+    pub fn transform_batch_grouped_values(
+        &self,
+        logs: &[String],
+    ) -> Result<Vec<Vec<TransformOutcome>>, TransformError> {
+        let mut results = Vec::with_capacity(logs.len());
         for log in logs {
-            match self.transform(&log) {
-                Ok(transformed) => results.extend(transformed),
+            match self.transform_value(log) {
+                Ok(transformed) => results.push(
+                    transformed
+                        .into_iter()
+                        .map(TransformOutcome::Transformed)
+                        .collect(),
+                ),
                 Err(e) => {
                     warn!(
                         "Starlark transform failed for log, passing through unchanged: {}",
                         e
                     );
-                    results.push(log);
+                    results.push(vec![TransformOutcome::PassThrough]);
                 }
             }
         }
         Ok(results)
+    }
+
+    /// Transform multiple logs, keeping each input's outputs separate.
+    ///
+    /// Unlike `transform_batch` this preserves fan-out attribution: output slot
+    /// `i` holds all results derived from input log `i`. A log whose script
+    /// evaluation fails is passed through unchanged in its own slot, matching
+    /// `transform_batch`'s per-input error handling.
+    pub fn transform_batch_grouped(
+        &self,
+        logs: &[String],
+    ) -> Result<Vec<Vec<String>>, TransformError> {
+        let values = self.transform_batch_grouped_values(logs)?;
+        Ok(values
+            .into_iter()
+            .zip(logs.iter())
+            .map(|(slot, original)| {
+                slot.into_iter()
+                    .map(|outcome| match outcome {
+                        TransformOutcome::Transformed(serde_json::Value::String(s)) => s,
+                        TransformOutcome::Transformed(other) => other.to_string(),
+                        TransformOutcome::PassThrough => original.clone(),
+                    })
+                    .collect()
+            })
+            .collect())
     }
 }
 
@@ -561,6 +708,28 @@ fn starlark_to_json(value: Value) -> Result<serde_json::Value, String> {
 
     // Fallback: represent as string
     Ok(serde_json::Value::String(value.to_string()))
+}
+
+/// Convert a Starlark result (expected to be a list) to JSON values.
+///
+/// Unlike `starlark_to_json_strings` this keeps Starlark strings as JSON
+/// strings (not their unquoted contents), so callers can round-trip typed
+/// data without re-parsing ambiguity.
+fn starlark_to_json_values(value: Value) -> Result<Vec<serde_json::Value>, TransformError> {
+    if let Some(list) = ListRef::from_value(value) {
+        let mut results = Vec::new();
+        for item in list.iter() {
+            let json = starlark_to_json(item).map_err(TransformError::ConversionError)?;
+            results.push(json);
+        }
+        Ok(results)
+    } else {
+        Err(TransformError::InvalidReturnType(format!(
+            "got {} (type: {}), expected a list. Example: return [event] or return []",
+            value,
+            value.get_type()
+        )))
+    }
 }
 
 /// Convert a Starlark result (expected to be a list) to JSON strings.

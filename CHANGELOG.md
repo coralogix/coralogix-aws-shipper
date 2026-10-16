@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.18 / 2026-10-16
+
+### 💡 Enhancements 💡
+
+- **Post-metadata Starlark transformation:** Add the opt-in `StarlarkTransformAfterMetadata` parameter so scripts can inspect and modify configured AWS and custom metadata before export. The default remains the existing pre-metadata behavior.
+- **Transformed log batching:** Recompute REST request batches from final transformed bodies when post-metadata transformation is enabled, preventing fan-out or expanded events from creating oversized requests.
+
+### 🧰 Bug fixes 🧰
+
+- **Send-path future Send compliance:** Rework the send pipeline so stream futures capture only owned data, restoring compilation under the `#[async_recursion]` handler's `Send` requirement; batches are converted, transformed, and sent lazily per stream item so memory stays bounded during fan-out.
+- **Typed transform results:** Preserve result types through the post-metadata transform — a log whose content is a JSON string literal (e.g. `"123"`) keeps its string type after even an identity script, and deliberate `to_json(event)` stringification survives. Script failures restore the original body verbatim.
+
 ## v1.4.17 / 2026-10-14
 
 ### 🧰 Bug fixes 🧰

@@ -537,10 +537,50 @@ Your script must define a `transform(event)` function that:
 
 ### Understanding the Event Format
 
-The `event` passed to `transform(event)` is the **raw log content** — there is no wrapper or envelope added by the shipper. If the log string is valid JSON, `event` is a Starlark dict (object); otherwise it is a plain string.
+By default, the `event` passed to `transform(event)` is the **raw log content** — there is no wrapper or envelope added by the shipper. If the log string is valid JSON, `event` is a Starlark dict (object); otherwise it is a plain string.
 
-> [!NOTE]
-> The transform runs **before** any metadata (e.g., `s3.object.key`, `cw.log.group`) is attached. Your script only sees the raw log content, not shipper metadata.
+The `StarlarkTransformAfterMetadata` parameter controls the transformation stage:
+
+| Value | Processing order |
+|-------|------------------|
+| `false` (default) | Raw log → Starlark transform → metadata attachment → export |
+| `true` | Raw log → metadata attachment → Starlark transform → export |
+
+The default is backward compatible with existing deployments and scripts.
+
+When `StarlarkTransformAfterMetadata` is `true`, the script receives the body that would otherwise be exported. It contains only metadata configured for output through `AddMetadata`, `CustomMetadata`, or enabled CloudWatch log group tags. Internal metadata that was not selected is not exposed.
+
+When metadata is attached through `AddMetadata` or `CustomMetadata`, the existing output envelope places the original log under `event["message"]` and metadata at the root:
+
+```json
+{
+  "message": {"level": "INFO", "msg": "hello"},
+  "kinesis.event.source_arn": "arn:aws:kinesis:us-east-1:123456789012:stream/example"
+}
+```
+
+The post-metadata script may modify or remove any of these fields; metadata is not attached again afterward. Application/subsystem routing, automatic severity, and the timestamp are determined before this final body transformation. If a script returns multiple events, every result inherits those values from its source log.
+
+Example:
+
+```python
+def transform(event):
+    # When no metadata is configured (no AddMetadata/CustomMetadata/log-group
+    # tags), the script receives the raw log itself — a plain string for
+    # non-JSON logs, which has no dict methods — so guard on the type first.
+    if type(event) == "dict":
+        # The "kinesis.event.source_arn" key exists only when the trigger is
+        # Kinesis and that field is selected in AddMetadata, so pop with a
+        # default.
+        source_arn = event.pop("kinesis.event.source_arn", None)
+        if source_arn != None:
+            event["source_arn"] = source_arn
+        if "message" in event and type(event["message"]) == "dict":
+            event["message"]["metadata_was_available"] = True
+    return [event]
+```
+
+Note: when enabled CloudWatch log-group tags are the **only** metadata, the body follows the pre-existing tags-only shape instead of the envelope above: a JSON-object log gets `cw.tags` merged at its root, a plain-text log is wrapped as `{"text": <log>, "cw.tags": {...}}`, and other JSON values are wrapped as `{"message": <log>, "cw.tags": {...}}`. With no metadata at all, the script simply receives the raw log itself (string or dict).
 
 The structure of `event` depends on the source that triggered the Lambda:
 
