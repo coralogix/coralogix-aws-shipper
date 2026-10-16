@@ -1677,6 +1677,17 @@ async fn test_sqs_s3_event() {
 }
 
 async fn run_sqs_event() {
+    run_sqs_event_with(|entry| {
+        assert_eq!(entry.body, "[INFO] some test log line");
+    })
+    .await;
+}
+
+/// Shared SQS-event runner. Each test supplies its own body assertion so the
+/// plain-path assertion does not depend on an unrelated feature flag.
+async fn run_sqs_event_with(
+    body_assert: impl Fn(&coralogix_aws_shipper::logs::model::ProcessedLog),
+) {
     let config = Config::load_from_env().unwrap();
     let evt: Combined = serde_json::from_str(
         r#"{
@@ -1724,14 +1735,7 @@ async fn run_sqs_event() {
     assert_eq!(singles.len(), 1);
     assert_eq!(singles[0].entries.len(), 1);
     let entry = &singles[0].entries[0];
-    if config.starlark_transform_after_metadata {
-        assert_eq!(
-            entry.body["metadata_seen_by_script"],
-            "00000000-0000-0000-0000-000000000000"
-        );
-    } else {
-        assert_eq!(entry.body, "[INFO] some test log line");
-    }
+    body_assert(entry);
 
     assert!(
         entry.application_name == "integration-testing",
@@ -1792,7 +1796,13 @@ async fn test_sqs_event_starlark() {
 
 async fn run_sqs_event_starlark_after_metadata() {
     coralogix_aws_shipper::logs::transform::reset_cache().await;
-    run_sqs_event().await;
+    run_sqs_event_with(|entry| {
+        assert_eq!(
+            entry.body["metadata_seen_by_script"],
+            "00000000-0000-0000-0000-000000000000"
+        );
+    })
+    .await;
     coralogix_aws_shipper::logs::transform::reset_cache().await;
 }
 

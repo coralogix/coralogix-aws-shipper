@@ -457,7 +457,7 @@ fn into_processed_log_batches_of_estimated_size_limit(
 /// and the exporter re-serializes the body anyway.
 fn estimated_json_size(value: &Value) -> usize {
     match value {
-        Value::String(s) => s.len() + 2,
+        Value::String(s) => 2 + escaped_json_len(s),
         Value::Null => 4,
         Value::Bool(_) => 5,
         Value::Number(n) => n.to_string().len(),
@@ -468,10 +468,25 @@ fn estimated_json_size(value: &Value) -> usize {
             2 + items_size(map.len())
                 + map
                     .iter()
-                    .map(|(key, value)| key.len() + 4 + estimated_json_size(value))
+                    .map(|(key, value)| 2 + escaped_json_len(key) + 2 + estimated_json_size(value))
                     .sum::<usize>()
         }
     }
+}
+
+/// Serialized length of a JSON string's *contents* (without the surrounding
+/// quotes), accounting for escaping: serde_json expands `"` and `\` to 2
+/// bytes and control characters to up to 6 bytes, so raw `s.len()`
+/// underestimates escape-dense bodies.
+fn escaped_json_len(s: &str) -> usize {
+    s.len()
+        + s.bytes()
+            .map(|b| match b {
+                b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 0x08 | 0x0C => 1,
+                0x00..=0x1F => 5,
+                _ => 0,
+            })
+            .sum::<usize>()
 }
 
 /// Comma separator budget: n items contribute n-1 commas; clamp at zero.
