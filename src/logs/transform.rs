@@ -88,6 +88,82 @@ static CACHED_TRANSFORMER: Mutex<Option<CacheState>> = Mutex::const_new(None);
 // Public API
 // ============================================================================
 
+/// Resolve (or reuse) the cached transformer, single-flight.
+///
+/// Both production transform paths call this: the cache mutex is acquired once
+/// and held across `resolve_starlark_script`/`StarlarkTransformer::new`, so on
+/// a cold start exactly one task downloads and compiles the script while the
+/// others queue on the mutex and observe the published `Ready` state — no
+/// thundering herd, no duplicate downloads. Error paths publish `Failed`
+/// unconditionally (safe: the lock is never released during resolution, so no
+/// concurrent publish is possible).
+///
+/// Returns `None` when no usable transformer exists (no script configured, or
+/// the last resolution failed and the retry window has not elapsed); callers
+/// then pass their logs through unchanged. On success the `Arc` handle is
+/// cloned and the lock is released before returning, so the CPU-bound
+/// evaluation never runs under the cache mutex.
+async fn resolve_cached_transformer(
+    config: &Config,
+    aws_config: &SdkConfig,
+) -> Option<std::sync::Arc<StarlarkTransformer>> {
+    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
+
+    let mut guard = CACHED_TRANSFORMER.lock().await;
+    let needs_resolution = match guard.as_ref() {
+        None => true,
+        Some(CacheState::Ready(None)) => config.starlark_script.is_some(), // config now has a script
+        Some(CacheState::Ready(Some(_))) => config.starlark_script.is_none(), // script removed
+        Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
+    };
+
+    if needs_resolution {
+        let resolved_script = match config.resolve_starlark_script(aws_config).await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(
+                    "Starlark script resolution failed, passing through logs unchanged: {}",
+                    e
+                );
+                // The lock is held across resolution, so no other task could
+                // have published a Ready state meanwhile: write Failed directly.
+                *guard = Some(CacheState::Failed {
+                    failed_at: Instant::now(),
+                });
+                return None;
+            }
+        };
+
+        let transformer = match resolved_script {
+            Some(script) => match StarlarkTransformer::new(&script) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    warn!(
+                        "Starlark script compilation failed, passing through logs unchanged: {}",
+                        e
+                    );
+                    *guard = Some(CacheState::Failed {
+                        failed_at: Instant::now(),
+                    });
+                    return None;
+                }
+            },
+            None => {
+                debug!("No Starlark script configured, caching None");
+                None
+            }
+        };
+        *guard = Some(CacheState::Ready(transformer.map(std::sync::Arc::new)));
+    }
+
+    let handle = match guard.as_ref().unwrap() {
+        CacheState::Ready(t) => t.as_ref().map(std::sync::Arc::clone),
+        CacheState::Failed { .. } => None,
+    };
+    drop(guard);
+    handle
+}
+
 /// Apply log transformation based on config.
 ///
 /// Resolves the Starlark script from S3, URL, Base64, or raw script (in that priority order).
@@ -103,68 +179,7 @@ pub async fn transform_logs(
     config: &Config,
     aws_config: &SdkConfig,
 ) -> Result<Vec<String>, TransformError> {
-    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
-    let has_script_config = config.starlark_script.is_some();
-
-    let should_resolve = {
-        let guard = CACHED_TRANSFORMER.lock().await;
-        match guard.as_ref() {
-            None => true,
-            Some(CacheState::Ready(None)) => has_script_config, // Config now has script, retry
-            Some(CacheState::Ready(Some(_))) => !has_script_config, // Config no longer has script
-            Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
-        }
-    };
-
-    if should_resolve {
-        // Lock released (should_resolve block ended) before await
-        let resolved_script = match config.resolve_starlark_script(aws_config).await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(
-                    "Starlark script resolution failed, passing through {} logs unchanged: {}",
-                    logs.len(),
-                    e
-                );
-                *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
-                    failed_at: Instant::now(),
-                });
-                return Ok(logs);
-            }
-        };
-
-        let transformer = match resolved_script {
-            Some(script) => match StarlarkTransformer::new(&script) {
-                Ok(t) => Some(t),
-                Err(e) => {
-                    warn!(
-                        "Starlark script compilation failed, passing through {} logs unchanged: {}",
-                        logs.len(),
-                        e
-                    );
-                    *CACHED_TRANSFORMER.lock().await = Some(CacheState::Failed {
-                        failed_at: Instant::now(),
-                    });
-                    return Ok(logs);
-                }
-            },
-            None => {
-                debug!("No Starlark script configured, caching None");
-                None
-            }
-        };
-        *CACHED_TRANSFORMER.lock().await =
-            Some(CacheState::Ready(transformer.map(std::sync::Arc::new)));
-    }
-
-    let guard = CACHED_TRANSFORMER.lock().await;
-    let state = guard.as_ref().unwrap();
-    let transformer = match state {
-        CacheState::Ready(t) => t,
-        CacheState::Failed { .. } => return Ok(logs),
-    };
-
-    let Some(transformer) = transformer else {
+    let Some(transformer) = resolve_cached_transformer(config, aws_config).await else {
         return Ok(logs);
     };
 
@@ -199,76 +214,7 @@ pub async fn transform_logs_grouped(
             .collect::<Vec<_>>())
     };
 
-    // Snapshot the retry window before touching the cache.
-    let retry_interval = Duration::from_secs(RETRY_INTERVAL_SECS.load(Ordering::SeqCst));
-
-    // Acquire the cache lock once, holding it across script resolution:
-    // cold-start callers queue on the mutex, so exactly one task performs the
-    // download/compile while the others observe the published result when the
-    // lock is released — no thundering herd, no duplicate downloads. Because
-    // the lock is never released during resolution, no concurrent publish is
-    // possible and the error paths below can write Failed unconditionally.
-    let mut guard = CACHED_TRANSFORMER.lock().await;
-    let needs_resolution = match guard.as_ref() {
-        None => true,
-        Some(CacheState::Ready(None)) => config.starlark_script.is_some(), // config now has a script
-        Some(CacheState::Ready(Some(_))) => config.starlark_script.is_none(), // script removed
-        Some(CacheState::Failed { failed_at }) => failed_at.elapsed() >= retry_interval,
-    };
-
-    if needs_resolution {
-        let resolved_script = match config.resolve_starlark_script(aws_config).await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(
-                    "Starlark script resolution failed, passing through {} logs unchanged: {}",
-                    logs.len(),
-                    e
-                );
-                // The lock is held across resolution, so no other task could
-                // have published a Ready state meanwhile: write Failed directly.
-                *guard = Some(CacheState::Failed {
-                    failed_at: Instant::now(),
-                });
-                return passthrough();
-            }
-        };
-
-        let transformer = match resolved_script {
-            Some(script) => match StarlarkTransformer::new(&script) {
-                Ok(t) => Some(t),
-                Err(e) => {
-                    warn!(
-                        "Starlark script compilation failed, passing through {} logs unchanged: {}",
-                        logs.len(),
-                        e
-                    );
-                    *guard = Some(CacheState::Failed {
-                        failed_at: Instant::now(),
-                    });
-                    return passthrough();
-                }
-            },
-            None => {
-                debug!("No Starlark script configured, caching None");
-                None
-            }
-        };
-        *guard = Some(CacheState::Ready(transformer.map(std::sync::Arc::new)));
-    }
-
-    // Clone the Arc handle and release the cache lock before running the
-    // CPU-bound per-record Starlark evaluation: concurrent batches must be
-    // able to transform in parallel. The single-flight guarantee is unaffected
-    // — the lock is still held across resolve_starlark_script/compile above,
-    // so exactly one task downloads and compiles the script.
-    let transformer = match guard.as_ref().unwrap() {
-        CacheState::Ready(t) => t.as_ref().map(std::sync::Arc::clone),
-        CacheState::Failed { .. } => return passthrough(),
-    };
-    drop(guard);
-
-    let Some(transformer) = transformer else {
+    let Some(transformer) = resolve_cached_transformer(config, aws_config).await else {
         return passthrough();
     };
 
