@@ -26,7 +26,6 @@
   retained rather than the uncertified v4. `cargo-deny` now bans `aws-lc-rs >= 1.18`
   outright so the upgrade cannot return unnoticed.
 
-
 ## v1.4.16 / 2026-09-10
 
 ### 🧰 Bug fixes 🧰
