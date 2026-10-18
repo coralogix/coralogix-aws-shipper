@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "coralogix-aws-shipper"
-version = "1.4.17"
+version = "1.4.18"
 dependencies = [
  "anyhow",
  "async-recursion",
