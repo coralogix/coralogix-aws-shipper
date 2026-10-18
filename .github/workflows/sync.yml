@@ -23,10 +23,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # head_branch pins this to master. A non-master push that touches template.yaml
+    # also starts Publish, and the guarantee that it cannot reach here otherwise rests
+    # on every one of its jobs skipping, which is a property of their own conditions
+    # rather than of this workflow.
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+            (github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.head_branch == 'master') }}
     steps:
       - name: checkout coralogix-aws-shipper repository
         uses: actions/checkout@v7
+        with:
+          # workflow_run sets GITHUB_SHA to the default branch tip, not the commit whose
+          # Publish finished. Without this, a push landing while Publish runs would sync
+          # that newer template and version, whose artifacts are not published yet.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: get last commit_message
         id: commits
@@ -39,6 +50,8 @@ jobs:
       - run: sudo snap install yq
         # Update the CodeUri property of all AWS::Serverless::Function resources using Yq
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
       - name: update-template
         run: |
           set -xv
@@ -57,23 +70,32 @@ jobs:
                 "x86_64" ] 
             }' ./template.yaml
 
+          # Point CodeUri at this release's versioned artifacts, not the mutable
+          # coralogix-aws-shipper*.zip keys. CloudFormation only re-fetches a Lambda
+          # package when the S3 location changes, so a mutable key means a stack update
+          # to a new release silently keeps the old code (the version in Metadata is SAR
+          # metadata and does not drive resource updates). Versioned keys are immutable
+          # and published per release, so each sync produces a template that deploys
+          # exactly the release it names.
+          version="$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)"
+
           # update the CodeUri property of LambdaFunction resources
           # based on the CpuArch condition
-          yq -i '.Resources.LambdaFunction.Properties.CodeUri |= {
-              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"}, 
+          VERSION="$version" yq -i '.Resources.LambdaFunction.Properties.CodeUri |= {
+              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"},
               "Key": {
                   "Fn::If": [
-                      "CpuArchIsx8664", 
-                      "coralogix-aws-shipper-x86-64.zip", 
-                      "coralogix-aws-shipper.zip"
+                      "CpuArchIsx8664",
+                      "coralogix-aws-shipper-x86-64-" + strenv(VERSION) + ".zip",
+                      "coralogix-aws-shipper-arm64-" + strenv(VERSION) + ".zip"
                   ]
               }
           }' template.yaml
 
           # set custom resource CodeUri
-          yq -i '.Resources.CustomResourceFunction.Properties.CodeUri = {
-              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"}, 
-              "Key": "coralogix-aws-shipper-custom-resource.zip"
+          VERSION="$version" yq -i '.Resources.CustomResourceFunction.Properties.CodeUri = {
+              "Bucket": {"Fn::Sub": "coralogix-serverless-repo-${AWS::Region}"},
+              "Key": "coralogix-aws-shipper-custom-resource-" + strenv(VERSION) + ".zip"
           }' template.yaml
 
           # sed -i '3a\#Created automatically from coralogix\/coralogix-aws-shipper' ./template.yaml
@@ -108,7 +130,13 @@ jobs:
     permissions:
       contents: read
     needs: get-template
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # head_branch pins this to master. A non-master push that touches template.yaml
+    # also starts Publish, and the guarantee that it cannot reach here otherwise rests
+    # on every one of its jobs skipping, which is a property of their own conditions
+    # rather than of this workflow.
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+            (github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.head_branch == 'master') }}
     steps:
       # Into a subdirectory: the PR body is written to the runner temp, and keeping the
       # target repo out of the workspace root avoids clobbering anything else.

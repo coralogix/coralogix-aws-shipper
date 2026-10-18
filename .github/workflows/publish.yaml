@@ -7,6 +7,15 @@ on:
 
   workflow_dispatch:
 
+# Scoped to the commit, not the workflow: a group only keeps one run pending, so a
+# shared group would let a later release evict an earlier one that had not started yet
+# and leave it with no artifacts and no tag. Concurrent releases are already safe --
+# every upload is a conditional write and an existing SAR version is tolerated -- so
+# this only stops a rerun of the same commit from racing itself.
+concurrency:
+  group: publish-${{ github.sha }}
+  cancel-in-progress: false
+
 env:
   AWS_DEFAULT_REGION: eu-central-1
   AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
@@ -21,6 +30,7 @@ jobs:
       contents: write
     outputs:
       template_updated: ${{ env.updated }}
+      version: ${{ env.current_version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -46,30 +56,13 @@ jobs:
           echo "updated=false" >> $GITHUB_ENV
           [ "$current" != "$previous" ] && echo "updated=true" >> $GITHUB_ENV
           
-          lastcommit=$(git log -1 --pretty=%B)
-          [[ $lastcommit =~ .*skip-version-check.* ]] && echo "updated=true" >> $GITHUB_ENV
+          # skip-version-check used to force a publish of an unchanged version. Versioned
+          # artifacts and the release tag are write-once, so republishing a version can no
+          # longer replace anything: the uploads are refused, SAR conflicts, the tag
+          # already exists, and the only effect is a template synced on top of an earlier
+          # commit's code. Re-run a release with workflow_dispatch instead.
 
           set +xv
-
-      - name: create tag
-        if: env.updated == 'true'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            try {
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: 'refs/tags/${{ env.current_version }}',
-                sha: context.sha
-              })
-            } catch (e) {
-              if (e.status === 422 && e.message.includes('Reference already exists')) {
-                core.warning(`Tag ${{ env.current_version }} already exists — skipping.`)
-              } else {
-                throw e
-              }
-            }
 
   validate:
     name: validate
@@ -104,8 +97,14 @@ jobs:
 
   build:
     name: build
-    needs: validate
+    needs: [validate, check_version]
     if: ${{ github.event_name == 'workflow_dispatch' || success() }}
+    # A master push that edits template.yaml without bumping the version still builds,
+    # as a check that it compiles, but must not touch S3: it would overwrite the public
+    # mutable key with an unreleased build, and the versioned key for the current
+    # version already belongs to the commit that released it.
+    env:
+      RELEASING: ${{ github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true' }}
     # Each arch builds on its own native runner so the FIPS binary is compiled
     # natively inside the Amazon Linux 2023 container (no cross-compile, glibc 2.34).
     runs-on: ${{ matrix.runner }}
@@ -180,6 +179,17 @@ jobs:
           current=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
           echo "current_version=$current" >> $GITHUB_ENV
 
+          # The unversioned key means "latest" to everyone fetching it, so only the
+          # newest release may write it. Re-running an older release owns its own
+          # artifacts and passes every ownership check, but must not roll that key back.
+          # Releases are tagged, so the highest tag is the newest version published.
+          latest=$(git ls-remote --tags origin | awk -F'refs/tags/' '{print $2}' | grep -v '\^{}' | sort -V | tail -1)
+          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" != "$current" ]; then
+            echo "is_latest=false" >> $GITHUB_ENV
+          else
+            echo "is_latest=true" >> $GITHUB_ENV
+          fi
+
       - name: build FIPS bootstrap (AL2023, native ${{ matrix.target }})
         run: |
           mkdir -p ~/.cargo-registry
@@ -225,17 +235,21 @@ jobs:
       
 
       - name: s3upload-x86-64-build
-        if: ${{ matrix.target == 'x86-64' }}
+        # env.is_latest guards the unversioned key the same way the store step in
+        # publish guards the arm64 and custom-resource ones.
+        if: ${{ matrix.target == 'x86-64' && env.RELEASING == 'true' && env.is_latest == 'true' }}
         run: |
           aws s3 cp \
             $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
             s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}.zip
       
       - name: s3upload-${{ matrix.target }}-build-versioned
+        if: ${{ env.RELEASING == 'true' }}
         run: |
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
+          bash ci/upload-versioned.sh \
+            "$(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml)" \
+            ${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }} \
+            coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip
         
       - name: store-arm64-package
         uses: actions/upload-artifact@v7
@@ -246,6 +260,27 @@ jobs:
           name: packaged.yaml
           path: packaged.yaml
 
+      # GovCloud is a separate partition, so publish-govcloud cannot read the
+      # commercial bucket. Hand the zip over as a workflow artifact instead.
+      #
+      # Staged from the versioned key the step above just guaranteed, not from the
+      # freshly built package: sam build records archive timestamps, so a rerun of an
+      # already-published version produces different bytes, and GovCloud would end up
+      # holding a different artifact from commercial under the same version.
+      - name: stage-${{ matrix.target }}-zip-for-govcloud
+        if: ${{ env.RELEASING == 'true' }}
+        run: |
+          aws s3 cp \
+            "s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip" \
+            coralogix-aws-shipper-${{ matrix.target }}.zip
+
+      - name: store-${{ matrix.target }}-zip-for-govcloud
+        if: ${{ env.RELEASING == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: govcloud-${{ matrix.target }}
+          path: coralogix-aws-shipper-${{ matrix.target }}.zip
+
   publish:
     name: publish
     needs: [check_version , build]
@@ -254,6 +289,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # check_version is skipped on workflow_dispatch, so its version output is empty
+    # there. The tag job takes the version from here instead, which is also the one
+    # actually published rather than one re-read from the tree.
+    outputs:
+      version: ${{ steps.publish.outputs.version }}
     env:
       AWS_SERVERLESS_BUCKET: coralogix-serverless-repo
     steps:
@@ -264,6 +304,9 @@ jobs:
           role-session-name: coralogix-aws-shipper-${{ github.run_id }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
+      - name: checkout
+        uses: actions/checkout@v7
+
       - name: download
         uses: actions/download-artifact@v8
         with:
@@ -272,16 +315,108 @@ jobs:
       - name: install yq
         run: sudo snap install yq
 
-      - name: publish
+      # Settled before anything public changes. The store step below overwrites the
+      # mutable keys that customers without a pinned version fetch, and
+      # create-application-version is not idempotent, so learning mid-publish that this
+      # version belongs to another commit would already have left the rejected build
+      # behind those URLs.
+      - name: verify this commit owns the release
         run: |
           VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+
+          # The versioned artifact is the write-once lock for a version and records the
+          # commit that claimed it. Releases published before artifacts carried that
+          # stamp fall back to the tag: ^{} dereferences an annotated tag and prints
+          # nothing for a lightweight one, which is what the tag job creates.
+          owner=$(aws s3api head-object \
+            --bucket "${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}" \
+            --key "coralogix-aws-shipper-arm64-${VERSION}.zip" \
+            --query 'Metadata.commit' --output text 2>/dev/null || true)
+          if [ "$owner" = "None" ]; then
+            owner=""
+          fi
+          if [ -z "$owner" ]; then
+            owner=$(git ls-remote origin "refs/tags/${VERSION}^{}" | cut -f1)
+            [ -n "$owner" ] || owner=$(git ls-remote origin "refs/tags/${VERSION}" | cut -f1)
+          fi
+
+          if [ -n "$owner" ] && [ "$owner" != "$GITHUB_SHA" ]; then
+            echo "::error::Release ${VERSION} was published by ${owner}, not ${GITHUB_SHA}. Its artifacts are immutable, so this commit cannot replace them. Bump the version instead of republishing."
+            exit 1
+          fi
+
+      # Ahead of the SAR version deliberately: create-application-version is not
+      # idempotent, so a rerun stops at a 409 and never reaches what follows it.
+      - name: store
+        run: |
+          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+
+          # These keys carry no version, so they mean "latest" to everyone fetching them.
+          # Ownership above establishes that this commit may publish this version, not
+          # that the version is the newest one: re-running an older release still owns
+          # its own artifacts, and would roll the unversioned URL back to it. Releases
+          # are tagged, so the highest tag is the newest version published.
+          latest=$(git ls-remote --tags origin | awk -F'refs/tags/' '{print $2}' | grep -v '\^{}' | sort -V | tail -1)
+          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$VERSION" "$latest" | sort -V | tail -1)" != "$VERSION" ]; then
+            echo "::warning::${VERSION} is older than the published ${latest}; leaving the unversioned keys pointing at ${latest}."
+            exit 0
+          fi
+
+          aws s3 cp \
+            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
+            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
+
+          # upload custom resource
+          CUSTOM_RESOURCE_URI=$(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml)
+          aws s3 cp "$CUSTOM_RESOURCE_URI" \
+            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-custom-resource.zip
+
+      - name: store versioned custom resources
+        run: |
+          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+          BUCKET=${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}
+
+          bash ci/upload-versioned.sh \
+            "$(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml)" \
+            "$BUCKET" "coralogix-aws-shipper-custom-resource-${VERSION}.zip"
+
+          # template-govcloud.yaml defaults to this key; built from the same commit.
+          # Pinned mtime and -X: zip stores timestamps, so without these the same
+          # source produces a different archive on every run.
+          TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
+          zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
+          bash ci/upload-versioned.sh custom-resource-govcloud.zip \
+            "$BUCKET" "coralogix-aws-shipper-custom-resource-govcloud-${VERSION}.zip"
+
+      - name: publish
+        id: publish
+        run: |
+          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           DESCRIPTION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".Description' packaged.yaml)
           SOURCE_CODE_URL=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SourceCodeUrl' packaged.yaml)
 
           # Upload template to S3 to bypass SAR's 51,200-byte TemplateBody limit
           # (sam publish always uses TemplateBody; our template exceeds this limit)
+          #
+          # Write-once, like the artifacts it points at. sam package names its upload
+          # after the content hash, and a rebuild is not byte-identical -- zip stores
+          # mtimes -- so a retry of an interrupted release produces a template naming a
+          # different object. The versioned key, GovCloud and the synced template all
+          # keep the first run's bytes, so letting SAR take the retry's would leave it
+          # serving different bytes under the same version. Reusing the published
+          # template keeps every channel on one artifact.
           TEMPLATE_KEY="${{ env.AWS_S3_PREFIX }}/templates/packaged-${VERSION}.yaml"
-          aws s3 cp packaged.yaml "s3://${{ env.AWS_SERVERLESS_BUCKET }}/${TEMPLATE_KEY}"
+          if ! out=$(aws s3api put-object \
+            --bucket "${{ env.AWS_SERVERLESS_BUCKET }}" --key "${TEMPLATE_KEY}" \
+            --body packaged.yaml --if-none-match '*' 2>&1); then
+            if grep -qE 'PreconditionFailed|At least one of the pre-conditions' <<<"$out"; then
+              echo "::warning::Template for ${VERSION} is already published; reusing it so SAR keeps the artifact this version shipped with."
+            else
+              echo "$out" >&2
+              exit 1
+            fi
+          fi
           TEMPLATE_URL="https://s3.${{ env.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.AWS_SERVERLESS_BUCKET }}/${TEMPLATE_KEY}"
 
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -291,19 +426,113 @@ jobs:
             --application-id "${APP_ID}" \
             --description "${DESCRIPTION}"
 
-          aws serverlessrepo create-application-version \
+          # A 409 means this version is already published, which after the ownership
+          # check above can only be a re-run of this commit: an interrupted release
+          # leaves the SAR version behind, and failing on it would make this job
+          # unrepeatable while the tag job depends on it succeeding.
+          if ! out=$(aws serverlessrepo create-application-version \
             --application-id "${APP_ID}" \
             --semantic-version "${VERSION}" \
             --template-url "${TEMPLATE_URL}" \
-            --source-code-url "${SOURCE_CODE_URL}"
+            --source-code-url "${SOURCE_CODE_URL}" 2>&1); then
+            if grep -q 'ConflictException' <<<"$out"; then
+              echo "::warning::SAR version ${VERSION} was already published by this commit, leaving it alone."
+            else
+              echo "$out" >&2
+              exit 1
+            fi
+          fi
 
-      - name: store
+  publish-govcloud:
+    name: publish-govcloud
+    needs: [check_version, build]
+    if: ${{ github.event_name == 'workflow_dispatch' || (success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master') }}
+    runs-on: ubuntu-latest
+    # Trust policy on the publish role matches this environment's sub claim.
+    environment: govcloud
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          audience: sts.amazonaws.com
+          role-to-assume: arn:aws-us-gov:iam::309801239943:role/coralogix-serverless-repo-publisher
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
+          aws-region: us-gov-west-1
+
+      - name: download govcloud zips
+        uses: actions/download-artifact@v8
+        with:
+          pattern: govcloud-*
+          merge-multiple: true
+
+      - name: install yq
+        run: sudo snap install yq
+
+      - name: get_version
         run: |
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
+          echo "current_version=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)" >> $GITHUB_ENV
 
-          # upload custom resource
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-custom-resource.zip
+      - name: upload
+        run: |
+          # Pinned mtime and -X: zip stores timestamps, so without these the same
+          # source produces a different archive on every run.
+          TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
+          zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
+
+          # Uploaded per region rather than relying on replication, so a missing
+          # replication rule cannot leave a region without artifacts. Versioned
+          # keys are immutable, so a replicated object makes this a no-op.
+          for region in us-gov-west-1 us-gov-east-1; do
+            export AWS_DEFAULT_REGION="$region"
+            bucket="coralogix-serverless-repo-${region}"
+
+            for arch in arm64 x86-64; do
+              bash ci/upload-versioned.sh \
+                "coralogix-aws-shipper-${arch}.zip" \
+                "$bucket" "coralogix-aws-shipper-${arch}-${current_version}.zip"
+            done
+
+            bash ci/upload-versioned.sh custom-resource-govcloud.zip \
+              "$bucket" "coralogix-aws-shipper-custom-resource-govcloud-${current_version}.zip"
+          done
+
+  # Tagged only once both publishes have succeeded. template-govcloud.yaml resolves its
+  # Lambda code to this release's versioned keys, so a tag created any earlier points at
+  # artifacts that do not exist yet -- and would keep pointing at them if a publish
+  # failed.
+  tag:
+    name: tag
+    needs: [check_version, publish, publish-govcloud]
+    # check_version is skipped on workflow_dispatch, leaving template_updated empty, so
+    # requiring it would leave a dispatched recovery run permanently untagged -- and
+    # dispatch is the only way to finish a release that died after its artifacts went up.
+    if: ${{ success() && github.ref == 'refs/heads/master' &&
+            (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: create tag
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const version = '${{ needs.publish.outputs.version }}'
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${version}`,
+                sha: context.sha
+              })
+            } catch (e) {
+              if (e.status === 422 && e.message.includes('Reference already exists')) {
+                core.warning(`Tag ${version} already exists — skipping.`)
+              } else {
+                throw e
+              }
+            }
