@@ -118,15 +118,38 @@ async fn resolve_cached_transformer(
     };
 
     if needs_resolution {
-        let resolved_script = match config.resolve_starlark_script(aws_config).await {
-            Ok(s) => s,
-            Err(e) => {
+        // Bound the whole resolution (S3/STS fetch + compile): the AWS SDK
+        // call paths carry no application-level timeout, and single-flight
+        // means every concurrent batch queues on this mutex for the duration
+        // of the resolution. A hung fetch must unblock them within a fixed
+        // window; the timeout elapsing is handled exactly like a resolution
+        // error (publish Failed, retry after the retry interval).
+        const RESOLUTION_TIMEOUT: Duration = Duration::from_secs(30);
+
+        let resolution = tokio::time::timeout(
+            RESOLUTION_TIMEOUT,
+            config.resolve_starlark_script(aws_config),
+        )
+        .await;
+        let resolved_script = match resolution {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => {
                 warn!(
                     "Starlark script resolution failed, passing through logs unchanged: {}",
                     e
                 );
                 // The lock is held across resolution, so no other task could
                 // have published a Ready state meanwhile: write Failed directly.
+                *guard = Some(CacheState::Failed {
+                    failed_at: Instant::now(),
+                });
+                return None;
+            }
+            Err(_) => {
+                warn!(
+                    "Starlark script resolution timed out after {}s, passing through logs unchanged",
+                    RESOLUTION_TIMEOUT.as_secs()
+                );
                 *guard = Some(CacheState::Failed {
                     failed_at: Instant::now(),
                 });
