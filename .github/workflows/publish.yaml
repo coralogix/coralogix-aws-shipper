@@ -557,11 +557,24 @@ jobs:
                 ref: `tags/${version}`
               })
 
-              if (existing.data.object.sha === context.sha) {
+              // An annotated tag names a tag object, not the commit, so compare what it
+              // points through to. The tag job creates lightweight tags, but one made by
+              // hand is exactly the case this branch exists for.
+              let target = existing.data.object.sha
+              if (existing.data.object.type === 'tag') {
+                const annotated = await github.rest.git.getTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag_sha: target
+                })
+                target = annotated.data.object.sha
+              }
+
+              if (target === context.sha) {
                 core.warning(`Tag ${version} already names this commit — skipping.`)
               } else {
                 core.setFailed(
-                  `Tag ${version} names ${existing.data.object.sha}, not ${context.sha}. ` +
+                  `Tag ${version} names ${target}, not ${context.sha}. ` +
                   `Its artifacts and its source would be different builds. ` +
                   `Release a new version instead of reusing this one.`
                 )
