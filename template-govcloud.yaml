@@ -584,7 +584,7 @@ Mappings:
   # (checked in tests.yaml); it selects the versioned artifacts below.
   Release:
     Shipper:
-      Version: 1.4.18
+      Version: 1.4.19
 
 # ---------------------------------------------------------------
 # Conditions
@@ -721,6 +721,30 @@ Conditions:
 # Rules
 # ---------------------------------------------------------------
 Rules:
+  # The bucket and key of each artifact location are separate parameters, read
+  # independently by the conditions above. Supplying one without the other pairs your
+  # bucket with a Coralogix-hosted key that does not exist there, and the stack fails
+  # part-way through creating the Lambda instead of at validation.
+  ValidateLambdaCodeLocation:
+    RuleCondition: !Not [ !Equals [ !Ref LambdaCodeBucket, '' ] ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref LambdaCodeKey, '' ] ]
+        AssertDescription: LambdaCodeKey is required when LambdaCodeBucket is set
+  ValidateLambdaCodeBucket:
+    RuleCondition: !Not [ !Equals [ !Ref LambdaCodeKey, '' ] ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref LambdaCodeBucket, '' ] ]
+        AssertDescription: LambdaCodeBucket is required when LambdaCodeKey is set
+  ValidateCustomResourceCodeLocation:
+    RuleCondition: !Not [ !Equals [ !Ref CustomResourceCodeBucket, '' ] ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref CustomResourceCodeKey, '' ] ]
+        AssertDescription: CustomResourceCodeKey is required when CustomResourceCodeBucket is set
+  ValidateCustomResourceCodeBucket:
+    RuleCondition: !Not [ !Equals [ !Ref CustomResourceCodeKey, '' ] ]
+    Assertions:
+      - Assert: !Not [ !Equals [ !Ref CustomResourceCodeBucket, '' ] ]
+        AssertDescription: CustomResourceCodeBucket is required when CustomResourceCodeKey is set
   ValidateTracesMode:
     RuleCondition: !Equals [ !Ref TelemetryMode, traces ]
     Assertions:

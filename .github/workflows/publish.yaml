@@ -98,7 +98,10 @@ jobs:
   build:
     name: build
     needs: [validate, check_version]
-    if: ${{ github.event_name == 'workflow_dispatch' || success() }}
+    # Named rather than left to success(), for the same reason as publish below: a
+    # disjunct that is simply true on workflow_dispatch would run this past a failed
+    # validate, and publish gates on this job's result.
+    if: ${{ !cancelled() && needs.validate.result == 'success' }}
     # A master push that edits template.yaml without bumping the version still builds,
     # as a check that it compiles, but must not touch S3: it would overwrite the public
     # mutable key with an unreleased build, and the versioned key for the current
@@ -179,17 +182,6 @@ jobs:
           current=$(yq '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)
           echo "current_version=$current" >> $GITHUB_ENV
 
-          # The unversioned key means "latest" to everyone fetching it, so only the
-          # newest release may write it. Re-running an older release owns its own
-          # artifacts and passes every ownership check, but must not roll that key back.
-          # Releases are tagged, so the highest tag is the newest version published.
-          latest=$(git ls-remote --tags origin | awk -F'refs/tags/' '{print $2}' | grep -v '\^{}' | sort -V | tail -1)
-          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" != "$current" ]; then
-            echo "is_latest=false" >> $GITHUB_ENV
-          else
-            echo "is_latest=true" >> $GITHUB_ENV
-          fi
-
       - name: build FIPS bootstrap (AL2023, native ${{ matrix.target }})
         run: |
           mkdir -p ~/.cargo-registry
@@ -234,15 +226,6 @@ jobs:
             --output-template-file packaged.yaml
       
 
-      - name: s3upload-x86-64-build
-        # env.is_latest guards the unversioned key the same way the store step in
-        # publish guards the arm64 and custom-resource ones.
-        if: ${{ matrix.target == 'x86-64' && env.RELEASING == 'true' && env.is_latest == 'true' }}
-        run: |
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}.zip
-      
       - name: s3upload-${{ matrix.target }}-build-versioned
         if: ${{ env.RELEASING == 'true' }}
         run: |
@@ -284,7 +267,13 @@ jobs:
   publish:
     name: publish
     needs: [check_version , build]
-    if: ${{ github.event_name == 'workflow_dispatch' || (success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master') }}
+    # Dependencies are named explicitly rather than left to success(): check_version is
+    # skipped on workflow_dispatch, and the behaviour of success() over a skipped need is
+    # not clearly specified. !cancelled() suppresses the implicit success() that an `if`
+    # without a status function would otherwise carry.
+    if: ${{ !cancelled() && needs.build.result == 'success'
+            && github.ref == 'refs/heads/master'
+            && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -347,30 +336,6 @@ jobs:
 
       # Ahead of the SAR version deliberately: create-application-version is not
       # idempotent, so a rerun stops at a 409 and never reaches what follows it.
-      - name: store
-        run: |
-          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
-
-          # These keys carry no version, so they mean "latest" to everyone fetching them.
-          # Ownership above establishes that this commit may publish this version, not
-          # that the version is the newest one: re-running an older release still owns
-          # its own artifacts, and would roll the unversioned URL back to it. Releases
-          # are tagged, so the highest tag is the newest version published.
-          latest=$(git ls-remote --tags origin | awk -F'refs/tags/' '{print $2}' | grep -v '\^{}' | sort -V | tail -1)
-          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$VERSION" "$latest" | sort -V | tail -1)" != "$VERSION" ]; then
-            echo "::warning::${VERSION} is older than the published ${latest}; leaving the unversioned keys pointing at ${latest}."
-            exit 0
-          fi
-
-          aws s3 cp \
-            $(yq -r '.Resources | to_entries | .[] | select(.key == "LambdaLayer" or .key == "LambdaFunction") | .value.Properties | to_entries | .[] | select(.key == "ContentUri" or .key == "CodeUri") | .value' packaged.yaml) \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper.zip
-
-          # upload custom resource
-          CUSTOM_RESOURCE_URI=$(yq -r '.Resources | to_entries | .[] | select(.key == "CustomResourceFunction") | .value.Properties | .CodeUri' packaged.yaml)
-          aws s3 cp "$CUSTOM_RESOURCE_URI" \
-            s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-custom-resource.zip
-
       - name: store versioned custom resources
         run: |
           VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
@@ -387,6 +352,27 @@ jobs:
           zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
           bash ci/upload-versioned.sh custom-resource-govcloud.zip \
             "$BUCKET" "coralogix-aws-shipper-custom-resource-govcloud-${VERSION}.zip"
+
+      - name: store
+        run: |
+          VERSION=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' packaged.yaml)
+          BUCKET=${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}
+
+          # These keys carry no version, so they mean "latest" to whoever fetches them.
+          # Each is copied from the versioned object for this release -- the two arch
+          # ones uploaded by build, the custom resource by the step above -- rather than
+          # from this run's build output: a rebuild is not byte-identical, so sourcing them here
+          # would leave "latest" differing from the immutable artifact of the same
+          # version. put-latest.sh records the version on the object and writes
+          # conditionally, so an older release cannot roll one back and two concurrent
+          # releases cannot interleave -- neither of which a comparison against the
+          # published tags can rule out, since the newer release has not tagged yet.
+          for pair in "coralogix-aws-shipper-arm64-${VERSION}.zip coralogix-aws-shipper.zip" \
+                      "coralogix-aws-shipper-x86-64-${VERSION}.zip coralogix-aws-shipper-x86-64.zip" \
+                      "coralogix-aws-shipper-custom-resource-${VERSION}.zip coralogix-aws-shipper-custom-resource.zip"; do
+            set -- $pair
+            bash ci/put-latest.sh "s3://$BUCKET/$1" "$BUCKET" "$2" "$VERSION"
+          done
 
       - name: publish
         id: publish
@@ -445,8 +431,17 @@ jobs:
 
   publish-govcloud:
     name: publish-govcloud
-    needs: [check_version, build]
-    if: ${{ github.event_name == 'workflow_dispatch' || (success() && needs.check_version.outputs.template_updated == 'true' && github.ref == 'refs/heads/master') }}
+    # Behind publish, not beside it: publish settles whether this commit may release this
+    # version, and without that gate a rejected commit could still write GovCloud's
+    # immutable artifacts.
+    needs: [check_version, build, publish]
+    # As publish above, plus publish itself: it settles whether this commit may release
+    # this version, and without waiting for it a rejected commit could still write
+    # GovCloud's immutable artifacts. Naming the result matters on workflow_dispatch,
+    # where a disjunct that is simply true would otherwise run this past a failed publish.
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.publish.result == 'success'
+            && github.ref == 'refs/heads/master'
+            && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
     # Trust policy on the publish role matches this environment's sub claim.
     environment: govcloud
@@ -488,7 +483,11 @@ jobs:
           # replication rule cannot leave a region without artifacts. Versioned
           # keys are immutable, so a replicated object makes this a no-op.
           for region in us-gov-west-1 us-gov-east-1; do
-            export AWS_DEFAULT_REGION="$region"
+            # Both: configure-aws-credentials exports AWS_REGION, which the CLI prefers
+            # over AWS_DEFAULT_REGION. Setting only the latter left the us-gov-east-1
+            # calls addressed to the us-gov-west-1 endpoint, reaching the right bucket
+            # only through a cross-region redirect.
+            export AWS_DEFAULT_REGION="$region" AWS_REGION="$region"
             bucket="coralogix-serverless-repo-${region}"
 
             for arch in arm64 x86-64; do
@@ -499,6 +498,19 @@ jobs:
 
             bash ci/upload-versioned.sh custom-resource-govcloud.zip \
               "$bucket" "coralogix-aws-shipper-custom-resource-govcloud-${current_version}.zip"
+
+            # Commercial has carried these unversioned keys for years and the Terraform
+            # module reads them unless a version is pinned, so GovCloud needs them too or
+            # an unpinned deployment there resolves to a key that was never published.
+            #
+            # No unversioned custom resource to match: template-govcloud.yaml reads the
+            # versioned key and the Terraform module has no custom resource at all.
+            # Commercial keeps its own only for stacks deployed before the synced
+            # template moved onto versioned keys.
+            bash ci/put-latest.sh "coralogix-aws-shipper-arm64.zip" \
+              "$bucket" coralogix-aws-shipper.zip "$current_version"
+            bash ci/put-latest.sh "coralogix-aws-shipper-x86-64.zip" \
+              "$bucket" coralogix-aws-shipper-x86-64.zip "$current_version"
           done
 
   # Tagged only once both publishes have succeeded. template-govcloud.yaml resolves its
@@ -511,8 +523,9 @@ jobs:
     # check_version is skipped on workflow_dispatch, leaving template_updated empty, so
     # requiring it would leave a dispatched recovery run permanently untagged -- and
     # dispatch is the only way to finish a release that died after its artifacts went up.
-    if: ${{ success() && github.ref == 'refs/heads/master' &&
-            (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs['publish-govcloud'].result == 'success'
+            && github.ref == 'refs/heads/master'
+            && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
