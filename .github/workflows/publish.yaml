@@ -543,9 +543,27 @@ jobs:
                 sha: context.sha
               })
             } catch (e) {
-              if (e.status === 422 && e.message.includes('Reference already exists')) {
-                core.warning(`Tag ${version} already exists — skipping.`)
-              } else {
+              if (e.status !== 422 || !e.message.includes('Reference already exists')) {
                 throw e
+              }
+
+              // An existing tag is only this release's own re-run if it names this
+              // commit. Pointing elsewhere means the artifacts just published and the
+              // source `git clone --branch <version>` resolves to are different builds,
+              // which nothing downstream would notice.
+              const existing = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${version}`
+              })
+
+              if (existing.data.object.sha === context.sha) {
+                core.warning(`Tag ${version} already names this commit — skipping.`)
+              } else {
+                core.setFailed(
+                  `Tag ${version} names ${existing.data.object.sha}, not ${context.sha}. ` +
+                  `Its artifacts and its source would be different builds. ` +
+                  `Release a new version instead of reusing this one.`
+                )
               }
             }
