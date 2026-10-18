@@ -7,10 +7,11 @@
 - **GovCloud artifacts are reachable without pinning a version:** the unversioned keys the
   Terraform module reads by default are now published to GovCloud as well, so an unpinned
   deployment there no longer resolves to a key that was never published.
-- **Half-specified artifact locations are rejected up front:** supplying
-  `LambdaCodeBucket` without `LambdaCodeKey` (or either custom-resource counterpart)
-  paired your bucket with a Coralogix-hosted key and failed part-way through creating the
-  Lambda. `template-govcloud.yaml` now rejects it at parameter validation.
+- **An artifact key without its bucket is rejected up front:** supplying
+  `LambdaCodeKey` or `CustomResourceCodeKey` without the matching bucket looked for that
+  key in the Coralogix-hosted bucket and failed part-way through creating the Lambda.
+  `template-govcloud.yaml` now rejects it at parameter validation. Setting only the
+  bucket is unchanged and still defaults the key.
 
 ## v1.4.18 / 2026-10-18
 
