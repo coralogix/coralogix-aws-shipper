@@ -44,10 +44,11 @@ jobs:
             exit 0
           fi
 
-          # Paginated: the default page holds 30 jobs, and a job that falls off it would
-          # read as absent and silently skip the sync.
-          conclusion=$(gh api --paginate \
-            "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" \
+          # per_page rather than --paginate: --jq runs once per page, so a multi-page
+          # response would emit a line per page and never equal "success". A single page
+          # of 100 is well clear of this workflow's job count.
+          conclusion=$(gh api \
+            "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs?per_page=100" \
             --jq '[.jobs[] | select(.name == "publish")] | .[0].conclusion // "absent"')
 
           if [ "$conclusion" = "success" ]; then

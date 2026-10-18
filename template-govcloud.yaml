@@ -724,25 +724,16 @@ Conditions:
 # Rules
 # ---------------------------------------------------------------
 Rules:
-  # The bucket and key of each artifact location are separate parameters, read
-  # independently by the conditions above. Supplying one without the other pairs your
-  # bucket with a Coralogix-hosted key that does not exist there, and the stack fails
-  # part-way through creating the Lambda instead of at validation.
-  ValidateLambdaCodeLocation:
-    RuleCondition: !Not [ !Equals [ !Ref LambdaCodeBucket, '' ] ]
-    Assertions:
-      - Assert: !Not [ !Equals [ !Ref LambdaCodeKey, '' ] ]
-        AssertDescription: LambdaCodeKey is required when LambdaCodeBucket is set
+  # A key without a bucket resolves to that key in the Coralogix-hosted bucket, which
+  # only ever holds the published names, so the stack would fail part-way through
+  # creating the Lambda rather than at validation. The reverse is a supported flow: the
+  # own-bucket instructions have you upload under the published key names and set the
+  # bucket alone, leaving the key to default.
   ValidateLambdaCodeBucket:
     RuleCondition: !Not [ !Equals [ !Ref LambdaCodeKey, '' ] ]
     Assertions:
       - Assert: !Not [ !Equals [ !Ref LambdaCodeBucket, '' ] ]
         AssertDescription: LambdaCodeBucket is required when LambdaCodeKey is set
-  ValidateCustomResourceCodeLocation:
-    RuleCondition: !Not [ !Equals [ !Ref CustomResourceCodeBucket, '' ] ]
-    Assertions:
-      - Assert: !Not [ !Equals [ !Ref CustomResourceCodeKey, '' ] ]
-        AssertDescription: CustomResourceCodeKey is required when CustomResourceCodeBucket is set
   ValidateCustomResourceCodeBucket:
     RuleCondition: !Not [ !Equals [ !Ref CustomResourceCodeKey, '' ] ]
     Assertions:
