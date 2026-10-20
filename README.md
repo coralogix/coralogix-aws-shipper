@@ -913,7 +913,7 @@ Minimal example using the Coralogix-hosted artifacts (adjust parameters for your
 integration):
 
 ```bash
-VERSION="1.4.18"
+VERSION="1.4.19"
 GOVCLOUD_REGION="us-gov-west-1"
 
 git clone --depth 1 --branch "${VERSION}" https://github.com/coralogix/coralogix-aws-shipper.git
@@ -955,7 +955,7 @@ stack), copy them there under the same keys and point the template at the bucket
    example Frankfurt:
 
    ```bash
-   VERSION="1.4.18"
+   VERSION="1.4.19"
    ARCH="arm64"   # or x86-64
    BASE="https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com"
    KEY="coralogix-aws-shipper-${ARCH}-${VERSION}.zip"
