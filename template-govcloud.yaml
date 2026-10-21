@@ -584,7 +584,7 @@ Mappings:
   # (checked in tests.yaml); it selects the versioned artifacts below.
   Release:
     Shipper:
-      Version: 1.4.19
+      Version: 1.4.20
 
 # ---------------------------------------------------------------
 # Conditions
