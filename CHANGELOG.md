@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.20 / 2026-10-21
+
+### 🧰 Bug fixes 🧰
+
+- **eMudhra CA compromise:** Bump `webpki-roots` and `webpki-root-certs` to 1.0.10, which distrust the compromised eMudhra intermediates. `rustls-webpki` stays at 0.103.13 to keep the NIST-validated AWS-LC FIPS v3 module.
+
 ## v1.4.19 / 2026-10-16
 
 ### 💡 Enhancements 💡
