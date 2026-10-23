@@ -874,10 +874,10 @@ request.
 
 ## AWS GovCloud (US)
 
-The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east-1`, `us-gov-west-1`) using the dedicated `template-govcloud.yaml`. GovCloud deployments enable **FIPS 140-3 compliance** by default: the Lambda is configured with `AWS_USE_FIPS_ENDPOINT=true` (routing all SDK calls to FIPS service endpoints) and `ENABLE_AWS_FIPS=true` (switching the AWS SDK HTTP client to the AWS-LC FIPS-validated TLS provider).
+The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east-1`, `us-gov-west-1`) using the dedicated `template-govcloud.yaml`. GovCloud deployments enable **FIPS mode** by default: the Lambda is configured with `AWS_USE_FIPS_ENDPOINT=true` (routing all SDK calls to FIPS service endpoints) and `ENABLE_AWS_FIPS=true` (switching the AWS SDK HTTP client to the AWS-LC FIPS TLS provider).
 
 > [!NOTE]
-> FIPS is enabled at runtime via environment variables on a single shipper binary; there is no separate GovCloud build. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment.
+> FIPS is enabled at runtime via environment variables on a single shipper binary; there is no separate GovCloud build. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment. Since 1.4.20, the AWS-LC FIPS provider uses the v4 module, which is submitted to NIST for FIPS 140-3 validation but **not yet certified** (the previous v3 module was validated as certificates #5314 and #5298).
 
 ### Deployment artifacts
 
