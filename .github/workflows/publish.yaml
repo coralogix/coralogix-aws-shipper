@@ -502,8 +502,9 @@ jobs:
           done
 
   # Tagged only once both publishes have succeeded. template-govcloud.yaml resolves its
-  # Lambda code to this release's versioned keys, so a tag created any earlier points at
-  # artifacts that do not exist yet -- and would keep pointing at them if a publish
+  # Lambda code to versioned keys -- this release's, unless its Release mapping is held
+  # back for a GovCloud opt-in release -- so a tag created any earlier can point at
+  # artifacts that do not exist yet, and would keep pointing at them if a publish
   # failed.
   tag:
     name: tag

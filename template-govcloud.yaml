@@ -582,9 +582,12 @@ Parameters:
 Mappings:
   # Release this template ships with. Must match SemanticVersion in template.yaml
   # (checked in tests.yaml); it selects the versioned artifacts below.
+  # Held at 1.4.19: 1.4.20 moves the FIPS build to the AWS-LC FIPS v4 module, which
+  # is not yet NIST-validated, so GovCloud customers opt in to it by setting
+  # LambdaCodeKey instead of getting it by default (INFOSEC-9192).
   Release:
     Shipper:
-      Version: 1.4.20
+      Version: 1.4.19
 
 # ---------------------------------------------------------------
 # Conditions
