@@ -913,7 +913,7 @@ Minimal example using the Coralogix-hosted artifacts (adjust parameters for your
 integration):
 
 ```bash
-# Release to deploy, e.g. 1.4.19 — https://github.com/coralogix/coralogix-aws-shipper/tags
+# Release to deploy — https://github.com/coralogix/coralogix-aws-shipper/tags
 VERSION="<release>"
 GOVCLOUD_REGION="us-gov-west-1"
 
@@ -956,7 +956,7 @@ stack), copy them there under the same keys and point the template at the bucket
    example Frankfurt:
 
    ```bash
-   # Release to download, e.g. 1.4.19 — https://github.com/coralogix/coralogix-aws-shipper/tags
+   # Release to download — https://github.com/coralogix/coralogix-aws-shipper/tags
    VERSION="<release>"
    ARCH="arm64"   # or x86-64
    BASE="https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com"
