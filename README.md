@@ -7,6 +7,8 @@
 >
 > **FedRAMP/GovCloud customers**: the fix requires a newer AWS-LC cryptographic library version. The FIPS build used in GovCloud would move from AWS-LC FIPS module v3 (FIPS 140-3 validated) to v4 (submitted to NIST, not yet validated). You can choose to either upgrade to 1.4.20 (protected from the compromised certificates, on a module pending validation) or stay on your current version until v4 is validated (keeps the validated module, but still trusts the compromised certificates; AWS PrivateLink reduces this exposure). Contact [support.fedramp@coralogix.com](mailto:support.fedramp@coralogix.com) to let us know which option you choose.
 >
+> See the [eMudhra security advisory](https://coralogix.com/blog/coralogix-security-advisory-emudhra-certificate-update/) for full upgrade guidance and breaking-change details.
+>
 > Our support team is here to help. Reach us through the in-app chat (or [support@coralogix.com](mailto:support@coralogix.com)) and say: "I'm contacting you regarding the Security advisory eMudhra," then mention which component you'd like help upgrading.
 
 
