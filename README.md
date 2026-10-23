@@ -3,11 +3,11 @@
 [![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-GA-brightgreen)
 
 > [!WARNING]
-> **Security advisory**: In October 2026, private keys for several eMudhra intermediate CA certificates were disclosed as compromised. An updated build, **1.4.20**, removes this exposure. Update your CloudFormation/SAR stack, or set `source_code_version = "1.4.20"` in the Terraform module. Coralogix-hosted endpoints are not affected.
+> **Security advisory**: On October 20, 2026, the private keys for 8 intermediate certificate authority (CA) certificates operated by eMudhra were compromised. We are working to deliver a safe version of coralogix-aws-shipper; **1.4.20** is in progress. Once it's available, update your CloudFormation/SAR stack, or set `source_code_version = "1.4.20"` in the Terraform module. Coralogix endpoints don't use eMudhra or emSign certificates, so your connection to Coralogix is not affected.
 >
 > **FedRAMP/GovCloud customers**: the fix requires a newer AWS-LC cryptographic library version. The FIPS build used in GovCloud would move from AWS-LC FIPS module v3 (FIPS 140-3 validated) to v4 (submitted to NIST, not yet validated). You can choose to either upgrade to 1.4.20 (protected from the compromised certificates, on a module pending validation) or stay on your current version until v4 is validated (keeps the validated module, but still trusts the compromised certificates; AWS PrivateLink reduces this exposure). Contact [support.fedramp@coralogix.com](mailto:support.fedramp@coralogix.com) to let us know which option you choose.
 >
-> If you need help, contact [Coralogix Support](mailto:support@coralogix.com) or your account team and mention the eMudhra CA advisory and the affected component.
+> Our support team is here to help. Reach us through the in-app chat (or [support@coralogix.com](mailto:support@coralogix.com)) and say: "I'm contacting you regarding the Security advisory eMudhra," then mention which component you'd like help upgrading.
 
 
 <!-- delete -->
