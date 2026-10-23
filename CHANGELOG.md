@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.4.20 / 2026-10-21
+
+### 🧰 Bug fixes 🧰
+
+- **eMudhra CA compromise (CVE-2026-111943):** Bump `webpki-roots` and `webpki-root-certs` to 1.0.10 and `rustls-webpki` to 0.103.16 (RUSTSEC-2026-0382), so every TLS path rejects the compromised eMudhra intermediates. This requires `aws-lc-rs` 1.18 (AWS-LC FIPS v4 module, submitted to NIST but not yet certified), which also lets `rustls` move to 0.23.46 and clears RUSTSEC-2026-0285/0346/0348/0349.
+- **GovCloud is opt-in for 1.4.20:** `template-govcloud.yaml` keeps defaulting to 1.4.19, which uses the NIST-validated FIPS v3 module. The 1.4.20 GovCloud artifacts are published; to use them, set `LambdaCodeKey` to `coralogix-aws-shipper-<arch>-1.4.20.zip` (CloudFormation) or `source_code_version = "1.4.20"` (Terraform). 1.4.19 and earlier remain affected by CVE-2026-111943.
+
 ## v1.4.19 / 2026-10-16
 
 ### 💡 Enhancements 💡

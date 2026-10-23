@@ -874,17 +874,28 @@ request.
 
 ## AWS GovCloud (US)
 
-The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east-1`, `us-gov-west-1`) using the dedicated `template-govcloud.yaml`. GovCloud deployments enable **FIPS 140-3 compliance** by default: the Lambda is configured with `AWS_USE_FIPS_ENDPOINT=true` (routing all SDK calls to FIPS service endpoints) and `ENABLE_AWS_FIPS=true` (switching the AWS SDK HTTP client to the AWS-LC FIPS-validated TLS provider).
+The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east-1`, `us-gov-west-1`) using the dedicated `template-govcloud.yaml`. GovCloud deployments enable **FIPS mode** by default: the Lambda is configured with `AWS_USE_FIPS_ENDPOINT=true` (routing all SDK calls to FIPS service endpoints) and `ENABLE_AWS_FIPS=true` (switching the AWS SDK HTTP client to the AWS-LC FIPS TLS provider).
 
 > [!NOTE]
-> FIPS is enabled at runtime via environment variables on a single shipper binary; there is no separate GovCloud build. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment.
+> FIPS is enabled at runtime via environment variables on a single shipper binary; there is no separate GovCloud build. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment. Since 1.4.20, the AWS-LC FIPS provider uses the v4 module, which is submitted to NIST for FIPS 140-3 validation but **not yet certified** (the previous v3 module was validated as certificates #5314 and #5298).
+
+### Version 1.4.20 is opt-in for GovCloud
+
+Version 1.4.20 fixes the eMudhra CA compromise (CVE-2026-111943) but uses the AWS-LC FIPS v4 module, which is pending NIST validation. To keep the validated v3 module by default, `template-govcloud.yaml` deploys **1.4.19**.
+
+To use 1.4.20, set:
+
+- **CloudFormation:** `LambdaCodeKey` to `coralogix-aws-shipper-x86-64-1.4.20.zip` or `coralogix-aws-shipper-arm64-1.4.20.zip`
+- **Terraform:** `source_code_version = "1.4.20"`
+
+Versions 1.4.19 and earlier are affected by CVE-2026-111943.
 
 ### Deployment artifacts
 
 The shipper Lambda and the GovCloud custom resource load their code from S3 in the
 same GovCloud region. By default, `template-govcloud.yaml` uses the Coralogix-hosted
 bucket `coralogix-serverless-repo-<region>` and the versioned artifacts of the release
-the template belongs to:
+set in its `Release` mapping:
 
 | Artifact | Key |
 | --- | --- |
@@ -913,7 +924,7 @@ Minimal example using the Coralogix-hosted artifacts (adjust parameters for your
 integration):
 
 ```bash
-# Release to deploy, e.g. 1.4.19 — https://github.com/coralogix/coralogix-aws-shipper/tags
+# Release to deploy — https://github.com/coralogix/coralogix-aws-shipper/tags
 VERSION="<release>"
 GOVCLOUD_REGION="us-gov-west-1"
 
@@ -956,7 +967,7 @@ stack), copy them there under the same keys and point the template at the bucket
    example Frankfurt:
 
    ```bash
-   # Release to download, e.g. 1.4.19 — https://github.com/coralogix/coralogix-aws-shipper/tags
+   # Release to download — https://github.com/coralogix/coralogix-aws-shipper/tags
    VERSION="<release>"
    ARCH="arm64"   # or x86-64
    BASE="https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com"
