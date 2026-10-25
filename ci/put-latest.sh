@@ -19,7 +19,12 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 body="$tmp/$(basename "$key")"
 if [[ $src == s3://* ]]; then
-  aws s3 cp "$src" "$body" >/dev/null
+  if ! aws s3 cp "$src" "$body" >/dev/null; then
+    echo "::error::$src does not exist, so $key cannot be updated. A GovCloud Release" \
+         "mapping held back to a version that predates GovCloud artifact publishing" \
+         "(1.4.18) lands here." >&2
+    exit 1
+  fi
 else
   cp "$src" "$body"
 fi
@@ -40,8 +45,18 @@ for attempt in 1 2 3 4 5; do
     # Keys written before they recorded a version have nothing to compare against, so
     # the first release to touch one claims it.
     if [ -n "$current" ] && [ "$current" != "$version" ] && [ "$(newest "$version" "$current")" != "$version" ]; then
-      echo "::warning::s3://$bucket/$key holds $current, which is newer than $version; leaving it alone."
-      exit 0
+      # Refusing to move backwards is right when $version is "whatever this release is":
+      # it stops a re-run of an older release from reclaiming the key. It is wrong when
+      # the caller names the version authoritatively, as the GovCloud keys do -- they
+      # mirror the Release mapping in template-govcloud.yaml, and un-holding then
+      # re-holding that mapping is a deliberate rollback the key has to follow, or it
+      # serves a build CloudFormation no longer deploys.
+      if [ "${PUT_LATEST_PINNED:-}" = 1 ]; then
+        echo "::notice::s3://$bucket/$key holds $current; rolling it back to the pinned $version."
+      else
+        echo "::warning::s3://$bucket/$key holds $current, which is newer than $version; leaving it alone."
+        exit 0
+      fi
     fi
 
     # Write only if the object is still the one just read.

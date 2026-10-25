@@ -471,6 +471,9 @@ jobs:
       - name: get_version
         run: |
           echo "current_version=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)" >> $GITHUB_ENV
+          # The release GovCloud deploys by default. tests.yaml holds it at or behind the
+          # SemanticVersion above, and it is what the unversioned keys have to track.
+          echo "govcloud_version=$(yq -r '.Mappings.Release.Shipper.Version' template-govcloud.yaml)" >> $GITHUB_ENV
 
       - name: upload
         run: |
@@ -507,10 +510,27 @@ jobs:
             # versioned key and the Terraform module has no custom resource at all.
             # Commercial keeps its own only for stacks deployed before the synced
             # template moved onto versioned keys.
-            bash ci/put-latest.sh "coralogix-aws-shipper-arm64.zip" \
-              "$bucket" coralogix-aws-shipper.zip "$current_version"
-            bash ci/put-latest.sh "coralogix-aws-shipper-x86-64.zip" \
-              "$bucket" coralogix-aws-shipper-x86-64.zip "$current_version"
+            #
+            # Tracks the Release mapping, not this release. When GovCloud is held back --
+            # 1.4.20 moved the FIPS build to the AWS-LC FIPS v4 module, which NIST has
+            # not validated, so template-govcloud.yaml stays on 1.4.19 -- pointing these
+            # at the newest release would hand unpinned Terraform the very build
+            # CloudFormation declines to deploy by default.
+            #
+            # Sourced from the published versioned object: this run's upload when the two
+            # versions agree, an earlier release's when they do not.
+            #
+            # PUT_LATEST_PINNED: the mapping is authoritative, so these follow it down as
+            # well as up. Re-holding it after an un-hold is a deliberate rollback, and
+            # the default refusal to move backwards would leave the keys on the newer
+            # build. Safe here because the version is a constant read from the file
+            # rather than this release's own, so concurrent releases write the same one.
+            PUT_LATEST_PINNED=1 bash ci/put-latest.sh \
+              "s3://$bucket/coralogix-aws-shipper-arm64-${govcloud_version}.zip" \
+              "$bucket" coralogix-aws-shipper.zip "$govcloud_version"
+            PUT_LATEST_PINNED=1 bash ci/put-latest.sh \
+              "s3://$bucket/coralogix-aws-shipper-x86-64-${govcloud_version}.zip" \
+              "$bucket" coralogix-aws-shipper-x86-64.zip "$govcloud_version"
           done
 
   # Tagged only once both publishes have succeeded. template-govcloud.yaml resolves its

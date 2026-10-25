@@ -6,15 +6,12 @@
 
 - **GovCloud artifacts are reachable without pinning a version:** the unversioned keys the
   Terraform module reads by default are now published to GovCloud as well, so an unpinned
-  deployment there no longer resolves to a key that was never published.
+  deployment there no longer resolves to a key that was never published. They track the
+  release `template-govcloud.yaml` deploys rather than the newest one, so an unpinned
+  deployment stays on the NIST-validated FIPS module while 1.4.20 remains opt-in.
 - **A reused release tag fails the release:** a tag that already named a different commit
   was skipped with a warning, so the published artifacts and the source
   `git clone --branch <version>` resolves to could be different builds.
-- **An artifact key without its bucket is rejected up front:** supplying
-  `LambdaCodeKey` or `CustomResourceCodeKey` without the matching bucket looked for that
-  key in the Coralogix-hosted bucket and failed part-way through creating the Lambda.
-  `template-govcloud.yaml` now rejects it at parameter validation. Setting only the
-  bucket is unchanged and still defaults the key.
 
 ## v1.4.21 / 2026-10-25
 

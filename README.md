@@ -903,8 +903,34 @@ set in its `Release` mapping:
 | Shipper Lambda (x86_64) | `coralogix-aws-shipper-x86-64-<version>.zip` |
 | GovCloud custom resource | `coralogix-aws-shipper-custom-resource-govcloud-<version>.zip` |
 
-Versioned artifacts never change once published. Each one has a `<key>.sha256`
-checksum file next to it, so a download can be verified with `sha256sum -c`.
+Versioned artifacts never change once published. Each one has a `<key>.sha256` checksum
+file next to it, so a download can be verified with `sha256sum -c`, and S3 stores the
+same digest on the object itself — `aws s3api get-object --checksum-mode ENABLED`
+validates it on the way down.
+
+The unversioned `coralogix-aws-shipper.zip` and `coralogix-aws-shipper-x86-64.zip` keys
+exist for the Terraform module, which reads them unless `source_code_version` is set.
+They are mutable and carry no checksum file of their own: a hash written beside an object
+that can be replaced adds nothing over the digest S3 already stores on it. Verify against
+the immutable artifact instead — each key records the release it holds, so resolve that
+first and check the release's published checksum.
+
+```bash
+BASE="https://coralogix-serverless-repo-us-gov-west-1.s3.us-gov-west-1.amazonaws.com"
+
+VERSION=$(curl -sI "${BASE}/coralogix-aws-shipper.zip" | tr -d '\r' \
+          | awk -F': ' 'tolower($1)=="x-amz-meta-version"{print $2}')
+KEY="coralogix-aws-shipper-arm64-${VERSION}.zip"
+
+curl -fLsSO "${BASE}/${KEY}"
+curl -fLsSO "${BASE}/${KEY}.sha256"
+sha256sum -c "${KEY}.sha256"
+```
+
+In GovCloud these keys track the `Release` mapping above, not the newest release, so an
+unpinned Terraform deployment runs the same build this template deploys. Keys written
+before 1.4.21 carry no version stamp, so `VERSION` comes back empty and the download
+404s; pick the release from the table above instead.
 
 To load the code from your own bucket instead, set `LambdaCodeBucket` and
 `CustomResourceCodeBucket` (see [Using your own bucket](#using-your-own-bucket)).
