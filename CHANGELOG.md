@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.4.21 / 2026-10-25
+
+### 🔐 Security 🔐
+
+- **Dropped the unused SigV4a signing feature:** it was the only thing pulling in
+  `crypto-bigint`, which has a reported timing-side-channel advisory
+  (RUSTSEC-2026-0387) with no upgrade available. SigV4a is used solely for S3
+  multi-region access points. If you set `DLQS3Bucket` to an access-point ARN,
+  switch it to a regular bucket name in the same region.
+
 ## v1.4.20 / 2026-10-21
 
 ### 🧰 Bug fixes 🧰
