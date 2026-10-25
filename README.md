@@ -11,7 +11,6 @@
 >
 > If you have any questions or need help upgrading, our Support team is here to help. Reach out through in-app chat and mention "Security advisory eMudhra" and the required component.
 
-
 <!-- delete -->
 
 1. [Overview](#overview)
