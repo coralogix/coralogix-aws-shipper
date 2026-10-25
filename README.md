@@ -2,6 +2,15 @@
 
 [![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-GA-brightgreen)
 
+> [!WARNING]
+> **Security advisory** (Priority: Low): On October 20, 2026, the private keys for 8 intermediate certificate authorities operated by eMudhra were reported compromised. This is an industry-wide issue, not specific to Coralogix. Out of an abundance of caution, update coralogix-aws-shipper to **1.4.20**: update your CloudFormation/SAR stack, or set `source_code_version = "1.4.20"` in the Terraform module. Coralogix endpoints and internal services do not use eMudhra or emSign certificates, and we have not identified any impact to customer data.
+>
+> **FedRAMP/GovCloud customers**: the fix requires a newer AWS-LC cryptographic library version. The FIPS build used in GovCloud would move from AWS-LC FIPS module v3 (FIPS 140-3 validated) to v4 (submitted to NIST, not yet validated). You can choose to either upgrade to 1.4.20 (protected from the compromised certificates, on a module pending validation) or stay on your current version until v4 is validated (keeps the validated module, but still trusts the compromised certificates; AWS PrivateLink reduces this exposure). Contact [support.fedramp@coralogix.com](mailto:support.fedramp@coralogix.com) to let us know which option you choose.
+>
+> See the [eMudhra security advisory](https://coralogix.com/blog/coralogix-security-advisory-emudhra-certificate-update/) for full upgrade guidance and breaking-change details.
+>
+> If you have any questions or need help upgrading, our Support team is here to help. Reach out through in-app chat and mention "Security advisory eMudhra" and the required component.
+
 <!-- delete -->
 
 1. [Overview](#overview)
