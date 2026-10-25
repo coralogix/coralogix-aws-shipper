@@ -520,15 +520,16 @@ jobs:
             # Sourced from the published versioned object: this run's upload when the two
             # versions agree, an earlier release's when they do not.
             #
-            # PUT_LATEST_PINNED: the mapping is authoritative, so these follow it down as
-            # well as up. Re-holding it after an un-hold is a deliberate rollback, and
-            # the default refusal to move backwards would leave the keys on the newer
-            # build. Safe here because the version is a constant read from the file
-            # rather than this release's own, so concurrent releases write the same one.
-            PUT_LATEST_PINNED=1 bash ci/put-latest.sh \
+            # PUT_LATEST_PINNED carries this release, which is what orders these writes.
+            # The mapping itself cannot: it is hand-edited, so re-holding it after an
+            # un-hold is a deliberate rollback the keys must follow. Ordering by the
+            # release instead still refuses a stale concurrent run -- two releases
+            # overlapping on master read different mappings, and the older one finishing
+            # last would otherwise undo the newer one.
+            PUT_LATEST_PINNED="$current_version" bash ci/put-latest.sh \
               "s3://$bucket/coralogix-aws-shipper-arm64-${govcloud_version}.zip" \
               "$bucket" coralogix-aws-shipper.zip "$govcloud_version"
-            PUT_LATEST_PINNED=1 bash ci/put-latest.sh \
+            PUT_LATEST_PINNED="$current_version" bash ci/put-latest.sh \
               "s3://$bucket/coralogix-aws-shipper-x86-64-${govcloud_version}.zip" \
               "$bucket" coralogix-aws-shipper-x86-64.zip "$govcloud_version"
           done

@@ -42,21 +42,35 @@ for attempt in 1 2 3 4 5; do
   if head=$(aws s3api head-object --bucket "$bucket" --key "$key" 2>&1); then
     current=$(jq -r '.Metadata.version // ""' <<<"$head")
 
-    # Keys written before they recorded a version have nothing to compare against, so
-    # the first release to touch one claims it.
-    if [ -n "$current" ] && [ "$current" != "$version" ] && [ "$(newest "$version" "$current")" != "$version" ]; then
-      # Refusing to move backwards is right when $version is "whatever this release is":
-      # it stops a re-run of an older release from reclaiming the key. It is wrong when
-      # the caller names the version authoritatively, as the GovCloud keys do -- they
-      # mirror the Release mapping in template-govcloud.yaml, and un-holding then
-      # re-holding that mapping is a deliberate rollback the key has to follow, or it
-      # serves a build CloudFormation no longer deploys.
-      if [ "${PUT_LATEST_PINNED:-}" = 1 ]; then
-        echo "::notice::s3://$bucket/$key holds $current; rolling it back to the pinned $version."
-      else
-        echo "::warning::s3://$bucket/$key holds $current, which is newer than $version; leaving it alone."
-        exit 0
-      fi
+    # What the key is allowed to move backwards past differs by caller, so the two modes
+    # compare different things.
+    #
+    # Default: $version IS the release, so it orders directly. Refusing to move backwards
+    # stops a re-run of an older release from reclaiming the key.
+    #
+    # Pinned (GovCloud): $version is the Release mapping from template-govcloud.yaml, a
+    # value a human edits, so it does not order across commits -- re-holding the mapping
+    # after an un-hold is a deliberate rollback the key must follow. Ordering therefore
+    # comes from PUT_LATEST_PINNED, the release that is writing, which check_version
+    # keeps strictly increasing. That still refuses a stale concurrent release: two runs
+    # overlapping on master read different mappings, and without this the older one could
+    # finish last and undo the newer one's write.
+    #
+    # Keys written before they recorded this have nothing to compare against, so the
+    # first release to touch one claims it.
+    if [ -n "${PUT_LATEST_PINNED:-}" ]; then
+      ordering=$(jq -r '.Metadata.release // ""' <<<"$head")
+      incoming=$PUT_LATEST_PINNED
+      what="the release that wrote it"
+    else
+      ordering=$current
+      incoming=$version
+      what="which is newer than $version"
+    fi
+
+    if [ -n "$ordering" ] && [ "$ordering" != "$incoming" ] && [ "$(newest "$incoming" "$ordering")" != "$incoming" ]; then
+      echo "::warning::s3://$bucket/$key holds $ordering ($what); leaving it alone."
+      exit 0
     fi
 
     # Write only if the object is still the one just read.
@@ -71,7 +85,7 @@ for attempt in 1 2 3 4 5; do
   if out=$(aws s3api put-object \
     --bucket "$bucket" --key "$key" --body "$body" \
     --content-type "$content_type" --checksum-algorithm SHA256 \
-    --metadata "version=$version${GITHUB_SHA:+,commit=$GITHUB_SHA}" \
+    --metadata "version=$version${PUT_LATEST_PINNED:+,release=$PUT_LATEST_PINNED}${GITHUB_SHA:+,commit=$GITHUB_SHA}" \
     "${condition[@]}" 2>&1); then
     exit 0
   fi
