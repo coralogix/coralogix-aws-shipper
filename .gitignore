@@ -15,3 +15,4 @@ examples/**/parameters.json
 
 # Local cargo config (FIPS/toolchain overrides); do not commit
 .cargo/config.toml
+.DS_Store
