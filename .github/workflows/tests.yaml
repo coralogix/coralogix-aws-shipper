@@ -24,9 +24,11 @@ on:
       - "custom-resource/**"
       - "custom-resource-govcloud/**"
       - "Makefile"
-      - "ci/*.sh"
-      - "ci/Dockerfile*"
+      - "ci/**"
       - "scripts/*.sh"
+      # Vendored dependencies are compiled into the artifact, so they need the same
+      # gates as first-party code -- this is where a patched crypto crate lives.
+      - "vendor/**"
 
 jobs:
   test:
@@ -83,6 +85,13 @@ jobs:
                 ;;
               deny.toml)
                 rust_deps=true
+                ;;
+              # Vendored sources are compiled into the artifact and the GovCloud lockfile
+              # is a real dependency set, so both get the same build and advisory gates
+              # as first-party code. Without this the crypto patch would ship untested.
+              vendor/*|ci/govcloud/Cargo.lock|ci/govcloud/config.toml)
+                rust_deps=true
+                rust_source=true
                 ;;
               .github/workflows/tests.yaml)
                 workflow=true
