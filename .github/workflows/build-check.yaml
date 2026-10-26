@@ -21,6 +21,9 @@ on:
       - "requirements.txt"
       - "template.yaml"
       - "ci/**"
+      - "vendor/**"
+      - "tests/govcloud_distrust.rs"
+      - "tests/data/distrusted/**"
       - ".github/workflows/build-check.yaml"
 
 jobs:
@@ -162,3 +165,149 @@ jobs:
             ${{ runner.temp }}/shipper-e2e-artifacts/coralogix-aws-shipper-${{ matrix.artifact_arch }}.metadata.json
           if-no-files-found: error
           retention-days: 3
+
+  # The GovCloud build is a different dependency set on purpose -- aws-lc-rs 1.17 and a
+  # patched rustls-webpki, to keep the NIST-validated AWS-LC FIPS v3 module. The job
+  # above says nothing about it, so verify it here with the same inputs that build the
+  # artifact, natively on both shipped architectures.
+  govcloud-verify:
+    name: govcloud verify (${{ matrix.arch }}, provided.al2023)
+    if: "!contains(github.event.pull_request.labels.*.name, 'skip-test') && !contains(github.event.pull_request.labels.*.name, 'skip-build-check')"
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: verify private dependency SSH key is available
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "::error::SSH_PRIVATE_KEY is required: Cargo resolves private SDK git dependencies."
+            exit 1
+          fi
+
+      - name: start ssh agent for rust private dependencies
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: set up docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: build AL2023 builder image (cached, native ${{ matrix.arch }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ci/Dockerfile.builder
+          tags: fips-al2023-builder:latest
+          load: true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      # Downloads only -- crate sources and git checkouts, never compiled output.
+      #
+      # Compilation stays cold on purpose. The guard must hold where every unit is
+      # fresh rather than replayed, and caching the target directories was measured at
+      # ~1.9 GB per architecture against a 10 GB repository-wide limit that is already
+      # half spent, most of it the builder image's own buildx cache. Evicting that to
+      # replay compilation would likely cost more than it saves.
+      - name: restore cargo download cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ci-cache/registry
+            .ci-cache/git
+          key: govcloud-downloads-${{ matrix.arch }}-${{ hashFiles('ci/govcloud/Cargo.lock', 'ci/govcloud/webpki-harness.lock', 'Cargo.toml') }}
+          restore-keys: govcloud-downloads-${{ matrix.arch }}-
+
+      # One container for all three stages: the builder image installs the pinned
+      # toolchain at run time, so separate containers would each repeat that, and the
+      # GovCloud inputs have to be in place for all of them.
+      - name: verify, build and test the GovCloud configuration (cold cache)
+        env:
+          TARGET: ${{ matrix.target }}
+          LAMBDA_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p .cargo .ci-cache/registry .ci-cache/git
+          cp ci/govcloud/config.toml .cargo/config.toml
+          cp ci/govcloud/Cargo.lock Cargo.lock
+          docker run --rm \
+            -v "$PWD":/work -w /work \
+            -v "$PWD/.ci-cache/registry":/usr/local/cargo/registry \
+            -v "$PWD/.ci-cache/git":/usr/local/cargo/git \
+            -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
+            -e TARGET="$TARGET" -e LAMBDA_ARCH="$LAMBDA_ARCH" \
+            fips-al2023-builder:latest \
+            bash -c '
+              set -euo pipefail
+              . ci/govcloud/_container-setup.sh
+
+              echo "::group::build inputs"
+              ci/govcloud/verify-build-inputs.sh
+              echo "::endgroup::"
+
+              # cargo check does not link, and the vendored suite builds library tests,
+              # so neither produces the artifact that ships. fips-build.sh does, and
+              # already asserts the architecture and that glibc stays within the
+              # provided.al2023 runtime -- run against the GovCloud inputs here rather
+              # than the commercial ones the fips-build job uses.
+              echo "::group::linked GovCloud lambda"
+              ci/fips-build.sh
+              echo "::endgroup::"
+
+              echo "::group::vendored rustls-webpki regression suite"
+              ci/govcloud/test-vendored-webpki.sh
+              echo "::endgroup::"
+
+              # Runtime evidence that the shipped client enforces the distrust, as
+              # opposed to merely containing code that would. --include-ignored because
+              # the client cases are #[ignore] by default: they are meaningless without
+              # the GovCloud inputs the guard above has just checked.
+              echo "::group::runtime distrust tests"
+              listed=$(cargo test --release --locked --target "$TARGET" \
+                --test govcloud_distrust -- --include-ignored --list)
+              # A renamed or removed case would otherwise be a silent zero-test pass.
+              for name in fixture_still_carries_a_distrusted_key \
+                          rest_sdk_control_succeeds_and_is_observed \
+                          rest_sdk_rejects_distrusted_chain_before_sending_anything \
+                          aws_sdk_control_succeeds_and_is_observed \
+                          aws_sdk_rejects_distrusted_chain_before_sending_anything \
+                          otlp_control_succeeds_and_is_observed \
+                          otlp_rejects_distrusted_chain_before_sending_anything; do
+                printf "%s" "$listed" | grep -qF "$name: test" || {
+                  echo "::error::$name not found in tests/govcloud_distrust.rs" >&2
+                  exit 1
+                }
+              done
+
+              cargo test --release --locked --target "$TARGET" \
+                --test govcloud_distrust -- --include-ignored --test-threads=1 --nocapture
+              echo "::endgroup::"
+            '
+
+      # The container runs as root, so the downloads come back root-owned and the
+      # cache action cannot read them. Runs on failure too, so a run that fails late
+      # still leaves its downloads for the next one.
+      - name: hand the download cache back to the runner
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" .ci-cache
+
+      - name: GovCloud artifact summary
+        run: |
+          file .build-artifacts/bootstrap
+          ls -la .build-artifacts/
