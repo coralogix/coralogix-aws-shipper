@@ -51,6 +51,27 @@ humantime = "2.1.0"
 cx_sdk_otlp = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", rev = "52aee3bf014ce18b2ac25771ecefbfd25e73bb11", version = "0.1.0", default-features = false, features = ["tls-aws-lc", "tls-webpki-roots"] }
 
 [dev-dependencies]
+# Test-only certificate generation for the GovCloud distrust tests.
+#
+# Exact pin, not a range: rcgen 0.14.10 requires aws-lc-rs ^1.18, which links the
+# AWS-LC FIPS v4 module. GovCloud must stay on the validated v3 module (aws-lc-rs
+# 1.17, certificates #5314 and #5298), so a caret range would let ci/govcloud's
+# lockfile take v4 on any refresh. 0.14.7 asks only for ^1.13.3 and so resolves
+# against the pin. Note that permits 1.18 as well -- what actually holds v3 is the
+# locked build plus the aws-lc-rs ban in ci/govcloud/deny.toml. Do not relax this
+# without checking that lockfile still resolves 1.17.
+#
+# Both aws_lc_rs and fips: rcgen gates its backend code on #[cfg(feature = "aws_lc_rs")],
+# but its fips feature only enables dep:aws-lc-rs and aws-lc-rs/fips without setting that
+# flag, so fips alone fails to compile. Together they select the FIPS backend and compile.
+# default-features = false: the default set pulls ring, a second crypto stack.
+rcgen = { version = "=0.14.7", default-features = false, features = ["aws_lc_rs", "fips", "pem"] }
+# Typed access to rustls errors in the distrust tests, so the assertion can require
+# CertDistrusted rather than matching rendered text. No default features: the provider
+# comes from the graph, not from here.
+rustls = { version = "0.23", default-features = false }
+tokio-rustls = { version = "0.26", default-features = false }
+tempfile = "3"
 aws-smithy-http-client = { version = "1", default-features = false, features = ["test-util"] }
 pretty_assertions_sorted = "1.2.1"
 test-log = "0.2.16"
