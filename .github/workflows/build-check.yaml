@@ -269,7 +269,9 @@ jobs:
               # A renamed or removed case would otherwise be a silent zero-test pass.
               for name in fixture_still_carries_a_distrusted_key \
                           rest_sdk_control_succeeds_and_is_observed \
-                          rest_sdk_rejects_distrusted_chain_before_sending_anything; do
+                          rest_sdk_rejects_distrusted_chain_before_sending_anything \
+                          aws_sdk_control_succeeds_and_is_observed \
+                          aws_sdk_rejects_distrusted_chain_before_sending_anything; do
                 printf "%s" "$listed" | grep -qF "$name: test" || {
                   echo "::error::$name not found in tests/govcloud_distrust.rs" >&2
                   exit 1

@@ -161,6 +161,17 @@ pub async fn spawn_tls_server(
     chain: Vec<rustls::pki_types::CertificateDer<'static>>,
     key: rustls::pki_types::PrivateKeyDer<'static>,
 ) -> Server {
+    spawn_tls_server_with_body(chain, key, String::new()).await
+}
+
+/// As `spawn_tls_server`, but replying with `body` so a client that parses the
+/// response can complete its call. The control must genuinely succeed; a response the
+/// client rejects would leave "did the request arrive" entangled with "did it parse".
+pub async fn spawn_tls_server_with_body(
+    chain: Vec<rustls::pki_types::CertificateDer<'static>>,
+    key: rustls::pki_types::PrivateKeyDer<'static>,
+    body: String,
+) -> Server {
     let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(chain, key)
@@ -188,6 +199,7 @@ pub async fn spawn_tls_server(
             let Ok((stream, _)) = accepted else { return };
             let acceptor = acceptor.clone();
             let seen = Arc::clone(&seen);
+            let body = body.clone();
             let handle = tokio::spawn(async move {
                 seen.handshakes_attempted.fetch_add(1, Ordering::SeqCst);
                 // A rejected handshake ends here: nothing below runs, so no
@@ -197,9 +209,12 @@ pub async fn spawn_tls_server(
                 };
                 seen.handshakes_completed.fetch_add(1, Ordering::SeqCst);
                 read_request(&mut tls, &seen).await;
-                let _ = tls
-                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                    .await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = tls.write_all(response.as_bytes()).await;
                 let _ = tls.shutdown().await;
             });
             track.lock().expect("handler list poisoned").push(handle);
@@ -638,6 +653,140 @@ async fn rest_sdk_rejects_distrusted_chain_before_sending_anything() {
     assert_eq!(observed.requests(), 0, "a request reached the server");
     assert!(
         !observed.saw(DUMMY_API_KEY),
+        "the credential reached the server"
+    );
+}
+
+/// Minimal response the S3 client will accept, so the control genuinely succeeds.
+const LIST_BUCKETS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Owner><ID>cx-distrust-test</ID><DisplayName>cx</DisplayName></Owner>
+  <Buckets></Buckets>
+</ListAllMyBucketsResult>"#;
+
+/// Credential the AWS SDK signs with. Must never leave the client on rejection.
+const DUMMY_ACCESS_KEY_ID: &str = "AKIACXDISTRUSTTESTKEY";
+
+/// An S3 client over the shipper's own HTTPS stack.
+///
+/// Builds on `aws_runtime::load_sdk_config`, the function the Lambda itself calls, so
+/// the TLS provider is the one that ships rather than one reconstructed here. With
+/// ENABLE_AWS_FIPS set it selects CryptoMode::AwsLcFips, which is the GovCloud
+/// configuration. Only the endpoint and credentials are overridden.
+async fn s3_client(port: u16) -> aws_sdk_s3::Client {
+    std::env::set_var("ENABLE_AWS_FIPS", "true");
+    assert!(
+        coralogix_aws_shipper::aws_runtime::aws_fips_enabled(),
+        "the shipper does not consider FIPS enabled, so this would not be the \
+         GovCloud TLS configuration"
+    );
+    let sdk_config = coralogix_aws_shipper::aws_runtime::load_sdk_config().await;
+
+    let creds = aws_sdk_s3::config::Credentials::new(
+        DUMMY_ACCESS_KEY_ID,
+        "cx-distrust-test-secret-MUST-NOT-BE-SENT",
+        None,
+        None,
+        "cx-distrust-test",
+    );
+    let config = aws_sdk_s3::config::Builder::from(&sdk_config)
+        .region(aws_sdk_s3::config::Region::new("us-gov-west-1"))
+        .credentials_provider(creds)
+        .endpoint_url(format!("https://localhost:{port}"))
+        .force_path_style(true)
+        .build();
+    aws_sdk_s3::Client::from_conf(config)
+}
+
+/// Control for the AWS SDK path: the client completes a call it trusts.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires the GovCloud build inputs; invoked explicitly in CI"]
+#[serial_test::serial(govcloud_distrust)]
+async fn aws_sdk_control_succeeds_and_is_observed() {
+    let pki = control_pki();
+    let _trust = trust_only(&pki.ca_pem);
+
+    let server =
+        spawn_tls_server_with_body(pki.chain, pki.key, LIST_BUCKETS_XML.to_string()).await;
+    let port = server.port;
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        s3_client(port).await.list_buckets().send(),
+    )
+    .await
+    .expect("aws sdk control timed out");
+
+    let observed = server.finish().await;
+
+    assert!(result.is_ok(), "aws sdk control failed: {result:?}");
+    assert_eq!(observed.handshakes_completed(), 1);
+    assert!(
+        observed.app_bytes() > 0,
+        "server recorded no application bytes -- a zero in the rejection case would \
+         prove nothing"
+    );
+    assert_eq!(observed.requests(), 1);
+    assert!(
+        observed.saw(DUMMY_ACCESS_KEY_ID),
+        "the control did not carry the credential, so its absence in the rejection \
+         case would prove nothing"
+    );
+}
+
+/// The AWS SDK path rejects an affected chain and sends nothing.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires the GovCloud build inputs; invoked explicitly in CI"]
+#[serial_test::serial(govcloud_distrust)]
+async fn aws_sdk_rejects_distrusted_chain_before_sending_anything() {
+    let pki = control_pki();
+    let _trust = trust_only(&pki.ca_pem);
+
+    let (chain, key) = affected_chain();
+    let server = spawn_tls_server_with_body(chain, key, LIST_BUCKETS_XML.to_string()).await;
+    let port = server.port;
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        s3_client(port).await.list_buckets().send(),
+    )
+    .await
+    .expect("aws sdk rejection case timed out");
+
+    let err = result.expect_err("the affected chain was accepted");
+    let outcome = rejected_for_distrust(&err);
+
+    let observed = server.finish().await;
+
+    match outcome {
+        Outcome::Distrusted { typed } => {
+            if !typed {
+                eprintln!(
+                    "note: matched CertDistrusted in rendered text; the typed \
+                     rustls::Error did not survive the client stack"
+                );
+            }
+        }
+        Outcome::BadSignature => panic!(
+            "rejected on the signature, not distrust -- says nothing about the \
+             backport: {err:?}"
+        ),
+        Outcome::OtherTlsError(detail) => {
+            panic!("rejected, but not for distrust: {detail}\nfull error: {err:?}")
+        }
+    }
+
+    assert!(observed.handshakes_attempted() > 0, "never reached the server");
+    assert_eq!(observed.handshakes_completed(), 0);
+    assert_eq!(
+        observed.app_bytes(),
+        0,
+        "application data reached the server across {} attempt(s)",
+        observed.handshakes_attempted()
+    );
+    assert_eq!(observed.requests(), 0);
+    assert!(
+        !observed.saw(DUMMY_ACCESS_KEY_ID),
         "the credential reached the server"
     );
 }
