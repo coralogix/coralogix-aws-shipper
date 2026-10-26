@@ -288,10 +288,14 @@ jobs:
           # above says nothing about it. Without this, a new advisory there would ship
           # unnoticed, and nothing would stop a routine update from taking aws-lc-rs 1.18
           # and silently undoing the validated module.
+          # Swap the inputs rather than passing --config: the flag moved between
+          # cargo-deny releases, and the default <cwd>/deny.toml works in all of them.
           cp ci/govcloud/config.toml .cargo/config.toml
           cp ci/govcloud/Cargo.lock Cargo.lock
-          "$RUNNER_TEMP/cargo-deny/cargo-deny" --config ci/govcloud/deny.toml \
-            check advisories licenses bans sources
+          cp deny.toml deny.toml.mainline
+          cp ci/govcloud/deny.toml deny.toml
+          "$RUNNER_TEMP/cargo-deny/cargo-deny" check advisories licenses bans sources
+          mv deny.toml.mainline deny.toml
           git checkout Cargo.lock && rm -f .cargo/config.toml
 
       - name: shellcheck
