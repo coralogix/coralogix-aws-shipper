@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.4.22 / 2026-10-25
+
+### 🧰 Bug fixes 🧰
+
+- **GovCloud artifacts are reachable without pinning a version:** the unversioned keys the
+  Terraform module reads by default are now published to GovCloud as well, so an unpinned
+  deployment there no longer resolves to a key that was never published. They track the
+  release `template-govcloud.yaml` deploys rather than the newest one, so an unpinned
+  deployment stays on the NIST-validated FIPS module while 1.4.20 remains opt-in.
+- **A reused release tag fails the release:** a tag that already named a different commit
+  was skipped with a warning, so the published artifacts and the source
+  `git clone --branch <version>` resolves to could be different builds.
+
 ## v1.4.21 / 2026-10-25
 
 ### 🔐 Security 🔐
@@ -29,32 +42,25 @@
 - **Send-path future Send compliance:** Rework the send pipeline so stream futures capture only owned data, restoring compilation under the `#[async_recursion]` handler's `Send` requirement; batches are converted, transformed, and sent lazily per stream item so memory stays bounded during fan-out.
 - **Typed transform results:** Preserve result types through the post-metadata transform — a log whose content is a JSON string literal (e.g. `"123"`) keeps its string type after even an identity script, and deliberate `to_json(event)` stringification survives. Script failures restore the original body verbatim.
 
-## v1.4.18 / 2026-10-15
+## v1.4.18 / 2026-10-18
 
 ### 🚀 Enhancements 🚀
 
-- **GovCloud artifacts are hosted by Coralogix:** `template-govcloud.yaml` required
-  `LambdaCodeBucket`, `LambdaCodeKey`, `CustomResourceCodeBucket` and
-  `CustomResourceCodeKey`, so every GovCloud customer had to stage the Lambda packages
-  in a bucket of their own before deploying. They are now optional and default to
-  `coralogix-serverless-repo-<region>` with this release's versioned keys. Supplying
-  your own bucket still works unchanged.
-- **Synced CloudFormation template pins its release:** the template published to
-  [`cloudformation-coralogix-aws`](https://github.com/coralogix/cloudformation-coralogix-aws)
-  referenced the mutable `coralogix-aws-shipper*.zip` keys, so updating a stack to a new
-  release changed only SAR metadata and CloudFormation kept the old Lambda package. It
-  now points at the versioned artifacts for the release it names.
-- **A republished version now fails the release:** versioned artifacts are write-once, so
-  a commit reusing an already-published version kept the earlier build while syncing its
-  own template on top of it. Each artifact now records the commit that published it, and
-  a release that finds an artifact belonging to another commit stops before it can build
-  on top of it. The
-  `skip-version-check` commit-message escape, which forced a publish of an unchanged
-  version, is removed: it can no longer replace anything, so its only effect was to reach
-  this state. Re-run a release with `workflow_dispatch` instead.
-- **Release artifacts carry checksums:** each versioned object is published with a
-  `<key>.sha256` sidecar, verifiable with `sha256sum -c`. Versioned keys are immutable —
-  republishing a version can no longer replace what a deployment pinned.
+- **GovCloud artifacts are hosted by Coralogix:** the artifact bucket and key parameters
+  in `template-govcloud.yaml` are now optional, so GovCloud deployments no longer need to
+  stage the Lambda packages first. Your own bucket still works.
+
+### 🧰 Bug fixes 🧰
+
+- **Stack updates now pick up the new Lambda:** the template referenced keys that did not
+  change between releases, so updating a stack left the function on its previous code.
+
+### 🔐 Security 🔐
+
+- **Artifacts carry checksums:** each one has a `<key>.sha256` alongside it, verifiable
+  with `sha256sum -c`.
+- **A published version is never replaced:** republishing an existing version is refused,
+  and the `skip-version-check` commit-message escape that forced one is removed.
 
 ## v1.4.17 / 2026-10-14
 
