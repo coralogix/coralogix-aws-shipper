@@ -219,9 +219,14 @@ jobs:
 
       # Deliberately not cached: the guard must hold on a cold cache too, where every
       # compilation unit is fresh rather than replayed from a previous run.
-      - name: verify GovCloud build inputs (cold cache)
+      #
+      # One container for all three stages: the builder image installs the pinned
+      # toolchain at run time, so separate containers would each repeat that, and the
+      # GovCloud inputs have to be in place for all of them.
+      - name: verify, build and test the GovCloud configuration (cold cache)
         env:
           TARGET: ${{ matrix.target }}
+          LAMBDA_ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p .cargo
           cp ci/govcloud/config.toml .cargo/config.toml
@@ -229,14 +234,31 @@ jobs:
           docker run --rm \
             -v "$PWD":/work -w /work \
             -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
-            -e TARGET="$TARGET" \
+            -e TARGET="$TARGET" -e LAMBDA_ARCH="$LAMBDA_ARCH" \
             fips-al2023-builder:latest \
-            bash -c '. ci/govcloud/_container-setup.sh && ci/govcloud/verify-build-inputs.sh'
+            bash -c '
+              set -euo pipefail
+              . ci/govcloud/_container-setup.sh
 
-      - name: run the vendored rustls-webpki regression suite
+              echo "::group::build inputs"
+              ci/govcloud/verify-build-inputs.sh
+              echo "::endgroup::"
+
+              # cargo check does not link, and the vendored suite builds library tests,
+              # so neither produces the artifact that ships. fips-build.sh does, and
+              # already asserts the architecture and that glibc stays within the
+              # provided.al2023 runtime -- run against the GovCloud inputs here rather
+              # than the commercial ones the fips-build job uses.
+              echo "::group::linked GovCloud lambda"
+              ci/fips-build.sh
+              echo "::endgroup::"
+
+              echo "::group::vendored rustls-webpki regression suite"
+              ci/govcloud/test-vendored-webpki.sh
+              echo "::endgroup::"
+            '
+
+      - name: GovCloud artifact summary
         run: |
-          docker run --rm \
-            -v "$PWD":/work -w /work \
-            -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
-            fips-al2023-builder:latest \
-            bash -c '. ci/govcloud/_container-setup.sh && ci/govcloud/test-vendored-webpki.sh'
+          file .build-artifacts/bootstrap
+          ls -la .build-artifacts/
