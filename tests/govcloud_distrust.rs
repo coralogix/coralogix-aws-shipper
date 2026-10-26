@@ -1,3 +1,10 @@
+// Linux only. Trust is established through SSL_CERT_FILE, which
+// rustls-platform-verifier honours via rustls-native-certs on Linux; on macOS it uses
+// Apple's trust evaluation and on Windows the system store, neither of which reads it.
+// The deployment target is Linux, and CI runs these in the AL2023 container. Gating the
+// file rather than panicking inside keeps the rest free of unreachable code.
+#![cfg(target_os = "linux")]
+
 //! Runtime evidence that the shipped clients enforce the backported certificate
 //! distrust, on the GovCloud dependency set.
 //!
@@ -67,8 +74,7 @@ pub const DUMMY_API_KEY: &str = "cx-distrust-test-key-MUST-NOT-BE-SENT";
 
 /// The real eMudhra intermediate carrying a distrusted SPKI, extracted from the
 /// published affected chain. See tests/data/distrusted/README.md for provenance.
-pub const AFFECTED_INTERMEDIATE: &[u8] =
-    include_bytes!("data/distrusted/emudhra-intermediate.der");
+pub const AFFECTED_INTERMEDIATE: &[u8] = include_bytes!("data/distrusted/emudhra-intermediate.der");
 
 pub fn affected_intermediate_is_distrusted() -> bool {
     // Compare the certificate's actual SubjectPublicKeyInfo, parsed, against the eight
@@ -140,7 +146,9 @@ pub fn rejected_for_distrust(err: &(dyn std::error::Error + 'static)) -> Outcome
 pub enum Outcome {
     /// Rejected for distrust. `typed` records whether the rustls error survived or
     /// only its rendered text did.
-    Distrusted { typed: bool },
+    Distrusted {
+        typed: bool,
+    },
     /// Rejected on the signature instead -- the synthetic chain tripped on its own
     /// invalidity rather than on the backport.
     BadSignature,
@@ -346,7 +354,36 @@ pub struct ControlPki {
     pub key: rustls::pki_types::PrivateKeyDer<'static>,
 }
 
+/// Generated once per process and shared by every case.
+///
+/// aws-smithy-http-client caches native roots in a LazyLock, loaded on first use and
+/// never reloaded, so a later SSL_CERT_FILE change does not reach it. If each case
+/// generated its own CA, whichever ran first would seed the cache and the others would
+/// be verified against the wrong trust store -- a result that depends on test order.
+/// Serialisation prevents overlap, not caching.
+static CONTROL: std::sync::OnceLock<ControlMaterial> = std::sync::OnceLock::new();
+
+struct ControlMaterial {
+    ca_pem: String,
+    leaf_der: Vec<u8>,
+    ca_der: Vec<u8>,
+    key_der: Vec<u8>,
+}
+
 pub fn control_pki() -> ControlPki {
+    let material = CONTROL.get_or_init(generate_control_material);
+    ControlPki {
+        ca_pem: material.ca_pem.clone(),
+        chain: vec![
+            rustls::pki_types::CertificateDer::from(material.leaf_der.clone()),
+            rustls::pki_types::CertificateDer::from(material.ca_der.clone()),
+        ],
+        key: rustls::pki_types::PrivateKeyDer::try_from(material.key_der.clone())
+            .expect("leaf key der"),
+    }
+}
+
+fn generate_control_material() -> ControlMaterial {
     use rcgen::{CertificateParams, DnType, KeyPair};
 
     let mut ca_params = CertificateParams::new(vec![]).expect("ca params");
@@ -371,11 +408,11 @@ pub fn control_pki() -> ControlPki {
         .signed_by(&leaf_key, &ca_issuer)
         .expect("leaf signed by ca");
 
-    ControlPki {
+    ControlMaterial {
         ca_pem: ca_cert.pem(),
-        chain: vec![leaf.der().clone(), ca_cert.der().clone()],
-        key: rustls::pki_types::PrivateKeyDer::try_from(leaf_key.serialize_der())
-            .expect("leaf key der"),
+        leaf_der: leaf.der().to_vec(),
+        ca_der: ca_cert.der().to_vec(),
+        key_der: leaf_key.serialize_der(),
     }
 }
 
@@ -394,11 +431,6 @@ pub fn control_pki() -> ControlPki {
 /// Must run before any client is constructed: roots are read once, when the verifier
 /// is first built.
 pub fn trust_only(ca_pem: &str) -> tempfile::TempDir {
-    assert!(
-        cfg!(target_os = "linux"),
-        "these tests establish trust through SSL_CERT_FILE, which rustls-platform-verifier \
-         honours only on Linux. Run them in the AL2023 container, as CI does."
-    );
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("control-ca.pem");
     std::fs::write(&path, ca_pem).expect("write ca");
@@ -548,9 +580,7 @@ pub fn affected_chain() -> (
         .expect("stand-in cert");
 
     let mut check = rustls::RootCertStore::empty();
-    check
-        .add(stand_in.der().clone())
-        .expect("stand-in parses");
+    check.add(stand_in.der().clone()).expect("stand-in parses");
     let got_subject = check
         .roots
         .first()
@@ -630,9 +660,9 @@ async fn rest_sdk_rejects_distrusted_chain_before_sending_anything() {
             "rejected on the signature, not distrust -- the synthetic chain tripped \
              on its own invalidity, so this says nothing about the backport: {err:?}"
         ),
-        Outcome::OtherTlsError(detail) => panic!(
-            "rejected, but not for distrust: {detail}\nfull error: {err:?}"
-        ),
+        Outcome::OtherTlsError(detail) => {
+            panic!("rejected, but not for distrust: {detail}\nfull error: {err:?}")
+        }
     }
 
     assert!(
@@ -675,6 +705,10 @@ const DUMMY_ACCESS_KEY_ID: &str = "AKIACXDISTRUSTTESTKEY";
 /// configuration. Only the endpoint and credentials are overridden.
 async fn s3_client(port: u16) -> aws_sdk_s3::Client {
     std::env::set_var("ENABLE_AWS_FIPS", "true");
+    // Keep configuration loading local and predictable: no IMDS round trip, and a
+    // region that does not depend on the environment the test runs in.
+    std::env::set_var("AWS_EC2_METADATA_DISABLED", "true");
+    std::env::set_var("AWS_REGION", "us-gov-west-1");
     assert!(
         coralogix_aws_shipper::aws_runtime::aws_fips_enabled(),
         "the shipper does not consider FIPS enabled, so this would not be the \
@@ -706,14 +740,12 @@ async fn aws_sdk_control_succeeds_and_is_observed() {
     let pki = control_pki();
     let _trust = trust_only(&pki.ca_pem);
 
-    let server =
-        spawn_tls_server_with_body(pki.chain, pki.key, LIST_BUCKETS_XML.to_string()).await;
+    let server = spawn_tls_server_with_body(pki.chain, pki.key, LIST_BUCKETS_XML.to_string()).await;
     let port = server.port;
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        s3_client(port).await.list_buckets().send(),
-    )
+    let result = tokio::time::timeout(std::time::Duration::from_secs(30), async move {
+        s3_client(port).await.list_buckets().send().await
+    })
     .await
     .expect("aws sdk control timed out");
 
@@ -746,10 +778,9 @@ async fn aws_sdk_rejects_distrusted_chain_before_sending_anything() {
     let server = spawn_tls_server_with_body(chain, key, LIST_BUCKETS_XML.to_string()).await;
     let port = server.port;
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        s3_client(port).await.list_buckets().send(),
-    )
+    let result = tokio::time::timeout(std::time::Duration::from_secs(60), async move {
+        s3_client(port).await.list_buckets().send().await
+    })
     .await
     .expect("aws sdk rejection case timed out");
 
@@ -776,7 +807,10 @@ async fn aws_sdk_rejects_distrusted_chain_before_sending_anything() {
         }
     }
 
-    assert!(observed.handshakes_attempted() > 0, "never reached the server");
+    assert!(
+        observed.handshakes_attempted() > 0,
+        "never reached the server"
+    );
     assert_eq!(observed.handshakes_completed(), 0);
     assert_eq!(
         observed.app_bytes(),
