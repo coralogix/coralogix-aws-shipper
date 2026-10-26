@@ -83,7 +83,11 @@ jobs:
                 rust_deps=true
                 rust_source=true
                 ;;
-              deny.toml)
+              # Both advisory policies, mainline and GovCloud. The cargo deny step is
+              # the only place either is parsed -- the GovCloud build job does not run
+              # cargo-deny -- so a policy change that reaches no other input still has
+              # to be checked, or a weakened exception ships unnoticed.
+              deny.toml|ci/govcloud/deny.toml)
                 rust_deps=true
                 ;;
               # Vendored sources are compiled into the artifact and the GovCloud lockfile

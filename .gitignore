@@ -16,3 +16,6 @@ examples/**/parameters.json
 # Local cargo config (FIPS/toolchain overrides); do not commit
 .cargo/config.toml
 .DS_Store
+
+# GovCloud CI download cache (created by build-check.yaml)
+.ci-cache/
