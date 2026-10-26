@@ -824,3 +824,441 @@ async fn aws_sdk_rejects_distrusted_chain_before_sending_anything() {
         "the credential reached the server"
     );
 }
+
+// ---------------------------------------------------------------------------------
+// OTLP configuration
+//
+// Unlike REST and AWS, OTLP trusts the compiled-in webpki root bundle rather than the
+// system store (src/logs/exporter/otlp.rs -> ChannelConfig::with_webpki_roots), so
+// SSL_CERT_FILE does not reach it. The two cases therefore differ deliberately:
+//
+//   rejection: the production configuration, unmodified. The distrust check runs
+//              before issuer resolution -- upstream asserts this with empty trust
+//              anchors -- so no added trust is needed for the chain to be rejected
+//              for the right reason.
+//   control:   the SDK's own endpoint construction, with the test CA added alongside
+//              the bundled roots. tls_config replaces rather than merges, so the
+//              bundled roots are re-applied explicitly. This trust difference is
+//              deliberate and is stated in the PR.
+
+/// gRPC metadata the server decoded, per request.
+///
+/// HTTP/2 header compression makes a byte search of the decrypted stream unreliable,
+/// so the credential is checked here rather than through `Observed::saw`.
+#[derive(Default)]
+pub struct GrpcObserved {
+    pub requests: AtomicUsize,
+    pub metadata: Mutex<Vec<String>>,
+}
+
+impl GrpcObserved {
+    pub fn requests(&self) -> usize {
+        self.requests.load(Ordering::SeqCst)
+    }
+    pub fn saw_metadata(&self, needle: &str) -> bool {
+        self.metadata
+            .lock()
+            .expect("metadata poisoned")
+            .iter()
+            .any(|m| m.contains(needle))
+    }
+}
+
+/// Records transport errors before the SDK converts or the shipper sanitises them.
+///
+/// `MapErrLayer` maps errors from both `poll_ready` and the request future, so a
+/// failure in either is observed, and the error is returned unchanged -- the export
+/// still fails exactly as it would in production.
+///
+/// Needed because `sanitized_otlp_error` reduces a transport failure to a
+/// classification and a gRPC status name, so `CertDistrusted` never reaches
+/// `LogExportError`. Observing inside the SDK's layer stack keeps credentials, retries
+/// and the production channel configuration in the export under test.
+pub fn observing_layer(
+    seen: Arc<Mutex<Vec<Outcome>>>,
+) -> tower::util::MapErrLayer<impl Fn(tonic::transport::Error) -> tonic::transport::Error + Clone> {
+    tower::util::MapErrLayer::new(move |err: tonic::transport::Error| {
+        seen.lock()
+            .expect("observations poisoned")
+            .push(rejected_for_distrust(&err));
+        err
+    })
+}
+
+/// Counts decrypted bytes read off a TLS stream.
+///
+/// The HTTP/1 helper counts in `read_request`, but tonic owns the gRPC stream and
+/// reads it itself, so without this the OTLP `app_bytes` assertion would be vacuous:
+/// zero because nothing ever counted, not because nothing was sent. The control
+/// asserts a non-zero count, which is what makes the rejection's zero mean something.
+pub struct Counting<S> {
+    inner: S,
+    seen: Arc<Observed>,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Counting<S> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let me = self.get_mut();
+        let before = buf.filled().len();
+        let polled = std::pin::Pin::new(&mut me.inner).poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(())) = &polled {
+            let read = buf.filled().len() - before;
+            me.seen.app_bytes.fetch_add(read, Ordering::SeqCst);
+        }
+        polled
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Counting<S> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
+impl<S> tonic::transport::server::Connected for Counting<S> {
+    type ConnectInfo = ();
+    fn connect_info(&self) -> Self::ConnectInfo {}
+}
+
+/// A real OTLP logs endpoint over TLS, with ALPN h2.
+///
+/// The HTTP/1 helper above cannot establish a gRPC control, so this serves the
+/// generated LogsService. It shares the same TLS acceptor pattern, so a rejected
+/// handshake still never reaches the service and the byte counters stay at zero.
+pub struct GrpcServer {
+    pub port: u16,
+    pub observed: Arc<Observed>,
+    pub grpc: Arc<GrpcObserved>,
+    /// Stops the accept loop. Separate from tonic's own shutdown so that a handshake
+    /// already in flight is never dropped: the loop only checks this between accepts.
+    stop_accepting: tokio::sync::oneshot::Sender<()>,
+    shutdown: tokio::sync::oneshot::Sender<()>,
+    accepting: tokio::task::JoinHandle<()>,
+    serving: tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
+}
+
+impl GrpcServer {
+    /// Finalises observations.
+    ///
+    /// The accept loop is stopped and joined *first*, so every handshake it began has
+    /// resolved -- counted as completed or rejected -- before any counter is read. Only
+    /// then is tonic told to shut down. Cancellation is not accepted on either task: a
+    /// cancelled task has observed an unknown amount, which would silently weaken the
+    /// rejection case's zero assertions.
+    pub async fn finish(self) -> (Arc<Observed>, Arc<GrpcObserved>) {
+        let _ = self.stop_accepting.send(());
+        match tokio::time::timeout(std::time::Duration::from_secs(10), self.accepting).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => panic!("the accept loop did not finish cleanly: {e}"),
+            Err(_) => panic!("the accept loop did not stop within 10s"),
+        }
+
+        let _ = self.shutdown.send(());
+        match tokio::time::timeout(std::time::Duration::from_secs(10), self.serving).await {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(e))) => panic!("the grpc server failed: {e}"),
+            Ok(Err(e)) => panic!("the grpc server did not finish cleanly: {e}"),
+            Err(_) => panic!("the grpc server did not stop within 10s"),
+        }
+        (self.observed, self.grpc)
+    }
+}
+
+struct LogsEndpoint {
+    grpc: Arc<GrpcObserved>,
+}
+
+#[tonic::async_trait]
+impl opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsService
+    for LogsEndpoint
+{
+    async fn export(
+        &self,
+        request: tonic::Request<
+            opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest,
+        >,
+    ) -> Result<
+        tonic::Response<opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceResponse>,
+        tonic::Status,
+    > {
+        // Decoded metadata, not raw bytes: HPACK makes a byte search unreliable.
+        let rendered = format!("{:?}", request.metadata());
+        self.grpc
+            .metadata
+            .lock()
+            .expect("metadata poisoned")
+            .push(rendered);
+        self.grpc.requests.fetch_add(1, Ordering::SeqCst);
+        Ok(tonic::Response::new(
+            opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceResponse {
+                partial_success: None,
+            },
+        ))
+    }
+}
+
+pub async fn spawn_grpc_server(
+    chain: Vec<rustls::pki_types::CertificateDer<'static>>,
+    key: rustls::pki_types::PrivateKeyDer<'static>,
+) -> GrpcServer {
+    let mut config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(chain, key)
+        .expect("server config");
+    // gRPC requires HTTP/2, which requires ALPN agreement.
+    config.alpn_protocols = vec![b"h2".to_vec()];
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("local addr").port();
+
+    let observed = Arc::new(Observed::default());
+    let grpc = Arc::new(GrpcObserved::default());
+    let seen = Arc::clone(&observed);
+    let grpc_seen = Arc::clone(&grpc);
+    let (shutdown, shutdown_rx) = tokio::sync::oneshot::channel();
+    let (stop_accepting, mut stop_rx) = tokio::sync::oneshot::channel();
+    let (conns_tx, mut conns_rx) = tokio::sync::mpsc::channel(8);
+
+    // Accepting runs in its own task rather than inside tonic's incoming stream.
+    // tonic drops that stream the moment it shuts down, which could discard a
+    // handshake still in progress and leave `handshakes_completed` understating what
+    // actually happened. Here the shutdown signal is only observed between accepts,
+    // so every handshake that starts runs to completion and is counted.
+    let accepting = tokio::spawn(async move {
+        loop {
+            let stream = tokio::select! {
+                biased;
+                _ = &mut stop_rx => break,
+                accepted = listener.accept() => match accepted {
+                    Ok((stream, _)) => stream,
+                    Err(_) => break,
+                },
+            };
+            seen.handshakes_attempted.fetch_add(1, Ordering::SeqCst);
+            // A rejected handshake ends here: the service is never reached, so no
+            // request or metadata can be recorded.
+            match acceptor.accept(stream).await {
+                Ok(tls) => {
+                    seen.handshakes_completed.fetch_add(1, Ordering::SeqCst);
+                    let counted = Counting {
+                        inner: tls,
+                        seen: Arc::clone(&seen),
+                    };
+                    if conns_tx.send(counted).await.is_err() {
+                        break;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+    });
+
+    let serving = tokio::spawn(async move {
+        let incoming = async_stream::stream! {
+            while let Some(tls) = conns_rx.recv().await {
+                yield Ok::<_, std::io::Error>(tls);
+            }
+        };
+
+        let service = opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsServiceServer::new(
+            LogsEndpoint { grpc: grpc_seen },
+        )
+        // The SDK's exporter compresses; the real endpoint accepts gzip, so the
+        // control must too, or it fails on encoding rather than on trust.
+        .accept_compressed(tonic::codec::CompressionEncoding::Gzip);
+        tonic::transport::Server::builder()
+            .add_service(service)
+            .serve_with_incoming_shutdown(incoming, async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    GrpcServer {
+        port,
+        observed,
+        grpc,
+        stop_accepting,
+        shutdown,
+        accepting,
+        serving,
+    }
+}
+
+fn otlp_request() -> cx_sdk_otlp::otlp::proto::collector::logs::v1::ExportLogsServiceRequest {
+    // The shipper's own request construction, and the SDK's re-exported proto types --
+    // the shipper's direct opentelemetry-proto is a different crate instance.
+    coralogix_aws_shipper::logs::exporter::otlp::build_export_request(&[sample_log()])
+}
+
+/// The credential travels the way it does in production: AuthData renders it into
+/// gRPC metadata, rather than being injected as extra metadata by the test.
+fn otlp_auth() -> cx_sdk_core::auth::AuthData {
+    cx_sdk_core::auth::AuthData::from(&cx_sdk_core::auth::ApiKey::from(DUMMY_API_KEY.to_string()))
+}
+
+/// Control for the OTLP path.
+///
+/// Uses the SDK's own endpoint construction and exporter. The only deviation from
+/// production is trust: the test CA is added alongside the bundled webpki roots,
+/// because OTLP does not read SSL_CERT_FILE. tls_config replaces rather than merges,
+/// so the bundled roots are re-applied explicitly.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires the GovCloud build inputs; invoked explicitly in CI"]
+#[serial_test::serial(govcloud_distrust)]
+async fn otlp_control_succeeds_and_is_observed() {
+    use cx_sdk_otlp::OtlpExporter as _;
+    let pki = control_pki();
+    let server = spawn_grpc_server(pki.chain, pki.key).await;
+    let port = server.port;
+
+    let channel_config =
+        cx_sdk_core::channel::ChannelConfig::new(format!("https://localhost:{port}"))
+            .with_webpki_roots();
+    let endpoint = channel_config
+        .to_endpoint()
+        .expect("sdk endpoint")
+        .tls_config(
+            tonic::transport::ClientTlsConfig::new()
+                .with_webpki_roots()
+                .ca_certificate(tonic::transport::Certificate::from_pem(&pki.ca_pem))
+                .domain_name("localhost"),
+        )
+        .expect("tls config");
+    let channel = endpoint.connect().await.expect("connect to test endpoint");
+
+    let exporter = cx_sdk_otlp::logs::OtlpLogExporterGrpc::builder()
+        .with_channel(channel)
+        .with_backoff_config(cx_sdk_core::backoff::BackoffConfig {
+            initial_delay: std::time::Duration::from_millis(100),
+            max_delay: std::time::Duration::from_secs(1),
+            max_elapsed_time: std::time::Duration::from_secs(2),
+        })
+        .try_build()
+        .expect("otlp exporter");
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        exporter.export(otlp_request(), &otlp_auth()),
+    )
+    .await
+    .expect("otlp control timed out");
+
+    let (observed, grpc) = server.finish().await;
+
+    assert!(result.is_ok(), "otlp control failed: {result:?}");
+    assert_eq!(observed.handshakes_completed(), 1);
+    assert!(
+        observed.app_bytes() > 0,
+        "no decrypted bytes were counted, so the rejection case's zero would prove \
+         nothing about the counter"
+    );
+    assert_eq!(grpc.requests(), 1, "expected one gRPC export");
+    assert!(
+        grpc.saw_metadata(DUMMY_API_KEY),
+        "the control did not carry the credential, so its absence in the rejection \
+         case would prove nothing"
+    );
+}
+
+/// The OTLP path rejects an affected chain and sends nothing.
+///
+/// Unlike the control, this uses the production configuration unmodified:
+/// ChannelConfig::new(endpoint).with_webpki_roots(), no added CA. The distrust check
+/// runs before issuer resolution, so the chain is rejected for distrust rather than
+/// for an untrusted root.
+///
+/// The shipper's wrapper sanitises transport failures into a classification and a gRPC
+/// status name, so CertDistrusted never reaches LogExportError. The observing layer
+/// records it inside the SDK's own stack, leaving credentials, retries and the channel
+/// configuration intact.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires the GovCloud build inputs; invoked explicitly in CI"]
+#[serial_test::serial(govcloud_distrust)]
+async fn otlp_rejects_distrusted_chain_before_sending_anything() {
+    use cx_sdk_otlp::OtlpExporter as _;
+    let (chain, key) = affected_chain();
+    let server = spawn_grpc_server(chain, key).await;
+    let port = server.port;
+
+    let observations: Arc<Mutex<Vec<Outcome>>> = Arc::default();
+
+    let exporter = cx_sdk_otlp::logs::OtlpLogExporterGrpc::builder()
+        .with_channel_config(
+            cx_sdk_core::channel::ChannelConfig::new(format!("https://localhost:{port}"))
+                .with_webpki_roots(),
+        )
+        .layer(observing_layer(Arc::clone(&observations)))
+        .with_backoff_config(cx_sdk_core::backoff::BackoffConfig {
+            initial_delay: std::time::Duration::from_millis(100),
+            max_delay: std::time::Duration::from_secs(1),
+            max_elapsed_time: std::time::Duration::from_secs(2),
+        })
+        .try_build()
+        .expect("otlp exporter");
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        exporter.export(otlp_request(), &otlp_auth()),
+    )
+    .await
+    .expect("otlp rejection case timed out");
+
+    let (observed, grpc) = server.finish().await;
+
+    assert!(result.is_err(), "the affected chain was accepted");
+
+    let seen = observations.lock().expect("observations poisoned");
+    assert!(
+        !seen.is_empty(),
+        "no transport error was observed, so nothing establishes why the export \
+         failed -- the layer may not be in the path"
+    );
+    let distrusted = seen
+        .iter()
+        .find(|o| matches!(o, Outcome::Distrusted { .. }));
+    let Some(Outcome::Distrusted { typed }) = distrusted else {
+        panic!("the transport failed, but not for distrust: {seen:?}");
+    };
+    if !typed {
+        eprintln!(
+            "note: matched CertDistrusted in rendered text; the typed \
+             rustls::Error did not survive the client stack"
+        );
+    }
+
+    assert!(
+        observed.handshakes_attempted() > 0,
+        "never reached the server"
+    );
+    assert_eq!(observed.handshakes_completed(), 0);
+    assert_eq!(observed.app_bytes(), 0);
+    assert_eq!(grpc.requests(), 0, "a gRPC export reached the server");
+    assert!(
+        !grpc.saw_metadata(DUMMY_API_KEY),
+        "the credential reached the server"
+    );
+}

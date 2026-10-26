@@ -1445,6 +1445,7 @@ version = "1.4.21"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "async-stream",
  "async-trait",
  "aws-config",
  "aws-sdk-cloudwatchlogs",
@@ -1497,6 +1498,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-stream",
  "tonic",
+ "tower",
  "tracing",
  "tracing-subscriber",
  "wiremock",

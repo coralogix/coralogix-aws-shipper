@@ -261,7 +261,7 @@ jobs:
 
               # Runtime evidence that the shipped client enforces the distrust, as
               # opposed to merely containing code that would. --include-ignored because
-              # both REST cases are #[ignore] by default: they are meaningless without
+              # the client cases are #[ignore] by default: they are meaningless without
               # the GovCloud inputs the guard above has just checked.
               echo "::group::runtime distrust tests"
               listed=$(cargo test --release --locked --target "$TARGET" \
@@ -271,7 +271,9 @@ jobs:
                           rest_sdk_control_succeeds_and_is_observed \
                           rest_sdk_rejects_distrusted_chain_before_sending_anything \
                           aws_sdk_control_succeeds_and_is_observed \
-                          aws_sdk_rejects_distrusted_chain_before_sending_anything; do
+                          aws_sdk_rejects_distrusted_chain_before_sending_anything \
+                          otlp_control_succeeds_and_is_observed \
+                          otlp_rejects_distrusted_chain_before_sending_anything; do
                 printf "%s" "$listed" | grep -qF "$name: test" || {
                   echo "::error::$name not found in tests/govcloud_distrust.rs" >&2
                   exit 1
