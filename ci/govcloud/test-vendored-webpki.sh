@@ -49,8 +49,10 @@ locked_version() {
 }
 AWS_LC_RS=$(locked_version aws-lc-rs)
 AWS_LC_FIPS_SYS=$(locked_version aws-lc-fips-sys)
-[ -n "$AWS_LC_RS" ] && [ -n "$AWS_LC_FIPS_SYS" ] || {
-  echo "::error::could not read crypto versions from $govlock" >&2; exit 1; }
+if [ -z "$AWS_LC_RS" ] || [ -z "$AWS_LC_FIPS_SYS" ]; then
+  echo "::error::could not read crypto versions from $govlock" >&2
+  exit 1
+fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
