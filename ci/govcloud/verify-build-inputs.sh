@@ -23,6 +23,10 @@
 #   - matching crates by name parsed out of a package id: path dependencies are spelled
 #     `path+file:///...#0.103.13`, with no name at all, so rustls-webpki silently looked
 #     absent. Package ids come from metadata and are matched exactly.
+#
+# Building outside CI may need PROTOFETCH_GIT_PROTOCOL=https: cx_sdk_otlp's build
+# script fetches protobuf definitions with protofetch, which defaults to SSH. The
+# definitions are public, so HTTPS works and avoids needing a key in the container.
 set -euo pipefail
 
 TARGET=${TARGET:-$(rustc -vV | awk '/^host:/{print $2}')}

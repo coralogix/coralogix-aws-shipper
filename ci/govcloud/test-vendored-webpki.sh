@@ -20,6 +20,10 @@
 #
 # A failure here means our backport diverges from upstream behaviour, or does so on
 # the shipping module.
+#
+# Building outside CI may need PROTOFETCH_GIT_PROTOCOL=https: cx_sdk_otlp's build
+# script fetches protobuf definitions with protofetch, which defaults to SSH. The
+# definitions are public, so HTTPS works and avoids needing a key in the container.
 set -euo pipefail
 
 # Pinned, not a moving branch: a drifting harness reports breakage only after the
