@@ -230,15 +230,13 @@ jobs:
             -v "$PWD":/work -w /work \
             -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
             -e TARGET="$TARGET" \
-            -e PROTOFETCH_GIT_PROTOCOL=https \
             fips-al2023-builder:latest \
-            bash -c 'rustup target add "$TARGET" >/dev/null 2>&1 || true; ci/govcloud/verify-build-inputs.sh'
+            bash -c '. ci/govcloud/_container-setup.sh && ci/govcloud/verify-build-inputs.sh'
 
       - name: run the vendored rustls-webpki regression suite
         run: |
           docker run --rm \
             -v "$PWD":/work -w /work \
             -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
-            -e PROTOFETCH_GIT_PROTOCOL=https \
             fips-al2023-builder:latest \
-            bash /work/ci/govcloud/test-vendored-webpki.sh
+            bash -c '. ci/govcloud/_container-setup.sh && ci/govcloud/test-vendored-webpki.sh'
