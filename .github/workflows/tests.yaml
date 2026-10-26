@@ -278,15 +278,26 @@ jobs:
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: true
         run: |
-          mkdir -p "$RUNNER_TEMP/cargo-deny"
+          mkdir -p "$RUNNER_TEMP/cargo-deny" .cargo
           curl -L https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.8/cargo-deny-0.19.8-x86_64-unknown-linux-musl.tar.gz \
             | tar -xz -C "$RUNNER_TEMP/cargo-deny" --strip-components=1
           "$RUNNER_TEMP/cargo-deny/cargo-deny" check advisories licenses bans sources
 
+          # The GovCloud build resolves a different dependency set -- rustls 0.23.36 on
+          # aws-lc-rs 1.17, to keep the validated AWS-LC FIPS v3 module -- so the check
+          # above says nothing about it. Without this, a new advisory there would ship
+          # unnoticed, and nothing would stop a routine update from taking aws-lc-rs 1.18
+          # and silently undoing the validated module.
+          cp ci/govcloud/config.toml .cargo/config.toml
+          cp ci/govcloud/Cargo.lock Cargo.lock
+          "$RUNNER_TEMP/cargo-deny/cargo-deny" --config ci/govcloud/deny.toml \
+            check advisories licenses bans sources
+          git checkout Cargo.lock && rm -f .cargo/config.toml
+
       - name: shellcheck
         if: ${{ steps.changes.outputs.shell == 'true' }}
         run: |
-          shellcheck ci/*.sh scripts/*.sh
+          shellcheck ci/*.sh ci/govcloud/*.sh scripts/*.sh
 
       - name: hadolint
         if: ${{ steps.changes.outputs.dockerfile == 'true' }}
