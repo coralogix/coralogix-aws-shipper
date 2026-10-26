@@ -26,3 +26,13 @@ fi
 # rust-toolchain.toml already names the targets, so this installs the pinned
 # toolchain and both of them.
 rustup show
+
+# ...but rustup resolves the toolchain from the directory it runs in, and the vendored
+# webpki harness works inside a clone of upstream's repo, which has no
+# rust-toolchain.toml. With --default-toolchain none that leaves cargo unresolvable, so
+# pin the same channel as the default. ci/fips-build.sh never hits this because it
+# stays in the workspace.
+_channel=$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2}' rust-toolchain.toml)
+: "${_channel:?could not read channel from rust-toolchain.toml}"
+rustup default "$_channel"
+unset _channel
