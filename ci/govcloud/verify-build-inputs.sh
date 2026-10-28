@@ -56,6 +56,17 @@ check "Cargo.lock matches ci/govcloud/Cargo.lock" \
   "$(cmp -s Cargo.lock ci/govcloud/Cargo.lock && echo 0 || echo 1)" \
   "prepare it with: cp ci/govcloud/Cargo.lock Cargo.lock"
 
+# ---- 1b. the lockfile is for this version ---------------------------------------
+# A release landing on master while a GovCloud branch is open leaves this lockfile
+# naming the older version. Git merges both files without conflict, so the branch
+# stays green and the mismatch only appears on master, where cargo --locked refuses
+# to repair it. Cheaper to fail here, naming the fix.
+manifest_version=$(awk '/^\[package\]/{p=1;next} /^\[/{p=0} p&&/^version[[:space:]]*=/{gsub(/[",]/,"");print $3;exit}' Cargo.toml)
+lock_version=$(awk '/^name = "coralogix-aws-shipper"$/{getline; gsub(/[",]/,""); print $3; exit}' ci/govcloud/Cargo.lock)
+check "ci/govcloud/Cargo.lock is for the version in Cargo.toml" \
+  "$([ -n "$manifest_version" ] && [ "$manifest_version" = "$lock_version" ] && echo 0 || echo 1)" \
+  "Cargo.toml is ${manifest_version:-unreadable}, the lockfile is ${lock_version:-unreadable} -- regenerate it with: cp ci/govcloud/config.toml .cargo/config.toml && cp ci/govcloud/Cargo.lock Cargo.lock && cargo metadata >/dev/null && cp Cargo.lock ci/govcloud/Cargo.lock"
+
 # ---- 2. the vendored source is exactly what was reviewed -------------------------
 actual_digest=$(find vendor/rustls-webpki/src -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1)
 check "vendored rustls-webpki source matches the reviewed digest" \
