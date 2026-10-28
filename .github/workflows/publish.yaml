@@ -235,10 +235,14 @@ jobs:
       # verified.
       #
       # Ordered after package, so swapping Cargo.lock and .cargo/config.toml cannot
-      # disturb the commercial build, and before the first versioned upload, so a
-      # GovCloud-side failure cannot claim the version. Those keys are write-once and
-      # record the commit that wrote them: a fix on a new commit would be refused, and
-      # a mistake that never reached a customer would still cost a release number.
+      # disturb the commercial build, and before this architecture's versioned upload,
+      # so a GovCloud failure here does not write keys this commit then cannot replace.
+      #
+      # That is per leg, not per release: the matrix runs fail-fast: false, so the
+      # other architecture may already have uploaded. Its keys are write-once and
+      # record the commit that wrote them, so a fix on a new commit is still refused
+      # and still costs a version bump. Closing that would need the uploads behind a
+      # barrier on both builds, which is a larger change to the release path.
       - name: build-${{ matrix.target }}-zip-for-govcloud
         if: ${{ env.RELEASING == 'true' }}
         run: |
