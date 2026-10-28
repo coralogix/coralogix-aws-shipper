@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-GA-brightgreen)
 
 > [!WARNING]
-> **Security advisory** (Priority: Low): On October 20, 2026, the private keys for 8 intermediate certificate authorities operated by eMudhra were reported compromised. This is an industry-wide issue, not specific to Coralogix. Out of an abundance of caution, update coralogix-aws-shipper to **1.4.20**: update your CloudFormation/SAR stack, or set `source_code_version = "1.4.20"` in the Terraform module. Coralogix endpoints and internal services do not use eMudhra or emSign certificates, and we have not identified any impact to customer data.
+> **Security advisory** (Priority: Low): On October 20, 2026, the private keys for 8 intermediate certificate authorities operated by eMudhra were reported compromised. This is an industry-wide issue, not specific to Coralogix. Out of an abundance of caution, update coralogix-aws-shipper to **1.4.22 or later**: update your CloudFormation/SAR stack, or set `source_code_version = "1.4.22"` in the Terraform module. 1.4.20 carries the certificate fix but predates 1.4.21, which removed a vulnerable dependency (RUSTSEC-2026-0387) reachable when using S3 multi-region access points. Coralogix endpoints and internal services do not use eMudhra or emSign certificates, and we have not identified any impact to customer data.
 >
 > **FedRAMP/GovCloud customers**: the fix requires a newer AWS-LC cryptographic library version. The FIPS build used in GovCloud would move from AWS-LC FIPS module v3 (FIPS 140-3 validated) to v4 (submitted to NIST, not yet validated). You can choose to either upgrade to 1.4.20 (protected from the compromised certificates, on a module pending validation) or stay on your current version until v4 is validated (keeps the validated module, but still trusts the compromised certificates; AWS PrivateLink reduces this exposure). Contact [support.fedramp@coralogix.com](mailto:support.fedramp@coralogix.com) to let us know which option you choose.
 >
@@ -912,8 +912,34 @@ set in its `Release` mapping:
 | Shipper Lambda (x86_64) | `coralogix-aws-shipper-x86-64-<version>.zip` |
 | GovCloud custom resource | `coralogix-aws-shipper-custom-resource-govcloud-<version>.zip` |
 
-Versioned artifacts never change once published. Each one has a `<key>.sha256`
-checksum file next to it, so a download can be verified with `sha256sum -c`.
+Versioned artifacts never change once published. Each one has a `<key>.sha256` checksum
+file next to it, so a download can be verified with `sha256sum -c`, and S3 stores the
+same digest on the object itself — `aws s3api get-object --checksum-mode ENABLED`
+validates it on the way down.
+
+The unversioned `coralogix-aws-shipper.zip` and `coralogix-aws-shipper-x86-64.zip` keys
+exist for the Terraform module, which reads them unless `source_code_version` is set.
+They are mutable and carry no checksum file of their own: a hash written beside an object
+that can be replaced adds nothing over the digest S3 already stores on it. Verify against
+the immutable artifact instead — each key records the release it holds, so resolve that
+first and check the release's published checksum.
+
+```bash
+BASE="https://coralogix-serverless-repo-us-gov-west-1.s3.us-gov-west-1.amazonaws.com"
+
+VERSION=$(curl -sI "${BASE}/coralogix-aws-shipper.zip" | tr -d '\r' \
+          | awk -F': ' 'tolower($1)=="x-amz-meta-version"{print $2}')
+KEY="coralogix-aws-shipper-arm64-${VERSION}.zip"
+
+curl -fLsSO "${BASE}/${KEY}"
+curl -fLsSO "${BASE}/${KEY}.sha256"
+sha256sum -c "${KEY}.sha256"
+```
+
+In GovCloud these keys track the `Release` mapping above, not the newest release, so an
+unpinned Terraform deployment runs the same build this template deploys. Keys written
+before 1.4.21 carry no version stamp, so `VERSION` comes back empty and the download
+404s; pick the release from the table above instead.
 
 To load the code from your own bucket instead, set `LambdaCodeBucket` and
 `CustomResourceCodeBucket` (see [Using your own bucket](#using-your-own-bucket)).

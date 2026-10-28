@@ -19,17 +19,57 @@ env:
 
 
 jobs:
+  # A Publish run that released nothing still concludes success: a master push editing
+  # template.yaml without bumping the version builds and validates while publish,
+  # publish-govcloud and tag are deliberately skipped. Syncing that run would publish a
+  # new template body against the previous release's artifacts, so ask the run which of
+  # its jobs actually ran rather than trusting its overall conclusion.
+  verify_release:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+            (github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.head_branch == 'master') }}
+    outputs:
+      published: ${{ steps.check.outputs.published }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # per_page rather than --paginate: --jq runs once per page, so a multi-page
+          # response would emit a line per page and never equal "success". A single page
+          # of 100 is well clear of this workflow's job count.
+          conclusion=$(gh api \
+            "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.name == "publish")] | .[0].conclusion // "absent"')
+
+          if [ "$conclusion" = "success" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Publish run ${{ github.event.workflow_run.id }} released nothing (publish job: ${conclusion}); skipping the sync."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
   get-template:
     runs-on: ubuntu-latest
+    needs: verify_release
     permissions:
       contents: read
     # head_branch pins this to master. A non-master push that touches template.yaml
     # also starts Publish, and the guarantee that it cannot reach here otherwise rests
     # on every one of its jobs skipping, which is a property of their own conditions
     # rather than of this workflow.
-    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
-            (github.event.workflow_run.conclusion == 'success' &&
-             github.event.workflow_run.head_branch == 'master') }}
+    # verify_release carries the branch gating and is skipped when it does not hold,
+    # leaving this output empty.
+    if: ${{ needs.verify_release.outputs.published == 'true' }}
     steps:
       - name: checkout coralogix-aws-shipper repository
         uses: actions/checkout@v7
@@ -129,14 +169,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    needs: get-template
+    needs: [verify_release, get-template]
     # head_branch pins this to master. A non-master push that touches template.yaml
     # also starts Publish, and the guarantee that it cannot reach here otherwise rests
     # on every one of its jobs skipping, which is a property of their own conditions
     # rather than of this workflow.
-    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
-            (github.event.workflow_run.conclusion == 'success' &&
-             github.event.workflow_run.head_branch == 'master') }}
+    # verify_release carries the branch gating and is skipped when it does not hold,
+    # leaving this output empty.
+    if: ${{ needs.verify_release.outputs.published == 'true' }}
     steps:
       # Into a subdirectory: the PR body is written to the runner temp, and keeping the
       # target repo out of the workspace root avoids clobbering anything else.
