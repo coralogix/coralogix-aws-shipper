@@ -58,7 +58,9 @@ echo "=== building FIPS lambda (native cargo, no zig) for ${LAMBDA_ARCH} (${TARG
 # (sysroot /usr/aarch64-linux-gnu) that does not exist on a native arm64 host.
 # The --target is explicit: each CI leg runs on its NATIVE runner, so this is a
 # native build, and it guarantees the bootstrap arch matches the requested one.
-cargo lambda build --release --compiler cargo --target "${TARGET_TRIPLE}"
+# --locked: a release must ship the committed resolution. Without it a stale lockfile
+# is silently repaired mid-release, and the artifact no longer matches what CI checked.
+cargo lambda build --release --locked --compiler cargo --target "${TARGET_TRIPLE}"
 
 mkdir -p "${ARTIFACT_DIR}"
 cp "./target/lambda/${BIN_NAME}/bootstrap" "${ARTIFACT_DIR}/bootstrap"
