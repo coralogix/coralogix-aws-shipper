@@ -22,6 +22,11 @@ on:
       - "template.yaml"
       - "ci/**"
       - "vendor/**"
+      # Both jobs here install the pinned toolchain and compile inside AL2023, and the
+      # GovCloud container reads the channel out of this file. The test workflow builds
+      # on the host only, so without this an incompatible toolchain bump merges without
+      # either FIPS build running.
+      - "rust-toolchain.toml"
       - "tests/govcloud_distrust.rs"
       - "tests/data/distrusted/**"
       - ".github/workflows/build-check.yaml"
