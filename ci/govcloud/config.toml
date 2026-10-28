@@ -1,0 +1,15 @@
+# GovCloud build only. Copied to .cargo/config.toml at the repo root before
+# building, alongside ci/govcloud/Cargo.lock.
+#
+# rustls-webpki 0.103.16 fixes the eMudhra/emSign intermediate distrust
+# (RUSTSEC-2026-0382) but hard-requires aws-lc-rs ^1.18, which links AWS-LC FIPS
+# module v4 -- submitted to NIST but not yet certified. GovCloud must stay on the
+# validated v3 module (certificates #5314 and #5298), so this build uses 0.103.16 with
+# ML-DSA reverted -- the only thing in it that forces 1.18. See
+# vendor/rustls-webpki/PATCH.md.
+#
+# Every TLS client in this tree resolves this one crate, so the patch covers all of
+# them without per-client wiring. Remove this whole directory once a mainline build
+# meets GovCloud's validation requirements.
+[patch.crates-io]
+rustls-webpki = { path = "vendor/rustls-webpki" }

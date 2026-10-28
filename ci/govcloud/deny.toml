@@ -1,0 +1,122 @@
+# cargo-deny policy for the GovCloud dependency set (ci/govcloud/Cargo.lock).
+#
+# Separate from the repository's deny.toml because the two builds resolve different
+# crypto stacks on purpose: mainline is on rustls 0.23.46 / aws-lc-rs 1.18 (AWS-LC FIPS
+# v4), GovCloud stays on rustls 0.23.36 / aws-lc-rs 1.17 to keep the NIST-validated v3
+# module (certificates #5314 and #5298). Holding v3 means carrying the four rustls
+# advisories below, which mainline has already cleared. The rustls-webpki advisory is
+# not among them: this build vendors 0.103.16, which carries that fix.
+#
+# Run with:
+#   cp ci/govcloud/config.toml .cargo/config.toml
+#   cp ci/govcloud/Cargo.lock Cargo.lock
+#   cargo deny --config ci/govcloud/deny.toml check
+#
+# Every exception here is scoped to this build and expires when GovCloud rejoins
+# mainline. Do not copy them into the repository's deny.toml.
+#
+# ---------------------------------------------------------------------------------
+# SCANNER NOTE -- read before reporting on this build's SBOM.
+#
+# rustls-webpki resolves to 0.103.16 from a local path (see ci/govcloud/config.toml).
+# That is the upstream release carrying the emSign distrust fix, so the version is now
+# the upstream fixed release for RUSTSEC-2026-0382 / CVE-2026-111943. Confirm how the
+# Compliance scanner identifies this modified dependency; cargo-deny still skips it
+# because it is a path dependency.
+#
+# The local copy reverts ML-DSA, which is what forces aws-lc-rs ^1.18 and with it the
+# uncertified AWS-LC FIPS v4 module. ML-DSA was already compiled out under
+# aws-lc-rs-fips in earlier releases, so the shipped artifact is unaffected. Because
+# cargo-deny does not match path dependencies against the advisory database, any
+# future rustls-webpki advisory will also go unreported here -- check it by version
+# against vendor/rustls-webpki/PATCH.md rather than relying on this run.
+# ---------------------------------------------------------------------------------
+
+[graph]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+]
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = [
+  # Carried unchanged from the repository policy: same crates, same reasoning.
+  { id = "RUSTSEC-2025-0012", reason = "Transitive through coralogix-sdk-rust backoff; no safe upgrade is available in this repository." },
+  { id = "RUSTSEC-2024-0384", reason = "Transitive through backoff; no safe upgrade is available in this repository." },
+  { id = "RUSTSEC-2024-0388", reason = "Transitive through starlark; requires upstream dependency replacement." },
+  { id = "RUSTSEC-2024-0436", reason = "Transitive through starlark; requires upstream dependency replacement." },
+  { id = "RUSTSEC-2025-0057", reason = "Transitive through starlark_map; requires upstream dependency replacement." },
+
+  # The four rustls advisories that holding AWS-LC FIPS v3 reintroduces. All are fixed
+  # in rustls >= 0.23.45/0.23.46, which requires aws-lc-rs ^1.18 and so the uncertified
+  # v4 module. Re-analysed against this build's feature set rather than carried over:
+  # the 1.4.19 policy had the 0346 and 0349 justifications transposed.
+  #
+  # Enabled rustls features here: aws_lc_rs, fips, tls12, logging, std,
+  # prefer-post-quantum, rustls-native-certs. Notably NOT brotli.
+
+  { id = "RUSTSEC-2026-0285", reason = "Applies. TLS 1.3 conformance bug: rustls accepted handshake messages at the wrong encryption level. The transcript stays authenticated, so a peer can only send in plaintext what should have been encrypted; it cannot alter or complete a handshake, and there is no key compromise or authentication bypass. Fixed in rustls >= 0.23.45, which requires aws-lc-rs ^1.18. Revisit when AWS-LC FIPS v4 is certified." },
+
+  { id = "RUSTSEC-2026-0346", reason = "Not reachable. The Debug impls of Tls12ClientSessionValue and Tls13ClientSessionValue expose TLS secrets, which requires the application to Debug-format client session values. Verified this codebase never does: no {:?} or {:#?} formatting of rustls session or client types in src/. Fixed in rustls >= 0.23.46, which requires aws-lc-rs ^1.18." },
+
+  { id = "RUSTSEC-2026-0348", reason = "Not reachable. The pre-authentication 1 GiB allocation is in RFC 8879 brotli certificate decompression, behind a non-default feature. Verified against this build's resolved graph: no brotli crate is present and the rustls brotli feature is not enabled. Fixed in rustls >= 0.23.46, which requires aws-lc-rs ^1.18." },
+
+  { id = "RUSTSEC-2026-0349", reason = "Applies. An unauthenticated ServerHello can record a classical key exchange group for a server and downgrade later connections to it. Reachable because this build enables the rustls prefer-post-quantum feature. Impact is bounded at loss of post-quantum confidentiality against an active network attacker (harvest-now-decrypt-later); classical TLS confidentiality and integrity are unaffected and there is no key compromise. Fixed in rustls >= 0.23.46, which requires aws-lc-rs ^1.18. Revisit when AWS-LC FIPS v4 is certified." },
+]
+
+# Licence policy is identical to the repository's; the vendored rustls-webpki keeps its
+# original ISC licence (vendor/rustls-webpki/LICENSE, unchanged).
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "0BSD",
+  "BSL-1.0",
+  "CC0-1.0",
+  "MIT-0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+  "OpenSSL",
+  "CDLA-Permissive-2.0",
+]
+
+[[licenses.clarify]]
+crate = "cx_sdk_core"
+expression = "MIT"
+license-files = [
+  { path = "../LICENSE", hash = 0x9e7164c8 },
+]
+
+[[licenses.clarify]]
+crate = "cx_sdk_rest_logs"
+expression = "MIT"
+license-files = [
+  { path = "../LICENSE", hash = 0x9e7164c8 },
+]
+
+[[licenses.clarify]]
+crate = "cx_sdk_otlp"
+expression = "MIT"
+license-files = [
+  { path = "../LICENSE", hash = 0x9e7164c8 },
+]
+
+[bans]
+multiple-versions = "warn"
+# aws-lc-rs 1.18 moves from the NIST-validated AWS-LC FIPS v3 module (certificates
+# #5314 and #5298) to v4, which is submitted to CMVP but not certified. That is the
+# entire reason this dependency set exists, so a routine update must not undo it.
+deny = [
+  { crate = "aws-lc-rs:>=1.18", reason = "GovCloud must stay on the validated AWS-LC FIPS v3 module until v4 is certified. Taking 1.18 here defeats the purpose of this build; see ci/govcloud/config.toml." },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "allow"
