@@ -119,8 +119,10 @@ jobs:
       matrix:
         include:
           - target: arm64
+            triple: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
           - target: x86-64
+            triple: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
 
     steps:
@@ -226,6 +228,59 @@ jobs:
             --output-template-file packaged.yaml
       
 
+      # GovCloud ships a deliberately different binary from commercial: the validated
+      # AWS-LC FIPS v3 module and the vendored rustls-webpki carrying the eMudhra
+      # distrust fix, where mainline is on v4. This step used to copy the commercial
+      # zip across, which gave GovCloud the v4 build no matter what ci/govcloud
+      # verified.
+      #
+      # Ordered after package, so swapping Cargo.lock and .cargo/config.toml cannot
+      # disturb the commercial build, and before this architecture's versioned upload,
+      # so a GovCloud failure here does not write keys this commit then cannot replace.
+      #
+      # That is per leg, not per release: the matrix runs fail-fast: false, so the
+      # other architecture may already have uploaded. Its keys are write-once and
+      # record the commit that wrote them, so a fix on a new commit is still refused
+      # and still costs a version bump. Closing that would need the uploads behind a
+      # barrier on both builds, which is a larger change to the release path.
+      - name: build-${{ matrix.target }}-zip-for-govcloud
+        if: ${{ env.RELEASING == 'true' }}
+        run: |
+          mkdir -p .cargo
+          cp ci/govcloud/config.toml .cargo/config.toml
+          cp ci/govcloud/Cargo.lock Cargo.lock
+          docker run --rm \
+            -v "$PWD":/work -w /work \
+            -v ~/.cargo-registry:/usr/local/cargo/registry \
+            -v "$SSH_AUTH_SOCK":/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent \
+            -e LAMBDA_ARCH=${{ matrix.target }} \
+            -e TARGET=${{ matrix.triple }} \
+            -e ARTIFACT_DIR=/work/.build-artifacts-govcloud \
+            fips-al2023-builder:latest \
+            bash -c '
+              set -euo pipefail
+              . ci/govcloud/_container-setup.sh
+
+              # The same guard the pull-request gate runs. Without it a release is
+              # checked only for architecture and glibc, and nothing confirms the
+              # validated module, the patched library or the FIPS features actually
+              # shipped -- which is the whole point of the GovCloud build.
+              ci/govcloud/verify-build-inputs.sh
+
+              ci/fips-build.sh
+            '
+
+          # The container runs as root, so the bootstrap comes back root-owned on the
+          # bind mount. Setting an explicit timestamp needs ownership rather than write
+          # permission, so the touch below would fail with EPERM without this.
+          sudo chown -R "$(id -u):$(id -g)" .build-artifacts-govcloud
+
+          # fips-build.sh has already asserted the architecture and that glibc stays
+          # within provided.al2023, so this only has to package what it produced.
+          TZ=UTC touch -t 198001010000 .build-artifacts-govcloud/bootstrap
+          zip -jX coralogix-aws-shipper-govcloud-${{ matrix.target }}.zip \
+            .build-artifacts-govcloud/bootstrap
+
       - name: s3upload-${{ matrix.target }}-build-versioned
         if: ${{ env.RELEASING == 'true' }}
         run: |
@@ -246,15 +301,24 @@ jobs:
       # GovCloud is a separate partition, so publish-govcloud cannot read the
       # commercial bucket. Hand the zip over as a workflow artifact instead.
       #
-      # Staged from the versioned key the step above just guaranteed, not from the
-      # freshly built package: sam build records archive timestamps, so a rerun of an
-      # already-published version produces different bytes, and GovCloud would end up
-      # holding a different artifact from commercial under the same version.
-      - name: stage-${{ matrix.target }}-zip-for-govcloud
+      # The zip is reproducible given the same bootstrap, but the bootstrap is not:
+      # it is rebuilt in a mutable environment -- builder image, toolchain, registry.
+      # Uploads are conditional per key, so a run that published one GovCloud region
+      # and failed the other would, on retry, leave the two regions serving different
+      # binaries under one version. Publishing the artifact to an immutable key here
+      # and staging from it makes the first run's bytes the only ones that ship, which
+      # is what the commercial path does for the same reason.
+      - name: stage-${{ matrix.target }}-govcloud-zip-immutably
         if: ${{ env.RELEASING == 'true' }}
         run: |
+          key="coralogix-aws-shipper-govcloud-${{ matrix.target }}-${{ env.current_version }}.zip"
+          bash ci/upload-versioned.sh \
+            "coralogix-aws-shipper-govcloud-${{ matrix.target }}.zip" \
+            "${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}" "$key"
+
+          # Whatever is actually published, which on a retry is the first run's bytes.
           aws s3 cp \
-            "s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/coralogix-aws-shipper-${{ matrix.target }}-${{ env.current_version }}.zip" \
+            "s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/$key" \
             coralogix-aws-shipper-${{ matrix.target }}.zip
 
       - name: store-${{ matrix.target }}-zip-for-govcloud
