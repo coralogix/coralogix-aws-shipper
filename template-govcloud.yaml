@@ -584,12 +584,17 @@ Mappings:
   # SemanticVersion in template.yaml when a release is opt-in for GovCloud, but must never
   # run ahead of it (checked in tests.yaml). The unversioned GovCloud keys track this
   # version too, so unpinned Terraform deploys the same build this template does.
-  # Held at 1.4.19: 1.4.20 moves the FIPS build to the AWS-LC FIPS v4 module, which
-  # is not yet NIST-validated, so GovCloud customers opt in to it by setting
-  # LambdaCodeKey instead of getting it by default (INFOSEC-9192).
+  # 1.4.23 is the first release whose GovCloud artifact is built from ci/govcloud/
+  # rather than copied from the commercial build. It carries the eMudhra distrust fix
+  # on the NIST-validated AWS-LC FIPS v3 module (certificates #5314 and #5298), so the
+  # choice between the certificate fix and the validated module no longer exists.
+  #
+  # 1.4.20 through 1.4.22 were held at 1.4.19 because their GovCloud artifact was the
+  # commercial build, which moved to the AWS-LC FIPS v4 module that NIST has not
+  # validated (INFOSEC-9192).
   Release:
     Shipper:
-      Version: 1.4.19
+      Version: 1.4.23
 
 # ---------------------------------------------------------------
 # Conditions

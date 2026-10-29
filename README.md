@@ -3,9 +3,9 @@
 [![license](https://img.shields.io/github/license/coralogix/coralogix-aws-shipper.svg)](https://raw.githubusercontent.com/coralogix/coralogix-aws-shipper/master/LICENSE) ![publish workflow](https://github.com/coralogix/coralogix-aws-shipper/actions/workflows/publish.yaml/badge.svg) ![Dynamic TOML Badge](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcoralogix%2Fcoralogix-aws-shipper%2Fmaster%2FCargo.toml&query=%24.package.version&label=version) [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/coralogix/coralogix-aws-shipper)](https://rust-reportcard.xuri.me/report/github.com/coralogix/coralogix-aws-shipper) ![Static Badge](https://img.shields.io/badge/status-GA-brightgreen)
 
 > [!WARNING]
-> **Security advisory** (Priority: Low): On October 20, 2026, the private keys for 8 intermediate certificate authorities operated by eMudhra were reported compromised. This is an industry-wide issue, not specific to Coralogix. Out of an abundance of caution, update coralogix-aws-shipper to **1.4.22 or later**: update your CloudFormation/SAR stack, or set `source_code_version = "1.4.22"` in the Terraform module. 1.4.20 carries the certificate fix but predates 1.4.21, which removed a vulnerable dependency (RUSTSEC-2026-0387) reachable when using S3 multi-region access points. Coralogix endpoints and internal services do not use eMudhra or emSign certificates, and we have not identified any impact to customer data.
+> **Security advisory** (Priority: Low): On October 20, 2026, the private keys for 8 intermediate certificate authorities operated by eMudhra were reported compromised. This is an industry-wide issue, not specific to Coralogix. Out of an abundance of caution, update coralogix-aws-shipper to **1.4.23 or later**: update your CloudFormation/SAR stack, or set `source_code_version = "1.4.23"` in the Terraform module. 1.4.20 carries the certificate fix but predates 1.4.21, which removed a vulnerable dependency (RUSTSEC-2026-0387) reachable when using S3 multi-region access points. Coralogix endpoints and internal services do not use eMudhra or emSign certificates, and we have not identified any impact to customer data.
 >
-> **FedRAMP/GovCloud customers**: the fix requires a newer AWS-LC cryptographic library version. The FIPS build used in GovCloud would move from AWS-LC FIPS module v3 (FIPS 140-3 validated) to v4 (submitted to NIST, not yet validated). You can choose to either upgrade to 1.4.20 (protected from the compromised certificates, on a module pending validation) or stay on your current version until v4 is validated (keeps the validated module, but still trusts the compromised certificates; AWS PrivateLink reduces this exposure). Contact [support.fedramp@coralogix.com](mailto:support.fedramp@coralogix.com) to let us know which option you choose.
+> **FedRAMP/GovCloud customers**: update to **1.4.23 or later**. GovCloud now has its own build, which carries the certificate fix on the NIST-validated AWS-LC FIPS module v3 (certificates #5314 and #5298), so you no longer have to choose between the two. Releases 1.4.20 through 1.4.22 shipped GovCloud the commercial build, which uses the v4 module (submitted to NIST, not yet validated); if you opted into one of those by setting `LambdaCodeKey` or `source_code_version`, move to 1.4.23. Questions: [support.fedramp@coralogix.com](mailto:support.fedramp@coralogix.com).
 >
 > See the [eMudhra security advisory](https://coralogix.com/blog/coralogix-security-advisory-emudhra-certificate-update/) for full upgrade guidance and breaking-change details.
 >
@@ -886,18 +886,21 @@ request.
 The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east-1`, `us-gov-west-1`) using the dedicated `template-govcloud.yaml`. GovCloud deployments enable **FIPS mode** by default: the Lambda is configured with `AWS_USE_FIPS_ENDPOINT=true` (routing all SDK calls to FIPS service endpoints) and `ENABLE_AWS_FIPS=true` (switching the AWS SDK HTTP client to the AWS-LC FIPS TLS provider).
 
 > [!NOTE]
-> FIPS is enabled at runtime via environment variables on a single shipper binary; there is no separate GovCloud build. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment. Since 1.4.20, the AWS-LC FIPS provider uses the v4 module, which is submitted to NIST for FIPS 140-3 validation but **not yet certified** (the previous v3 module was validated as certificates #5314 and #5298).
+> FIPS is enabled at runtime via environment variables. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment. Since 1.4.23, GovCloud has a dedicated build that pins the AWS-LC FIPS **v3** module, validated as certificates #5314 and #5298. The commercial build uses the v4 module, which is submitted to NIST for FIPS 140-3 validation but not yet certified.
 
-### Version 1.4.20 is opt-in for GovCloud
+### GovCloud builds and the eMudhra CA compromise
 
-Version 1.4.20 fixes the eMudhra CA compromise (CVE-2026-111943) but uses the AWS-LC FIPS v4 module, which is pending NIST validation. To keep the validated v3 module by default, `template-govcloud.yaml` deploys **1.4.19**.
+`template-govcloud.yaml` deploys **1.4.23**, which fixes the eMudhra CA compromise (CVE-2026-111943) on the NIST-validated AWS-LC FIPS v3 module.
 
-To use 1.4.20, set:
+Earlier releases force a trade-off, because GovCloud had no build of its own until 1.4.23:
 
-- **CloudFormation:** `LambdaCodeKey` to `coralogix-aws-shipper-x86-64-1.4.20.zip` or `coralogix-aws-shipper-arm64-1.4.20.zip`
-- **Terraform:** `source_code_version = "1.4.20"`
+| Version | Certificate fix | FIPS module |
+| --- | --- | --- |
+| 1.4.23 and later | yes | v3, validated (#5314, #5298) |
+| 1.4.20 to 1.4.22 | yes | v4, submitted to NIST, not validated |
+| 1.4.19 and earlier | no | v3, validated (#5314, #5298) |
 
-Versions 1.4.19 and earlier are affected by CVE-2026-111943.
+If you pinned 1.4.20, 1.4.21 or 1.4.22 to take the certificate fix, move to 1.4.23 to return to a validated module. Clear `LambdaCodeKey` (CloudFormation) or `source_code_version` (Terraform) to follow the template's default again.
 
 ### Deployment artifacts
 
@@ -925,16 +928,22 @@ the immutable artifact instead — each key records the release it holds, so res
 first and check the release's published checksum.
 
 ```bash
-BASE="https://coralogix-serverless-repo-us-gov-west-1.s3.us-gov-west-1.amazonaws.com"
+REGION="us-gov-west-1"   # or us-gov-east-1
+BUCKET="coralogix-serverless-repo-${REGION}"
 
-VERSION=$(curl -sI "${BASE}/coralogix-aws-shipper.zip" | tr -d '\r' \
-          | awk -F': ' 'tolower($1)=="x-amz-meta-version"{print $2}')
+VERSION=$(aws s3api head-object --bucket "${BUCKET}" --key coralogix-aws-shipper.zip \
+          --region "${REGION}" --query 'Metadata.version' --output text)
 KEY="coralogix-aws-shipper-arm64-${VERSION}.zip"
 
-curl -fLsSO "${BASE}/${KEY}"
-curl -fLsSO "${BASE}/${KEY}.sha256"
+aws s3 cp "s3://${BUCKET}/${KEY}" "${KEY}" --region "${REGION}"
+aws s3 cp "s3://${BUCKET}/${KEY}.sha256" "${KEY}.sha256" --region "${REGION}"
 sha256sum -c "${KEY}.sha256"
 ```
+
+These buckets grant `s3:GetObject` to any authenticated AWS principal and deny
+anonymous requests, so these commands sign with your GovCloud credentials; an
+unauthenticated fetch returns 403. They grant no `s3:ListBucket`, so the key has to be
+known rather than discovered.
 
 In GovCloud these keys track the `Release` mapping above, not the newest release, so an
 unpinned Terraform deployment runs the same build this template deploys. Keys written
@@ -998,22 +1007,31 @@ To keep the artifacts in an S3 bucket you own (in the same GovCloud region as th
 stack), copy them there under the same keys and point the template at the bucket.
 
 1. Download the shipper Lambda for your release and architecture, and verify it.
-   Coralogix publishes the same artifacts in its commercial regional buckets, for
-   example Frankfurt:
+   Take it from a GovCloud bucket, not a commercial one: since 1.4.23 the GovCloud
+   binary is built separately and is not interchangeable with the commercial build.
+   It is the one that carries the NIST-validated AWS-LC FIPS v3 module.
 
    ```bash
    # Release to download — https://github.com/coralogix/coralogix-aws-shipper/tags
    VERSION="<release>"
    ARCH="arm64"   # or x86-64
-   BASE="https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com"
+   SOURCE_REGION="us-gov-west-1"   # or us-gov-east-1
    KEY="coralogix-aws-shipper-${ARCH}-${VERSION}.zip"
+   SRC="s3://coralogix-serverless-repo-${SOURCE_REGION}"
 
-   curl -fLsSO "${BASE}/${KEY}"
-   curl -fLsSO "${BASE}/${KEY}.sha256"
+   aws s3 cp "${SRC}/${KEY}" "${KEY}" --region "${SOURCE_REGION}"
+   aws s3 cp "${SRC}/${KEY}.sha256" "${KEY}.sha256" --region "${SOURCE_REGION}"
    sha256sum -c "${KEY}.sha256"
    ```
 
+   The buckets grant `s3:GetObject` to any authenticated AWS principal and deny
+   anonymous requests, so these commands sign with the GovCloud credentials in the
+   prerequisites above. They grant no `s3:ListBucket`, so you need the exact key —
+   `aws s3 ls` returns AccessDenied.
+
    Releases published before checksum files were introduced have no `.sha256` file.
+   Releases before 1.4.23 hold a copy of the commercial build in GovCloud, on the
+   AWS-LC FIPS v4 module that NIST has not validated.
 
 2. Build the GovCloud custom resource from the same release tag. The zip must contain a
    single top-level `index.py` (handler `index.lambda_handler`):

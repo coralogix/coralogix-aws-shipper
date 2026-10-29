@@ -575,10 +575,11 @@ jobs:
             # Commercial keeps its own only for stacks deployed before the synced
             # template moved onto versioned keys.
             #
-            # Tracks the Release mapping, not this release. When GovCloud is held back --
-            # 1.4.20 moved the FIPS build to the AWS-LC FIPS v4 module, which NIST has
-            # not validated, so template-govcloud.yaml stays on 1.4.19 -- pointing these
-            # at the newest release would hand unpinned Terraform the very build
+            # Tracks the Release mapping, not this release. The two agree today, but
+            # the mapping may be held behind a release GovCloud should not take by
+            # default -- 1.4.20 through 1.4.22 were, because their GovCloud artifact was
+            # the commercial build on the unvalidated AWS-LC FIPS v4 module. Pointing
+            # these at the newest release would hand unpinned Terraform the very build
             # CloudFormation declines to deploy by default.
             #
             # Sourced from the published versioned object: this run's upload when the two
