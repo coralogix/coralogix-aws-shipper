@@ -17,15 +17,11 @@ jobs:
     - uses: actions/checkout@v7
       with:
         fetch-depth: 0
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: 3.9
-    
+    # No Python step: both checks below are npm tools. The job used to set up
+    # Python 3.9 and then only run `pip install --upgrade pip`, which broke when
+    # ubuntu-latest moved to 26.04 and stopped shipping 3.9.
     - name: Install dependencies
-      run: |
-        pip install --upgrade pip
-        npm install -g markdown-link-check
+      run: npm install -g markdown-link-check
 
     - name: Check Markdown style
       run: |

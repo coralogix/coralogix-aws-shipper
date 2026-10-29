@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.4.23 / 2026-10-29
+
+### 🔐 Security 🔐
+
+- **GovCloud: the eMudhra certificate fix on the NIST-validated FIPS module.** GovCloud
+  now has its own build. It distrusts the 8 compromised eMudhra intermediate keys
+  (CVE-2026-111943) while staying on AWS-LC FIPS v3, certificates #5314 and #5298.
+  `template-govcloud.yaml` now deploys 1.4.23.
+
 ## v1.4.22 / 2026-10-25
 
 ### 🧰 Bug fixes 🧰
