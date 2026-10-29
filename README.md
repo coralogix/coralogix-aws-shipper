@@ -1029,13 +1029,9 @@ stack), copy them there under the same keys and point the template at the bucket
    prerequisites above. They grant no `s3:ListBucket`, so you need the exact key —
    `aws s3 ls` returns AccessDenied.
 
-   Releases published before checksum files were introduced have no `.sha256` file.
-
-   Every release before 1.4.23 holds a copy of the commercial build in GovCloud. For
-   1.4.20 to 1.4.22 that copy is on the AWS-LC FIPS v4 module, which NIST has not
-   validated; 1.4.19 and earlier are on v3 but predate the certificate fix. The table
-   under [GovCloud builds and the eMudhra CA compromise](#govcloud-builds-and-the-emudhra-ca-compromise)
-   has the full picture.
+   GovCloud holds 1.4.18 onward. 1.4.18 to 1.4.22 are copies of the commercial build,
+   and 1.4.20 to 1.4.22 are on the unvalidated v4 module — see the
+   [table above](#govcloud-builds-and-the-emudhra-ca-compromise).
 
 2. Build the GovCloud custom resource from the same release tag. The zip must contain a
    single top-level `index.py` (handler `index.lambda_handler`):
