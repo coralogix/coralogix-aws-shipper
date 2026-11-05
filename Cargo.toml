@@ -1,6 +1,6 @@
 [package]
 name = "coralogix-aws-shipper"
-version = "1.4.23"
+version = "1.4.24"
 edition = "2021"
 license = "Apache-2.0"
 
@@ -48,6 +48,10 @@ openssl = { version = "0.10.75", features = ["vendored"] }
 starlark = "0.13.0"
 regex = "1.11.1"
 humantime = "2.1.0"
+# Only the gRPC metadata types, for OTLP_HEADERS parsing; the transport itself comes
+# from cx_sdk_otlp. The [dev-dependencies] entry adds the features the collector
+# tests need.
+tonic = "0.14.3"
 cx_sdk_otlp = { git = "ssh://git@github.com/coralogix/coralogix-sdk-rust", rev = "52aee3bf014ce18b2ac25771ecefbfd25e73bb11", version = "0.1.0", default-features = false, features = ["tls-aws-lc", "tls-webpki-roots"] }
 
 [dev-dependencies]

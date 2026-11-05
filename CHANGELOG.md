@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.4.24 / 2026-11-05
+
+### ✨ Features ✨
+
+- **Custom headers on Collector delivery:** `OtlpHeaders` sends semicolon-separated
+  `key=value` pairs as gRPC metadata on every export to `OTLPEndpoint` — for gateways
+  that authenticate with their own header. Applies to Collector logs and Transaction
+  Search spans; the direct Coralogix routes are unchanged and ignore it.
+
 ## v1.4.23 / 2026-10-29
 
 ### 🔐 Security 🔐
