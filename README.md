@@ -169,6 +169,17 @@ Lambda to appropriate VPC subnets and security groups. See the
 [Collector enrichment example](examples/otlp-grpc-collector/) for a generic
 transform processor that adds `gateway.enriched=true`.
 
+`OtlpHeaders` adds custom gRPC metadata (HTTP/2 headers) to every export on the
+Collector route, for gateways that authenticate with their own header — for
+example `x-api-key=value;tenant=name`. The value is semicolon-separated
+`key=value` pairs: keys are lowercased and may contain `a-z`, `0-9`, `_`, `.`,
+`-` only, values must be non-empty printable ASCII, and duplicates are
+rejected. Keys reserved by gRPC (`grpc-*`) and binary keys (`*-bin`) are not
+supported. The parameter is `NoEcho` and treated as a secret. Only the
+Collector route sends these headers — the direct Coralogix routes keep their
+own credentials and ignore `OtlpHeaders`. Transaction Search spans use the
+same `OTLPEndpoint` route and send the same `OtlpHeaders`.
+
 OTLP requests group records with the same application and subsystem into one
 resource while keeping multiple resources in shared, size-limited requests.
 Structured JSON bodies retain nested arrays and objects. Because OTLP
@@ -890,7 +901,7 @@ The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east
 
 ### GovCloud builds and the eMudhra CA compromise
 
-`template-govcloud.yaml` deploys **1.4.23**, which fixes the eMudhra CA compromise (CVE-2026-111943) on the NIST-validated AWS-LC FIPS v3 module.
+`template-govcloud.yaml` deploys **1.5.0**, which fixes the eMudhra CA compromise (CVE-2026-111943) on the NIST-validated AWS-LC FIPS v3 module.
 
 Earlier releases force a trade-off, because GovCloud had no build of its own until 1.4.23:
 

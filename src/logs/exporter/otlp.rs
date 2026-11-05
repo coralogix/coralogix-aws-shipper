@@ -167,6 +167,7 @@ impl OtlpGrpcExporter {
         Self::new_with_compression(
             endpoint,
             auth,
+            Default::default(),
             max_elapsed_time,
             max_request_bytes,
             OtlpCompression::Gzip,
@@ -176,6 +177,7 @@ impl OtlpGrpcExporter {
     pub(crate) fn new_with_compression(
         endpoint: String,
         auth: AuthData,
+        additional_metadata: tonic::metadata::MetadataMap,
         max_elapsed_time: u64,
         max_request_bytes: usize,
         compression: OtlpCompression,
@@ -188,6 +190,7 @@ impl OtlpGrpcExporter {
                 max_elapsed_time: Duration::from_secs(max_elapsed_time),
             })
             .with_gzip_compression(compression.gzip_enabled())
+            .with_additional_metadata(additional_metadata)
             .listener(AttemptListener)
             .try_build()
             .map_err(|error| LogExportError::OtlpInitialization(error.to_string()))?;

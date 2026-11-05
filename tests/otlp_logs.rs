@@ -293,6 +293,7 @@ async fn collector_route_succeeds_without_gzip_support() {
     let (endpoint, captured, shutdown, server) = start_collector(false).await;
     let exporter = build_exporter(&exporter_config(LogExportConfig::CollectorOtlpGrpc {
         endpoint,
+        headers: Default::default(),
     }))
     .unwrap();
 
@@ -303,6 +304,44 @@ async fn collector_route_succeeds_without_gzip_support() {
     assert!(captured.metadata.lock().unwrap()[0]
         .get("authorization")
         .is_none());
+    stop_collector(shutdown, server).await;
+}
+
+#[tokio::test]
+async fn collector_route_sends_custom_headers() {
+    use coralogix_aws_shipper::logs::{
+        config::{LogExportConfig, OtlpHeaders},
+        exporter::build_exporter,
+    };
+
+    let (endpoint, captured, shutdown, server) = start_collector(false).await;
+    // '=' and ',' inside the value must survive parsing (comma is why the separator
+    // is ';'), and uppercase keys arrive lowercased, as HTTP/2 normalizes them.
+    let headers = OtlpHeaders::parse("X-API-Key=gateway-secret;tenant=acme,prod;flag=a=b").unwrap();
+    let exporter = build_exporter(&exporter_config(LogExportConfig::CollectorOtlpGrpc {
+        endpoint,
+        headers,
+    }))
+    .unwrap();
+
+    exporter.export(vec![test_log()]).await.unwrap();
+
+    assert_standard_otlp_payload(&captured);
+    {
+        let metadata = captured.metadata.lock().unwrap();
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(
+            metadata[0].get("x-api-key").unwrap().to_str().unwrap(),
+            "gateway-secret"
+        );
+        assert_eq!(
+            metadata[0].get("tenant").unwrap().to_str().unwrap(),
+            "acme,prod"
+        );
+        assert_eq!(metadata[0].get("flag").unwrap().to_str().unwrap(), "a=b");
+        // The collector route stays unauthenticated apart from the custom headers.
+        assert!(metadata[0].get("authorization").is_none());
+    }
     stop_collector(shutdown, server).await;
 }
 
@@ -329,6 +368,10 @@ async fn sends_bearer_authorization_for_direct_coralogix_otlp() {
             .map(|value| value.to_str().unwrap())
             .collect();
         assert_eq!(authorization, ["Bearer direct-secret"]);
+        // Direct-route isolation: custom headers have no field to travel on, so
+        // nothing but the Coralogix auth metadata may appear.
+        assert!(metadata[0].get("x-api-key").is_none());
+        assert!(metadata[0].get("tenant").is_none());
     }
     stop_collector(shutdown, server).await;
 }

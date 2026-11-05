@@ -115,7 +115,7 @@ fn startup_destination(export: &LogExportConfig) -> StartupDestination {
         LogExportConfig::CoralogixRest { endpoint, .. } => {
             ("coralogix_rest", "coralogix", endpoint)
         }
-        LogExportConfig::CollectorOtlpGrpc { endpoint } => ("otlp_grpc", "collector", endpoint),
+        LogExportConfig::CollectorOtlpGrpc { endpoint, .. } => ("otlp_grpc", "collector", endpoint),
         LogExportConfig::CoralogixOtlpGrpc { endpoint, .. } => ("otlp_grpc", "coralogix", endpoint),
     };
     let endpoint_authority = endpoint
@@ -157,10 +157,14 @@ fn build_exporter_from(
         LogExportConfig::CoralogixRest { endpoint, api_key } => Arc::new(
             CoralogixRestExporter::new(endpoint.clone(), api_key.clone(), max_elapsed_time)?,
         ),
-        LogExportConfig::CollectorOtlpGrpc { endpoint } => {
+        LogExportConfig::CollectorOtlpGrpc { endpoint, headers } => {
+            let additional_metadata = headers
+                .metadata_map()
+                .map_err(LogExportError::OtlpInitialization)?;
             Arc::new(OtlpGrpcExporter::new_with_compression(
                 endpoint.clone(),
                 AuthData::default(),
+                additional_metadata,
                 max_elapsed_time,
                 max_request_bytes,
                 OtlpCompression::None,
@@ -189,7 +193,7 @@ fn build_exporter_from(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logs::config::LogExportConfig;
+    use crate::logs::config::{LogExportConfig, OtlpHeaders};
 
     #[test]
     fn startup_destination_reports_only_sanitized_authority() {
@@ -208,6 +212,7 @@ mod tests {
     fn startup_destination_distinguishes_otlp_routes() {
         let collector = startup_destination(&LogExportConfig::CollectorOtlpGrpc {
             endpoint: "https://collector.internal".to_string(),
+            headers: Default::default(),
         });
         assert_eq!(collector.protocol, "otlp_grpc");
         assert_eq!(collector.destination_type, "collector");
@@ -227,6 +232,7 @@ mod tests {
         let exporter = build_exporter_from(
             &LogExportConfig::CollectorOtlpGrpc {
                 endpoint: "http://127.0.0.1:4317".to_string(),
+                headers: OtlpHeaders::parse("x-api-key=gateway-secret").unwrap(),
             },
             250,
             4 * 1024 * 1024,

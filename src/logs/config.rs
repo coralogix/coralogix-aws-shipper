@@ -62,9 +62,110 @@ impl FromStr for LogExportProtocol {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LogExportConfig {
-    CoralogixRest { endpoint: String, api_key: ApiKey },
-    CollectorOtlpGrpc { endpoint: String },
-    CoralogixOtlpGrpc { endpoint: String, api_key: ApiKey },
+    CoralogixRest {
+        endpoint: String,
+        api_key: ApiKey,
+    },
+    CollectorOtlpGrpc {
+        endpoint: String,
+        headers: OtlpHeaders,
+    },
+    CoralogixOtlpGrpc {
+        endpoint: String,
+        api_key: ApiKey,
+    },
+}
+
+/// Custom gRPC metadata (HTTP/2 headers) sent on every collector OTLP export, parsed
+/// from `OTLP_HEADERS` as semicolon-separated `key=value` pairs.
+///
+/// Values can carry gateway credentials, so `Debug` prints keys only. Callers must
+/// never format values into logs.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct OtlpHeaders(Vec<(String, String)>);
+
+impl fmt::Debug for OtlpHeaders {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list()
+            .entries(self.0.iter().map(|(name, _)| name.as_str()))
+            .finish()
+    }
+}
+
+impl OtlpHeaders {
+    /// Parses `key1=value1;key2=value2`. An empty input is an empty set. Names are
+    /// lowercased (HTTP/2 normalizes case); duplicates after normalization, names
+    /// reserved by gRPC (`grpc-*`), binary metadata keys (`*-bin`, which take base64
+    /// values), and non-printable-ASCII values are rejected.
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let mut headers: Vec<(String, String)> = Vec::new();
+        if raw.trim().is_empty() {
+            return Ok(Self(headers));
+        }
+        // Error messages carry the key only. Values can hold credentials, and these
+        // errors surface through config-load failures and cold-start logs.
+        for (index, segment) in raw.split(';').enumerate() {
+            let (name, value) = segment.split_once('=').ok_or_else(|| {
+                format!("OTLP_HEADERS entry {} is not a key=value pair", index + 1)
+            })?;
+            let name = name.to_ascii_lowercase();
+            let key_error = |detail: &str| format!("OTLP_HEADERS key {name:?}: {detail}");
+            if name.is_empty()
+                || !name.bytes().all(|b| {
+                    b.is_ascii_lowercase()
+                        || b.is_ascii_digit()
+                        || b == b'_'
+                        || b == b'.'
+                        || b == b'-'
+                })
+            {
+                return Err(key_error(
+                    "keys must be non-empty and contain only a-z, 0-9, '_', '.', '-'",
+                ));
+            }
+            if name.starts_with("grpc-") {
+                return Err(key_error("keys starting with 'grpc-' are reserved"));
+            }
+            if name.ends_with("-bin") {
+                return Err(key_error(
+                    "binary metadata keys ('*-bin') are not supported",
+                ));
+            }
+            // Tonic sets these itself on every gRPC request; a configured value would
+            // never reach the wire.
+            if name == "content-type" || name == "te" {
+                return Err(key_error("this header is reserved by the gRPC transport"));
+            }
+            if value.is_empty() || !value.bytes().all(|b| (0x20..=0x7e).contains(&b)) {
+                return Err(key_error("value must be non-empty printable ASCII"));
+            }
+            if headers.iter().any(|(existing, _)| *existing == name) {
+                return Err(key_error("duplicate key"));
+            }
+            headers.push((name, value.to_string()));
+        }
+        Ok(Self(headers))
+    }
+
+    /// Fallible conversion to the map the SDK exporter takes. Parse guarantees this
+    /// succeeds; the conversion stays fallible so a validation gap fails loudly at
+    /// exporter construction instead of panicking.
+    pub fn metadata_map(&self) -> Result<tonic::metadata::MetadataMap, String> {
+        let mut map = tonic::metadata::MetadataMap::new();
+        for (name, value) in &self.0 {
+            let key: tonic::metadata::MetadataKey<_> = name
+                .parse()
+                .map_err(|_| format!("OTLP_HEADERS key {name:?} is not valid gRPC metadata"))?;
+            let mut value: tonic::metadata::MetadataValue<_> = value.parse().map_err(|_| {
+                format!("OTLP_HEADERS key {name:?} has a value that is not valid gRPC metadata")
+            })?;
+            // Values can hold credentials; the sensitive flag keeps them out of any
+            // Display/Debug rendering downstream.
+            value.set_sensitive(true);
+            map.append(key, value);
+        }
+        Ok(map)
+    }
 }
 
 /// Maximum allowed byte length for a direct Coralogix OTLP domain hostname.
@@ -161,7 +262,9 @@ impl LogExportConfig {
                     .filter(|value| !value.trim().is_empty())
                 {
                     Self::validate_collector_endpoint(&endpoint)?;
-                    return Ok(Self::CollectorOtlpGrpc { endpoint });
+                    let headers =
+                        OtlpHeaders::parse(&env::var("OTLP_HEADERS").unwrap_or_default())?;
+                    return Ok(Self::CollectorOtlpGrpc { endpoint, headers });
                 }
 
                 let domain = env::var("CORALOGIX_DOMAIN")
@@ -777,6 +880,7 @@ mod destination_config_tests {
                     LogExportConfig::load_from_env().unwrap(),
                     LogExportConfig::CollectorOtlpGrpc {
                         endpoint: "http://collector.internal:4317".to_string(),
+                        headers: Default::default(),
                     }
                 );
             },
@@ -818,6 +922,143 @@ mod destination_config_tests {
                         api_key: "secret".to_string().into(),
                     }
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn otlp_headers_parse_cases() {
+        use super::OtlpHeaders;
+
+        // Empty input is an empty set, not an error.
+        assert_eq!(OtlpHeaders::parse("").unwrap(), OtlpHeaders::default());
+        assert_eq!(OtlpHeaders::parse("  ").unwrap(), OtlpHeaders::default());
+
+        let headers = OtlpHeaders::parse("x-api-key=secret;tenant=acme,prod;flag=a=b").unwrap();
+        assert_eq!(
+            headers,
+            OtlpHeaders(vec![
+                ("x-api-key".to_string(), "secret".to_string()),
+                ("tenant".to_string(), "acme,prod".to_string()),
+                ("flag".to_string(), "a=b".to_string()),
+            ])
+        );
+        // Names normalize to lowercase, matching what arrives on the wire.
+        assert_eq!(
+            OtlpHeaders::parse("X-API-Key=secret").unwrap(),
+            OtlpHeaders(vec![("x-api-key".to_string(), "secret".to_string())])
+        );
+
+        for bad in [
+            "no-equals-sign",
+            "empty=;other=v",
+            "trailing=v;",
+            "=value",
+            "x api key=v",
+            "grpc-timeout=1",
+            "tracestate-bin=abc",
+            "content-type=application/json",
+            "TE=trailers",
+            "key=",
+            "key=non\u{2014}ascii",
+            "key=x;key=y",
+            "Key=v;key=y",
+        ] {
+            assert!(OtlpHeaders::parse(bad).is_err(), "must reject: {bad:?}");
+        }
+
+        // Debug and every parse/conversion error print keys only; a value holding a
+        // credential must never surface through them.
+        const SENTINEL_SECRET: &str = "sentinel-parser-secret";
+        assert_eq!(
+            format!("{:?}", OtlpHeaders::parse("x-api-key=secret").unwrap()),
+            "[\"x-api-key\"]"
+        );
+        for bad in [
+            format!("x-api-key={SENTINEL_SECRET};x-api-key=again"),
+            format!("x-api-key={SENTINEL_SECRET}\u{2014}non-ascii"),
+            format!("x api={SENTINEL_SECRET}"),
+        ] {
+            let error = OtlpHeaders::parse(&bad).unwrap_err();
+            assert!(
+                !error.contains(SENTINEL_SECRET),
+                "parse error leaks the value: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn collector_route_loads_otlp_headers_from_env() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", Some("http://collector.internal:4317")),
+                ("OTLP_HEADERS", Some("x-api-key=gateway-secret")),
+                ("CORALOGIX_DOMAIN", None::<&str>),
+                ("CORALOGIX_API_KEY", None::<&str>),
+            ],
+            || {
+                assert_eq!(
+                    LogExportConfig::load_from_env().unwrap(),
+                    LogExportConfig::CollectorOtlpGrpc {
+                        endpoint: "http://collector.internal:4317".to_string(),
+                        headers: OtlpHeaders(vec![(
+                            "x-api-key".to_string(),
+                            "gateway-secret".to_string()
+                        )]),
+                    }
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn invalid_otlp_headers_fail_config_load() {
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", Some("http://collector.internal:4317")),
+                ("OTLP_HEADERS", Some("grpc-timeout=1")),
+            ],
+            || {
+                let error = LogExportConfig::load_from_env().unwrap_err();
+                assert!(error.contains("reserved"), "unexpected error: {error}");
+            },
+        );
+    }
+
+    #[test]
+    fn direct_routes_ignore_otlp_headers() {
+        // Even an invalid value must not fail config load when no Collector endpoint
+        // selects the collector route - nothing would ever send these headers.
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("coralogix_rest")),
+                ("CORALOGIX_ENDPOINT", Some("https://ingress.example.com")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("OTLP_ENDPOINT", Some("")),
+                ("OTLP_HEADERS", Some("grpc-timeout=1")),
+            ],
+            || {
+                assert!(matches!(
+                    LogExportConfig::load_from_env().unwrap(),
+                    LogExportConfig::CoralogixRest { .. }
+                ));
+            },
+        );
+        temp_env::with_vars(
+            [
+                ("LOG_EXPORT_PROTOCOL", Some("otlp_grpc")),
+                ("OTLP_ENDPOINT", Some("")),
+                ("CORALOGIX_DOMAIN", Some("eu2.coralogix.com")),
+                ("CORALOGIX_API_KEY", Some("secret")),
+                ("OTLP_HEADERS", Some("grpc-timeout=1")),
+            ],
+            || {
+                assert!(matches!(
+                    LogExportConfig::load_from_env().unwrap(),
+                    LogExportConfig::CoralogixOtlpGrpc { .. }
+                ));
             },
         );
     }

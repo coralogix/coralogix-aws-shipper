@@ -315,8 +315,11 @@ pub enum Destination {
     Coralogix { api_key: ApiKey },
     /// A customer-configured Collector. Deliberately unauthenticated: the Coralogix API
     /// key must not be disclosed to a third-party or shared endpoint. Mirrors
-    /// `LogExportConfig::CollectorOtlpGrpc`.
-    Collector,
+    /// `LogExportConfig::CollectorOtlpGrpc`, including the custom OTLP_HEADERS
+    /// metadata, which travels on this route only.
+    Collector {
+        headers: crate::logs::config::OtlpHeaders,
+    },
 }
 
 pub struct Config {
@@ -350,7 +353,11 @@ impl Config {
         };
 
         let destination = match collector {
-            Some(_) => Destination::Collector,
+            Some(_) => Destination::Collector {
+                headers: crate::logs::config::OtlpHeaders::parse(
+                    &std::env::var("OTLP_HEADERS").unwrap_or_default(),
+                )?,
+            },
             None => Destination::Coralogix {
                 api_key: env_opt("CORALOGIX_API_KEY")
                     .ok_or("CORALOGIX_API_KEY is not set".to_string())?
@@ -370,7 +377,7 @@ impl Config {
     pub fn api_key(&self) -> Option<&ApiKey> {
         match &self.destination {
             Destination::Coralogix { api_key } => Some(api_key),
-            Destination::Collector => None,
+            Destination::Collector { .. } => None,
         }
     }
 
@@ -383,6 +390,12 @@ impl Config {
 }
 
 pub fn build_exporter(config: &Config) -> Result<AuthorizedOtlpTraceExporterGrpc, String> {
+    // Custom metadata travels on the collector route only; the direct route keeps its
+    // Coralogix credentials alone.
+    let additional_metadata = match &config.destination {
+        Destination::Collector { headers } => headers.metadata_map()?,
+        Destination::Coralogix { .. } => Default::default(),
+    };
     AuthorizedOtlpTraceExporterGrpc::builder()
         // ponytail: fixed backoff. Lift to env vars if customers need to tune it, as the
         // logs path eventually did.
@@ -393,6 +406,7 @@ pub fn build_exporter(config: &Config) -> Result<AuthorizedOtlpTraceExporterGrpc
         })
         .with_channel_config(ChannelConfig::new(config.endpoint.clone()).with_webpki_roots())
         .with_auth_data(config.api_key().map(AuthData::from).unwrap_or_default())
+        .with_additional_metadata(additional_metadata)
         .try_build()
         .map_err(|e| format!("failed to build OTLP trace exporter: {e}"))
 }

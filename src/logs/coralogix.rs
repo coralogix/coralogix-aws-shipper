@@ -1186,6 +1186,7 @@ def transform(event):
 
         config.export = LogExportConfig::CollectorOtlpGrpc {
             endpoint: "http://collector:4317".to_string(),
+            headers: Default::default(),
         };
         let otlp_exporter = Arc::new(RecordingExporter::default());
         send_transformed_logs(otlp_exporter.clone(), logs(), &config)
