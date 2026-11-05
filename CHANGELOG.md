@@ -9,6 +9,12 @@
   that authenticate with their own header. Applies to Collector logs and Transaction
   Search spans; the direct Coralogix routes are unchanged and ignore it.
 
+### 🔐 Security 🔐
+
+- **Build-time dependency fixes:** pulldown-cmark 0.13.6 (RUSTSEC-2026-0433) and
+  libz-sys 1.1.31 (RUSTSEC-2026-0418), in both the commercial and GovCloud lockfiles.
+  Both reach the build only through the OTLP SDK's build script, not the shipped binary.
+
 ## v1.4.23 / 2026-10-29
 
 ### 🔐 Security 🔐

@@ -48,6 +48,7 @@ ignore = [
   { id = "RUSTSEC-2024-0388", reason = "Transitive through starlark; requires upstream dependency replacement." },
   { id = "RUSTSEC-2024-0436", reason = "Transitive through starlark; requires upstream dependency replacement." },
   { id = "RUSTSEC-2025-0057", reason = "Transitive through starlark_map; requires upstream dependency replacement." },
+  { id = "RUSTSEC-2026-0441", reason = "Unmaintained, not a vulnerability. Transitive through aws-smithy-http (AWS SDK); no replacement is available until the SDK drops it." },
 
   # The four rustls advisories that holding AWS-LC FIPS v3 reintroduces. All are fixed
   # in rustls >= 0.23.45/0.23.46, which requires aws-lc-rs ^1.18 and so the uncertified
