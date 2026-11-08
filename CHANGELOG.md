@@ -6,11 +6,12 @@
 
 - **Starlark after metadata: names now come from fields the script writes.** With
   `StarlarkTransformAfterMetadata` on, application and subsystem names were resolved
-  before the script ran, so a `{{ $.path }}` name that reads a field the script adds
-  fell back to `unknown-application` / `unknown-subsystem`. Body-path names are now
-  read again from each transformed record, including records the script fans out; a
-  record without the field keeps the name resolved before the script. No change when
-  the setting is off.
+  before the script ran, so a name that reads a field the script adds fell back to
+  `unknown-application` / `unknown-subsystem`. Names that read a body field (a
+  `{{ $.path }}` template or a plain path) are now read again from each transformed
+  record, including records the script fans out, and used where the field's value
+  changed. A missing or unchanged field keeps the name resolved before the script.
+  Severity and timestamp are unchanged, and nothing changes when the setting is off.
 
 ## v1.5.0 / 2026-11-05
 
