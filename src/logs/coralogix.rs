@@ -105,13 +105,18 @@ pub async fn process_batches_with_meta(
                     })
                     .collect_vec();
 
-                let transformed =
-                    transform_processed_logs_after_metadata(processed, &config, &aws_config)
-                        .await
-                        .map_err(|error| {
-                            error!("Post-metadata log transformation failed: {}", error);
-                            Error::from(error.to_string())
-                        })?;
+                let transformed = transform_processed_logs_after_metadata(
+                    processed,
+                    &configured_app_name,
+                    &configured_sub_name,
+                    &config,
+                    &aws_config,
+                )
+                .await
+                .map_err(|error| {
+                    error!("Post-metadata log transformation failed: {}", error);
+                    Error::from(error.to_string())
+                })?;
 
                 send_transformed_batch(
                     exporter,
@@ -275,13 +280,18 @@ pub async fn process_batches(
                     })
                     .collect_vec();
 
-                let transformed =
-                    transform_processed_logs_after_metadata(processed, &config, &aws_config)
-                        .await
-                        .map_err(|error| {
-                            error!("Post-metadata log transformation failed: {}", error);
-                            Error::from(error.to_string())
-                        })?;
+                let transformed = transform_processed_logs_after_metadata(
+                    processed,
+                    &configured_app_name,
+                    &configured_sub_name,
+                    &config,
+                    &aws_config,
+                )
+                .await
+                .map_err(|error| {
+                    error!("Post-metadata log transformation failed: {}", error);
+                    Error::from(error.to_string())
+                })?;
 
                 send_transformed_batch(
                     exporter,
@@ -310,6 +320,8 @@ fn into_batches_of_estimated_size(logs: Vec<String>, config: &Config) -> Vec<Vec
 
 async fn transform_processed_logs_after_metadata(
     processed_logs: Vec<ProcessedLog>,
+    configured_app_name: &str,
+    configured_sub_name: &str,
     config: &Config,
     aws_config: &aws_config::SdkConfig,
 ) -> Result<Vec<ProcessedLog>, Error> {
@@ -337,6 +349,18 @@ async fn transform_processed_logs_after_metadata(
             Error::from(error.to_string())
         })?;
 
+    // Names were resolved from the raw log before the script ran. A name that reads a
+    // body field -- a `{{ $.path }}` template, or a plain path such as `app`, the same
+    // rule `extract_json_value` applies -- is replaced only where the field's value
+    // changed: the scalar at that path
+    // in a transformed record differs from the same path in the enriched body the
+    // script received. Comparing against the enriched body rather than the raw log
+    // matters because metadata wraps the log under `message`, so an unchanged path
+    // can resolve to a different field there. Missing, null, object or array values,
+    // and unchanged ones, keep the earlier name, so a literal name stays as it is.
+    let app_path = body_template_path(configured_app_name).unwrap_or(configured_app_name);
+    let sub_path = body_template_path(configured_sub_name).unwrap_or(configured_sub_name);
+
     let mut transformed_logs = Vec::with_capacity(processed_logs.len());
     for (source_log, transformed_bodies) in processed_logs.into_iter().zip(grouped) {
         for outcome in transformed_bodies {
@@ -361,6 +385,12 @@ async fn transform_processed_logs_after_metadata(
             // what the script produced (including deliberate `to_json`
             // stringification).
             let mut transformed_log = source_log.clone();
+            if let Some(name) = changed_value(&source_log.body, &transformed_value, app_path) {
+                transformed_log.application_name = name;
+            }
+            if let Some(name) = changed_value(&source_log.body, &transformed_value, sub_path) {
+                transformed_log.subsystem_name = name;
+            }
             transformed_log.body = transformed_value;
             transformed_logs.push(transformed_log);
         }
@@ -686,30 +716,38 @@ fn extract_json_value(log: &str, template: &str) -> Option<String> {
 }
 
 fn extract_json_path_value(log: &str, key_path: &str) -> Option<String> {
-    // Try to parse the log as JSON
-    if let Ok(json_value) = serde_json::from_str::<Value>(log) {
-        // Split the key path by dots to handle nested objects
-        let keys: Vec<&str> = key_path.split('.').collect();
+    let json_value = serde_json::from_str::<Value>(log).ok()?;
+    value_at_path(&json_value, key_path)
+}
 
-        // Navigate through the JSON structure
-        let mut current = &json_value;
-        for key in keys {
-            match current.get(key) {
-                Some(value) => current = value,
-                None => return None,
-            }
-        }
-
-        // Convert the final value to a string
-        match current {
-            Value::String(s) => Some(s.clone()),
-            Value::Number(n) => Some(n.to_string()),
-            Value::Bool(b) => Some(b.to_string()),
-            _ => None,
-        }
-    } else {
-        None
+/// The scalar at a dotted path, as a string. Objects, arrays and nulls yield None.
+fn value_at_path(json_value: &Value, key_path: &str) -> Option<String> {
+    let mut current = json_value;
+    for key in key_path.split('.') {
+        current = current.get(key)?;
     }
+    match current {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+/// The scalar at `key_path` in `after`, when it differs from the same path in `before`.
+fn changed_value(before: &Value, after: &Value, key_path: &str) -> Option<String> {
+    let value = value_at_path(after, key_path)?;
+    (value_at_path(before, key_path).as_deref() != Some(value.as_str())).then_some(value)
+}
+
+/// The body path of a `{{ $.path }}` name template, or None for any other name.
+fn body_template_path(template: &str) -> Option<&str> {
+    JSON_EVALUATION_REGEX
+        .captures(template)
+        .ok()
+        .flatten()
+        .and_then(|captures| captures.get(1))
+        .map(|path| path.as_str())
 }
 
 fn convert_to_processed_log(
@@ -1070,6 +1108,217 @@ def transform(event):
                 "kinesis.event.source_arn": KINESIS_SOURCE_ARN,
             })
         );
+    }
+
+    // CDS-3217: names must come from fields the post-metadata script writes. The
+    // script copies OTel resource attributes to root fields the name templates
+    // read, and falls back to fixed names for logs without them.
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_names_come_from_fields_the_script_writes() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    log = event.get("message", {})
+    attrs = log.get("resource", {}).get("attributes", {}) if type(log) == "dict" else {}
+    event["cx_application_name"] = attrs.get("cx.application.name", "kinesis")
+    event["cx_subsystem_name"] = attrs.get("cx.subsystem.name", "kinesis-logs")
+    return [event]
+"#,
+        );
+        let metadata = || metadata_context([(KINESIS_SOURCE_ARN_KEY, KINESIS_SOURCE_ARN)]);
+        let logs = capture_logs_with_metadata(
+            &config,
+            vec![
+                LogWithMeta {
+                    log: r#"{"msg":"legacy format"}"#.to_string(),
+                    mctx: metadata(),
+                },
+                LogWithMeta {
+                    log: r#"{"body":"otel","resource":{"attributes":{"cx.application.name":"payments","cx.subsystem.name":"api"}}}"#.to_string(),
+                    mctx: metadata(),
+                },
+            ],
+            "{{ $.cx_application_name }}",
+            "{{ $.cx_subsystem_name }}",
+        )
+        .await;
+
+        let names = logs
+            .iter()
+            .map(|log| (log.application_name.as_str(), log.subsystem_name.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec![("kinesis", "kinesis-logs"), ("payments", "api")]
+        );
+    }
+
+    // An unchanged path must keep the name resolved from the raw log, even though the
+    // metadata envelope makes `message.app` resolve to the raw log's top-level `app`.
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_identity_script_keeps_names_resolved_from_the_raw_log() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    return [event]
+"#,
+        );
+        let logs = capture_logs_with_metadata(
+            &config,
+            vec![LogWithMeta {
+                log: r#"{"app":"outer","sub":"outer-sub","message":{"app":"inner","sub":"inner-sub"}}"#
+                    .to_string(),
+                mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, KINESIS_SOURCE_ARN)]),
+            }],
+            "{{ $.message.app }}",
+            "{{ $.message.sub }}",
+        )
+        .await;
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(
+            (
+                logs[0].application_name.as_str(),
+                logs[0].subsystem_name.as_str()
+            ),
+            ("inner", "inner-sub")
+        );
+    }
+
+    // Changing the value at the same path is an intentional update and is used; the
+    // subsystem path is untouched and keeps its earlier name.
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_changed_value_at_same_path_updates_only_that_name() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    event["message"]["app"] = "changed"
+    return [event]
+"#,
+        );
+        let logs = capture_logs_with_metadata(
+            &config,
+            vec![LogWithMeta {
+                log: r#"{"app":"outer","sub":"outer-sub","message":{"app":"inner","sub":"inner-sub"}}"#
+                    .to_string(),
+                mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, KINESIS_SOURCE_ARN)]),
+            }],
+            "{{ $.message.app }}",
+            "{{ $.message.sub }}",
+        )
+        .await;
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(
+            (
+                logs[0].application_name.as_str(),
+                logs[0].subsystem_name.as_str()
+            ),
+            ("changed", "inner-sub")
+        );
+    }
+
+    // Plain field paths are names too (`extract_json_value` reads them as direct
+    // paths), so they follow the same rule as `{{ $.path }}` templates.
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_plain_path_names_follow_changed_fields() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    return [{"app": "new-app", "sub": "new-sub", "metadata": {"app": {"name": "new-dotted"}}}]
+"#,
+        );
+        let input = || LogWithMeta {
+            log: r#"{"app":"old-app","sub":"old-sub","metadata":{"app":{"name":"old-dotted"}}}"#
+                .to_string(),
+            mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, KINESIS_SOURCE_ARN)]),
+        };
+
+        let plain = capture_logs_with_metadata(&config, vec![input()], "app", "sub").await;
+        assert_eq!(
+            (
+                plain[0].application_name.as_str(),
+                plain[0].subsystem_name.as_str()
+            ),
+            ("new-app", "new-sub")
+        );
+
+        let dotted =
+            capture_logs_with_metadata(&config, vec![input()], "metadata.app.name", "sub").await;
+        assert_eq!(dotted[0].application_name, "new-dotted");
+    }
+
+    // A literal name matches no field the script writes, so it is never replaced.
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_literal_names_stay_unchanged() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    return [{"app": "new-app", "sub": "new-sub"}]
+"#,
+        );
+        let logs = capture_logs_with_metadata(
+            &config,
+            vec![LogWithMeta {
+                log: r#"{"app":"old-app"}"#.to_string(),
+                mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, KINESIS_SOURCE_ARN)]),
+            }],
+            "payments",
+            "payments-api",
+        )
+        .await;
+        assert_eq!(
+            (
+                logs[0].application_name.as_str(),
+                logs[0].subsystem_name.as_str()
+            ),
+            ("payments", "payments-api")
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_fan_out_names_each_record_from_its_own_body() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    return [{"app": "primary"}, {"app": "secondary"}, {"no_app": True}]
+"#,
+        );
+        let logs = capture_logs_with_metadata(
+            &config,
+            vec![LogWithMeta {
+                log: r#"{"app":"original"}"#.to_string(),
+                mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, "stream-A")]),
+            }],
+            "{{ $.app }}",
+            "sub",
+        )
+        .await;
+
+        // The third record has no `app`, so it keeps the pre-transform name.
+        let names = logs
+            .iter()
+            .map(|log| log.application_name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["primary", "secondary", "original"]);
     }
 
     #[tokio::test]

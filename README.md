@@ -579,7 +579,7 @@ When metadata is attached through `AddMetadata` or `CustomMetadata`, the existin
 }
 ```
 
-The post-metadata script may modify or remove any of these fields; metadata is not attached again afterward. Application/subsystem routing, automatic severity, and the timestamp are determined before this final body transformation. If a script returns multiple events, every result inherits those values from its source log.
+The post-metadata script may modify or remove any of these fields; metadata is not attached again afterward. Automatic severity and the timestamp are determined before this final body transformation, and every result a script returns inherits them from its source log. Application and subsystem names are also resolved first, from the raw log. A name that reads a body field (a `{{ $.path }}` template or a plain path such as `app`) is then read again from each result, and the new value is used only where the field's value changed: it differs from the same path in the enriched body the script received. Missing, unchanged or non-scalar values keep the earlier name, a literal name stays as it is, and a script can set a field such as `cx_application_name` for routing without affecting configurations that do not.
 
 Example:
 
