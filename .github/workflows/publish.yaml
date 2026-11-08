@@ -503,7 +503,18 @@ jobs:
     # this version, and without waiting for it a rejected commit could still write
     # GovCloud's immutable artifacts. Naming the result matters on workflow_dispatch,
     # where a disjunct that is simply true would otherwise run this past a failed publish.
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.publish.result == 'success'
+    #
+    # Off unless the GOVCLOUD_PUBLISH repository variable is 'true': a release no longer
+    # reaches GovCloud by default, and while the variable is unset this job is skipped
+    # before any credentials are requested. The switch does not hold
+    # template-govcloud.yaml back; the release PR has to leave that mapping alone.
+    # To release a version to GovCloud: set the mapping to that version in its release
+    # PR, set the variable to 'true' before merging, check that both GovCloud regions
+    # received the versioned and unversioned keys, then unset the variable. Backfilling
+    # a version that was already released without GovCloud is not covered here: its
+    # versioned keys are owned by the release commit, so it needs its own procedure.
+    if: ${{ !cancelled() && vars.GOVCLOUD_PUBLISH == 'true'
+            && needs.build.result == 'success' && needs.publish.result == 'success'
             && github.ref == 'refs/heads/master'
             && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
@@ -599,7 +610,8 @@ jobs:
               "$bucket" coralogix-aws-shipper-x86-64.zip "$govcloud_version"
           done
 
-  # Tagged only once both publishes have succeeded. template-govcloud.yaml resolves its
+  # Tagged only once publish has succeeded and publish-govcloud has succeeded or was
+  # skipped by the GOVCLOUD_PUBLISH switch. template-govcloud.yaml resolves its
   # Lambda code to versioned keys -- this release's, unless its Release mapping is held
   # back for a GovCloud opt-in release -- so a tag created any earlier can point at
   # artifacts that do not exist yet, and would keep pointing at them if a publish
@@ -610,7 +622,10 @@ jobs:
     # check_version is skipped on workflow_dispatch, leaving template_updated empty, so
     # requiring it would leave a dispatched recovery run permanently untagged -- and
     # dispatch is the only way to finish a release that died after its artifacts went up.
-    if: ${{ !cancelled() && needs.publish.result == 'success' && needs['publish-govcloud'].result == 'success'
+    # publish-govcloud is skipped while GOVCLOUD_PUBLISH is off, and that must not leave
+    # the commercial release untagged; a GovCloud run that fails still blocks the tag.
+    if: ${{ !cancelled() && needs.publish.result == 'success'
+            && contains(fromJSON('["success", "skipped"]'), needs['publish-govcloud'].result)
             && github.ref == 'refs/heads/master'
             && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
