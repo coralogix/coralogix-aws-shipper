@@ -901,7 +901,7 @@ The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east
 
 ### GovCloud builds and the eMudhra CA compromise
 
-`template-govcloud.yaml` deploys **1.5.0**, which fixes the eMudhra CA compromise (CVE-2026-111943) on the NIST-validated AWS-LC FIPS v3 module.
+`template-govcloud.yaml` deploys **1.5.1**, which fixes the eMudhra CA compromise (CVE-2026-111943) on the NIST-validated AWS-LC FIPS v3 module.
 
 Earlier releases force a trade-off, because GovCloud had no build of its own until 1.4.23:
 

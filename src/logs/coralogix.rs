@@ -19,7 +19,7 @@ use tracing::{debug, error, info};
 
 // Add these static regex patterns at the top of the file with the other statics
 static JSON_EVALUATION_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\{\{\s*\$\.([a-zA-Z0-9._]+)\s*(?:\|\|\s*(?:'([^']*)'|"([^"]*)")\s*)?\}\}"#)
+    Regex::new(r#"\{\{\s*\$\.([a-zA-Z0-9._]+)\s*\}\}"#)
         .expect("Failed to create JSON evaluation regex")
 });
 
@@ -92,11 +92,6 @@ pub async fn process_batches_with_meta(
             let exporter = exporter.clone();
             let send_permits = std::sync::Arc::clone(&send_permits);
             async move {
-                // Snapshot each record's isolated metadata context before its
-                // log is consumed, so post-metadata name re-resolution routes
-                // every record (and its fan-out) by its own context.
-                let record_contexts: Vec<process::MetadataContext> =
-                    batch.iter().map(|lm| lm.mctx.clone()).collect();
                 let processed: Vec<ProcessedLog> = batch
                     .into_iter()
                     .map(|lm| {
@@ -114,15 +109,14 @@ pub async fn process_batches_with_meta(
                     processed,
                     &configured_app_name,
                     &configured_sub_name,
-                    record_contexts,
                     &config,
                     &aws_config,
                 )
                 .await
-                        .map_err(|error| {
-                            error!("Post-metadata log transformation failed: {}", error);
-                            Error::from(error.to_string())
-                        })?;
+                .map_err(|error| {
+                    error!("Post-metadata log transformation failed: {}", error);
+                    Error::from(error.to_string())
+                })?;
 
                 send_transformed_batch(
                     exporter,
@@ -286,25 +280,18 @@ pub async fn process_batches(
                     })
                     .collect_vec();
 
-                // The whole batch shares one metadata context here; clone it per
-                // record so the re-resolution path has a parallel context vector.
-                let record_contexts: Vec<process::MetadataContext> =
-                    std::iter::repeat_with(|| mctx.clone())
-                        .take(processed.len())
-                        .collect();
                 let transformed = transform_processed_logs_after_metadata(
                     processed,
                     &configured_app_name,
                     &configured_sub_name,
-                    record_contexts,
                     &config,
                     &aws_config,
                 )
                 .await
-                        .map_err(|error| {
-                            error!("Post-metadata log transformation failed: {}", error);
-                            Error::from(error.to_string())
-                        })?;
+                .map_err(|error| {
+                    error!("Post-metadata log transformation failed: {}", error);
+                    Error::from(error.to_string())
+                })?;
 
                 send_transformed_batch(
                     exporter,
@@ -335,7 +322,6 @@ async fn transform_processed_logs_after_metadata(
     processed_logs: Vec<ProcessedLog>,
     configured_app_name: &str,
     configured_sub_name: &str,
-    record_contexts: Vec<process::MetadataContext>,
     config: &Config,
     aws_config: &aws_config::SdkConfig,
 ) -> Result<Vec<ProcessedLog>, Error> {
@@ -363,18 +349,16 @@ async fn transform_processed_logs_after_metadata(
             Error::from(error.to_string())
         })?;
 
-    // Re-resolving a `{{ $.path }}` name only matters when the configured value
-    // is actually a body template; a static/metadata value is unchanged by the
-    // transform and is left as `convert_to_processed_log` already computed it.
-    let app_is_template = configured_app_name.contains("{{");
-    let sub_is_template = configured_sub_name.contains("{{");
+    // Names were resolved before the script ran. A `{{ $.path }}` name is read again
+    // from each transformed body, so a field the script writes (or rewrites per
+    // fanned-out record) drives routing. When the path is missing from the
+    // transformed body, the pre-transform name stands. Metadata templates do not
+    // depend on the body, so they are not re-read.
+    let app_path = body_template_path(configured_app_name);
+    let sub_path = body_template_path(configured_sub_name);
 
     let mut transformed_logs = Vec::with_capacity(processed_logs.len());
-    for ((source_log, record_ctx), transformed_bodies) in processed_logs
-        .into_iter()
-        .zip(record_contexts)
-        .zip(grouped)
-    {
+    for (source_log, transformed_bodies) in processed_logs.into_iter().zip(grouped) {
         for outcome in transformed_bodies {
             let transformed_value = match outcome {
                 // Explicit passthrough marker: the script failed (or the
@@ -397,33 +381,12 @@ async fn transform_processed_logs_after_metadata(
             // what the script produced (including deliberate `to_json`
             // stringification).
             let mut transformed_log = source_log.clone();
-
-            // Re-resolve body-template names against the *transformed* body so a
-            // field the script creates (or changes) after metadata enrichment
-            // drives routing, and each fanned-out record is routed by its own
-            // body. Serialize the body the same way the pre-transform inputs
-            // were serialized above, so the JSON path sees identical shapes.
-            if app_is_template || sub_is_template {
-                if let Ok(serialized) = serde_json::to_string(&transformed_value) {
-                    if app_is_template {
-                        transformed_log.application_name = resolve_configured_name(
-                            &serialized,
-                            configured_app_name,
-                            &record_ctx,
-                            "unknown-application",
-                        );
-                    }
-                    if sub_is_template {
-                        transformed_log.subsystem_name = resolve_configured_name(
-                            &serialized,
-                            configured_sub_name,
-                            &record_ctx,
-                            "unknown-subsystem",
-                        );
-                    }
-                }
+            if let Some(name) = app_path.and_then(|path| value_at_path(&transformed_value, path)) {
+                transformed_log.application_name = name;
             }
-
+            if let Some(name) = sub_path.and_then(|path| value_at_path(&transformed_value, path)) {
+                transformed_log.subsystem_name = name;
+            }
             transformed_log.body = transformed_value;
             transformed_logs.push(transformed_log);
         }
@@ -740,16 +703,7 @@ fn extract_json_value(log: &str, template: &str) -> Option<String> {
     if let Ok(Some(captures)) = JSON_EVALUATION_REGEX.captures(template) {
         if let Some(key_match) = captures.get(1) {
             let key_path = key_match.as_str();
-            if let Some(value) = extract_json_path_value(log, key_path) {
-                return Some(value);
-            }
-            // Path is absent: if the template supplies an inline default
-            // (`{{ $.field || 'fallback' }}`), use it instead of falling
-            // through to the metadata/"unknown" hierarchy.
-            if let Some(fallback) = captures.get(2).or_else(|| captures.get(3)) {
-                return Some(fallback.as_str().to_string());
-            }
-            return None;
+            return extract_json_path_value(log, key_path);
         }
     }
 
@@ -758,62 +712,32 @@ fn extract_json_value(log: &str, template: &str) -> Option<String> {
 }
 
 fn extract_json_path_value(log: &str, key_path: &str) -> Option<String> {
-    // Try to parse the log as JSON
-    if let Ok(json_value) = serde_json::from_str::<Value>(log) {
-        // Split the key path by dots to handle nested objects
-        let keys: Vec<&str> = key_path.split('.').collect();
+    let json_value = serde_json::from_str::<Value>(log).ok()?;
+    value_at_path(&json_value, key_path)
+}
 
-        // Navigate through the JSON structure
-        let mut current = &json_value;
-        for key in keys {
-            match current.get(key) {
-                Some(value) => current = value,
-                None => return None,
-            }
-        }
-
-        // Convert the final value to a string
-        match current {
-            Value::String(s) => Some(s.clone()),
-            Value::Number(n) => Some(n.to_string()),
-            Value::Bool(b) => Some(b.to_string()),
-            _ => None,
-        }
-    } else {
-        None
+/// The scalar at a dotted path, as a string. Objects, arrays and nulls yield None.
+fn value_at_path(json_value: &Value, key_path: &str) -> Option<String> {
+    let mut current = json_value;
+    for key in key_path.split('.') {
+        current = current.get(key)?;
+    }
+    match current {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
     }
 }
 
-/// Resolve an application/subsystem name from a (possibly templated) configured
-/// value against a serialized log body.
-///
-/// Resolution order, matching the original inline logic:
-///   1. `extract_json_value` — a `{{ $.path }}` template read from the body
-///      (honouring an inline `|| 'fallback'` default when the path is absent),
-///      or a direct JSON path.
-///   2. otherwise evaluate the value as a metadata template via `mctx`.
-///   3. on failure, `default_unknown` for templates, or the raw configured
-///      string for non-template literals.
-fn resolve_configured_name(
-    log_body: &str,
-    configured_name: &str,
-    mctx: &process::MetadataContext,
-    default_unknown: &str,
-) -> String {
-    extract_json_value(log_body, configured_name).unwrap_or_else(|| {
-        mctx.evaluate(configured_name.to_string())
-            .unwrap_or_else(|e| {
-                tracing::warn!("name dynamic parsing failed: {}", e);
-                // If it's a template that references a specific metadata key, use defaults
-                // Only use fallback hierarchy for non-template values
-                if configured_name.starts_with("{{") && configured_name.ends_with("}}") {
-                    default_unknown.to_string()
-                } else {
-                    // For non-template values, return the original input string
-                    configured_name.to_string()
-                }
-            })
-    })
+/// The body path of a `{{ $.path }}` name template, or None for any other name.
+fn body_template_path(template: &str) -> Option<&str> {
+    JSON_EVALUATION_REGEX
+        .captures(template)
+        .ok()
+        .flatten()
+        .and_then(|captures| captures.get(1))
+        .map(|path| path.as_str())
 }
 
 fn convert_to_processed_log(
@@ -825,11 +749,35 @@ fn convert_to_processed_log(
 ) -> ProcessedLog {
     let now = OffsetDateTime::now_utc();
 
-    let application_name =
-        resolve_configured_name(&log, configured_app_name, mctx, "unknown-application");
+    let application_name = extract_json_value(&log, configured_app_name).unwrap_or_else(|| {
+        mctx.evaluate(configured_app_name.to_string())
+            .unwrap_or_else(|e| {
+                tracing::warn!("application name dynamic parsing failed: {}", e);
+                // If it's a template that references a specific metadata key, use defaults
+                // Only use fallback hierarchy for non-template values
+                if configured_app_name.starts_with("{{") && configured_app_name.ends_with("}}") {
+                    "unknown-application".to_string()
+                } else {
+                    // For non-template values, return the original input string
+                    configured_app_name.to_string()
+                }
+            })
+    });
 
-    let subsystem_name =
-        resolve_configured_name(&log, configured_sub_name, mctx, "unknown-subsystem");
+    let subsystem_name = extract_json_value(&log, configured_sub_name).unwrap_or_else(|| {
+        mctx.evaluate(configured_sub_name.to_string())
+            .unwrap_or_else(|e| {
+                tracing::warn!("subsystem name dynamic parsing failed: {}", e);
+                // If it's a template that references a specific metadata key, use defaults
+                // Only use fallback hierarchy for non-template values
+                if configured_sub_name.starts_with("{{") && configured_sub_name.ends_with("}}") {
+                    "unknown-subsystem".to_string()
+                } else {
+                    // For non-template values, return the original input string
+                    configured_sub_name.to_string()
+                }
+            })
+    });
 
     tracing::debug!("App Name: {}", &application_name);
     tracing::debug!("Sub Name: {}", &subsystem_name);
@@ -1152,6 +1100,82 @@ def transform(event):
         );
     }
 
+    // CDS-3217: names must come from fields the post-metadata script writes. The
+    // script copies OTel resource attributes to root fields the name templates
+    // read, and falls back to fixed names for logs without them.
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_names_come_from_fields_the_script_writes() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    log = event.get("message", {})
+    attrs = log.get("resource", {}).get("attributes", {}) if type(log) == "dict" else {}
+    event["cx_application_name"] = attrs.get("cx.application.name", "kinesis")
+    event["cx_subsystem_name"] = attrs.get("cx.subsystem.name", "kinesis-logs")
+    return [event]
+"#,
+        );
+        let metadata = || metadata_context([(KINESIS_SOURCE_ARN_KEY, KINESIS_SOURCE_ARN)]);
+        let logs = capture_logs_with_metadata(
+            &config,
+            vec![
+                LogWithMeta {
+                    log: r#"{"msg":"legacy format"}"#.to_string(),
+                    mctx: metadata(),
+                },
+                LogWithMeta {
+                    log: r#"{"body":"otel","resource":{"attributes":{"cx.application.name":"payments","cx.subsystem.name":"api"}}}"#.to_string(),
+                    mctx: metadata(),
+                },
+            ],
+            "{{ $.cx_application_name }}",
+            "{{ $.cx_subsystem_name }}",
+        )
+        .await;
+
+        let names = logs
+            .iter()
+            .map(|log| (log.application_name.as_str(), log.subsystem_name.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec![("kinesis", "kinesis-logs"), ("payments", "api")]
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn post_metadata_fan_out_names_each_record_from_its_own_body() {
+        let config = starlark_config(
+            KINESIS_SOURCE_ARN_KEY,
+            true,
+            r#"
+def transform(event):
+    return [{"app": "primary"}, {"app": "secondary"}, {"no_app": True}]
+"#,
+        );
+        let logs = capture_logs_with_metadata(
+            &config,
+            vec![LogWithMeta {
+                log: r#"{"app":"original"}"#.to_string(),
+                mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, "stream-A")]),
+            }],
+            "{{ $.app }}",
+            "sub",
+        )
+        .await;
+
+        // The third record has no `app`, so it keeps the pre-transform name.
+        let names = logs
+            .iter()
+            .map(|log| log.application_name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["primary", "secondary", "original"]);
+    }
+
     #[tokio::test]
     #[serial]
     async fn post_metadata_starlark_preserves_record_context_during_fan_out() {
@@ -1195,19 +1219,12 @@ def transform(event):
                 )
             })
             .collect::<Vec<_>>();
-        // `{{ $.route }}` is re-resolved AFTER fan-out against each record's
-        // transformed body. The script nests `route` under `message`, so the
-        // top-level `$.route` path is absent on every transformed body (original
-        // and fanned-out copy alike) and resolution falls back to the template
-        // default `unknown-application` — instead of the stale pre-fan-out
-        // `before-a` / `before-b`. `sub` is a static value, unchanged by the
-        // transform, and severity is still the pre-transform detection.
         assert_eq!(
             routing,
             vec![
-                ("unknown-application", "sub", LogSeverity::Critical),
-                ("unknown-application", "sub", LogSeverity::Critical),
-                ("unknown-application", "sub", LogSeverity::Info),
+                ("before-a", "sub", LogSeverity::Critical),
+                ("before-a", "sub", LogSeverity::Critical),
+                ("before-b", "sub", LogSeverity::Info),
             ]
         );
         assert_eq!(logs[0].timestamp, logs[1].timestamp);
@@ -1223,77 +1240,6 @@ def transform(event):
                     "message": {"route": "after", "level": "info"},
                     "observed_metadata": "stream-B",
                 }),
-            ]
-        );
-    }
-
-    #[test]
-    fn extract_json_value_returns_inline_fallback_when_path_is_absent() {
-        // The body has no `route` field, so the `{{ $.path }}` lookup misses and
-        // the inline `|| 'fallback'` literal is returned instead of `None`. This
-        // is the regex/`extract_json_value` support that lets a configured name
-        // like `{{ $.route || 'default-app' }}` degrade gracefully.
-        let body = r#"{"level":"info"}"#;
-
-        assert_eq!(
-            extract_json_value(body, "{{ $.route || 'default-app' }}"),
-            Some("default-app".to_string())
-        );
-        // Double-quoted literal form is honoured identically.
-        assert_eq!(
-            extract_json_value(body, r#"{{ $.route || "default-app" }}"#),
-            Some("default-app".to_string())
-        );
-        // When the path IS present the real value wins over the fallback.
-        assert_eq!(
-            extract_json_value(r#"{"route":"real"}"#, "{{ $.route || 'default-app' }}"),
-            Some("real".to_string())
-        );
-        // Without an inline fallback an absent path still yields `None`.
-        assert_eq!(extract_json_value(body, "{{ $.route }}"), None);
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn post_metadata_fan_out_reresolves_names_from_transformed_body() {
-        // A body-template name (`{{ $.app }}`) must be re-resolved from each
-        // fanned-out record's *transformed* body, not from stale pre-fan-out
-        // values. The script rewrites `app` per emitted record, so each exported
-        // log is routed by the field value the script actually produced for it.
-        let config = starlark_config(
-            KINESIS_SOURCE_ARN_KEY,
-            true,
-            r#"
-def transform(event):
-    return [
-        {"app": "primary", "n": 1},
-        {"app": "secondary", "n": 2},
-    ]
-"#,
-        );
-        let logs = capture_logs_with_metadata(
-            &config,
-            vec![LogWithMeta {
-                log: r#"{"app":"original"}"#.to_string(),
-                mctx: metadata_context([(KINESIS_SOURCE_ARN_KEY, "stream-A")]),
-            }],
-            "{{ $.app }}",
-            "sub",
-        )
-        .await;
-
-        // Two fanned-out records, each routed by its own transformed `app` field,
-        // never the pre-fan-out `original`.
-        let app_names = logs
-            .iter()
-            .map(|log| log.application_name.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(app_names, vec!["primary", "secondary"]);
-        assert_eq!(
-            logs.iter().map(|log| log.body.clone()).collect::<Vec<_>>(),
-            vec![
-                serde_json::json!({"app": "primary", "n": 1}),
-                serde_json::json!({"app": "secondary", "n": 2}),
             ]
         );
     }
