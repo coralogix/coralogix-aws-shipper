@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.5.2 / 2026-11-12
+
+### 💡 Enhancements 💡
+
+- Add support for US3 region
+
 ## v1.5.1 / 2026-11-08
 
 ### 🧰 Bug fixes 🧰
