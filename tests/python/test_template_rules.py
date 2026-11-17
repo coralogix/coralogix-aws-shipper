@@ -122,6 +122,33 @@ class TemplateContractTest(unittest.TestCase):
             {"Ref": "StarlarkTransformAfterMetadata"},
         )
 
+    def test_govcloud_roles_take_the_permissions_boundary(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        document = load_template(repository_root / "template-govcloud.yaml")
+
+        parameter = document["Parameters"]["PermissionsBoundaryArn"]
+        self.assertEqual(parameter["Default"], "")
+
+        roles = {
+            name: resource
+            for name, resource in document["Resources"].items()
+            if resource["Type"] == "AWS::IAM::Role"
+        }
+        self.assertTrue(roles)
+        for name, role in roles.items():
+            with self.subTest(role=name):
+                self.assertEqual(
+                    role["Properties"].get("PermissionsBoundary"),
+                    {
+                        "Fn::If": [
+                            "HasPermissionsBoundary",
+                            {"Ref": "PermissionsBoundaryArn"},
+                            {"Ref": "AWS::NoValue"},
+                        ]
+                    },
+                )
+
+
 
 class OtlpPrivateLinkRuleTest(unittest.TestCase):
     def test_template_loader_restores_fake_boto3_module(self) -> None:
