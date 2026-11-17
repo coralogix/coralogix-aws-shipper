@@ -130,9 +130,7 @@ class TemplateContractTest(unittest.TestCase):
         self.assertEqual(parameter["Default"], "")
 
         roles = {
-            name: resource
-            for name, resource in document["Resources"].items()
-            if resource["Type"] == "AWS::IAM::Role"
+            name: resource for name, resource in document["Resources"].items() if resource["Type"] == "AWS::IAM::Role"
         }
         self.assertTrue(roles)
         for name, role in roles.items():
@@ -147,7 +145,6 @@ class TemplateContractTest(unittest.TestCase):
                         ]
                     },
                 )
-
 
 
 class OtlpPrivateLinkRuleTest(unittest.TestCase):
