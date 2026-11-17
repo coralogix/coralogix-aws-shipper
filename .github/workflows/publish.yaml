@@ -298,16 +298,15 @@ jobs:
           name: packaged.yaml
           path: packaged.yaml
 
-      # GovCloud is a separate partition, so publish-govcloud cannot read the
-      # commercial bucket. Hand the zip over as a workflow artifact instead.
+      # Staged in the commercial bucket under an immutable key, with its .sha256 and
+      # this commit in its metadata. publish-govcloud.yaml copies these exact bytes to
+      # the GovCloud distribution account after the release, so GovCloud never gets a
+      # second build of the same version.
       #
-      # The zip is reproducible given the same bootstrap, but the bootstrap is not:
-      # it is rebuilt in a mutable environment -- builder image, toolchain, registry.
-      # Uploads are conditional per key, so a run that published one GovCloud region
-      # and failed the other would, on retry, leave the two regions serving different
-      # binaries under one version. Publishing the artifact to an immutable key here
-      # and staging from it makes the first run's bytes the only ones that ship, which
-      # is what the commercial path does for the same reason.
+      # The zip is reproducible given the same bootstrap, but the bootstrap is not: it
+      # is rebuilt in a mutable environment -- builder image, toolchain, registry.
+      # Staging the first run's bytes under a write-once key makes them the only ones
+      # that ship, which is what the commercial path does for the same reason.
       - name: stage-${{ matrix.target }}-govcloud-zip-immutably
         if: ${{ env.RELEASING == 'true' }}
         run: |
@@ -315,18 +314,6 @@ jobs:
           bash ci/upload-versioned.sh \
             "coralogix-aws-shipper-govcloud-${{ matrix.target }}.zip" \
             "${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}" "$key"
-
-          # Whatever is actually published, which on a retry is the first run's bytes.
-          aws s3 cp \
-            "s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/$key" \
-            coralogix-aws-shipper-${{ matrix.target }}.zip
-
-      - name: store-${{ matrix.target }}-zip-for-govcloud
-        if: ${{ env.RELEASING == 'true' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: govcloud-${{ matrix.target }}
-          path: coralogix-aws-shipper-${{ matrix.target }}.zip
 
   publish:
     name: publish
@@ -493,146 +480,16 @@ jobs:
             fi
           fi
 
-  publish-govcloud:
-    name: publish-govcloud
-    # Behind publish, not beside it: publish settles whether this commit may release this
-    # version, and without that gate a rejected commit could still write GovCloud's
-    # immutable artifacts. Naming the result matters on workflow_dispatch, where a
-    # disjunct that is simply true would otherwise run this past a failed publish.
-    needs: [check_version, build, publish]
-    # Off unless the GOVCLOUD_PUBLISH repository variable is 'true': a release does not
-    # reach GovCloud by default, and while the variable is unset this job is skipped
-    # before any credentials are requested.
-    #
-    # Publishes to the GovCloud distribution account, outside the FedRAMP boundary. The
-    # role, bucket prefix and regions come from the govcloud environment's variables
-    # (GOVCLOUD_ROLE_ARN, GOVCLOUD_BUCKET_PREFIX, GOVCLOUD_REGIONS). Only versioned keys
-    # are written: the buckets refuse overwrites, so an unversioned "latest" key could
-    # never move after its first write. To release a version to GovCloud, set the
-    # variable to 'true' before merging its release PR, check that every region received
-    # the versioned keys and their .sha256 files, then unset the variable.
-    if: ${{ !cancelled() && vars.GOVCLOUD_PUBLISH == 'true'
-            && needs.build.result == 'success' && needs.publish.result == 'success'
-            && github.ref == 'refs/heads/master'
-            && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
-    runs-on: ubuntu-latest
-    # The distribution account's role trusts only this environment's sub claim. The
-    # environment requires a reviewer, so every GovCloud publish is approved.
-    environment: govcloud
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      # Before any credentials are requested, so a misconfigured environment fails here
-      # instead of halfway through an upload.
-      - name: check govcloud configuration
-        id: config
-        env:
-          ROLE_ARN: ${{ vars.GOVCLOUD_ROLE_ARN }}
-          BUCKET_PREFIX: ${{ vars.GOVCLOUD_BUCKET_PREFIX }}
-          REGIONS: ${{ vars.GOVCLOUD_REGIONS }}
-        run: |
-          set -euo pipefail
-          # Surrounding whitespace is dropped; anything else must be a valid value.
-          trim() { printf '%s' "$1" | tr '\n' ' ' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g'; }
-          role_arn=$(trim "$ROLE_ARN")
-          bucket_prefix=$(trim "$BUCKET_PREFIX")
-          [ -n "$role_arn" ] || { echo "::error::GOVCLOUD_ROLE_ARN is not set on the govcloud environment."; exit 1; }
-          [ -n "$bucket_prefix" ] || { echo "::error::GOVCLOUD_BUCKET_PREFIX is not set on the govcloud environment."; exit 1; }
-          [[ $role_arn =~ ^arn:aws-us-gov:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]] || { echo "::error::GOVCLOUD_ROLE_ARN '$role_arn' is not a GovCloud IAM role ARN."; exit 1; }
-          [[ $bucket_prefix =~ ^[a-z0-9][a-z0-9.-]*$ ]] || { echo "::error::GOVCLOUD_BUCKET_PREFIX '$bucket_prefix' is not a valid bucket name prefix."; exit 1; }
-
-          # Space- or newline-separated.
-          read -ra regions <<<"$(tr '\n' ' ' <<<"$REGIONS")"
-          [ "${#regions[@]}" -gt 0 ] || { echo "::error::GOVCLOUD_REGIONS is not set on the govcloud environment."; exit 1; }
-          for region in "${regions[@]}"; do
-            case "$region" in
-              us-gov-west-1|us-gov-east-1) ;;
-              *) echo "::error::GOVCLOUD_REGIONS has '$region'; allowed: us-gov-west-1, us-gov-east-1."; exit 1 ;;
-            esac
-          done
-
-          {
-            echo "role_arn=$role_arn"
-            echo "bucket_prefix=$bucket_prefix"
-            echo "regions=${regions[*]}"
-            echo "first_region=${regions[0]}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: checkout
-        uses: actions/checkout@v7
-
-      - uses: aws-actions/configure-aws-credentials@v6
-        with:
-          audience: sts.amazonaws.com
-          role-to-assume: ${{ steps.config.outputs.role_arn }}
-          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
-          aws-region: ${{ steps.config.outputs.first_region }}
-
-      - name: download govcloud zips
-        uses: actions/download-artifact@v8
-        with:
-          pattern: govcloud-*
-          merge-multiple: true
-
-      - name: install yq
-        run: sudo snap install yq
-
-      - name: get_version
-        run: |
-          echo "current_version=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)" >> "$GITHUB_ENV"
-
-      - name: upload
-        env:
-          BUCKET_PREFIX: ${{ steps.config.outputs.bucket_prefix }}
-          REGIONS: ${{ steps.config.outputs.regions }}
-        run: |
-          set -euo pipefail
-          # Pinned mtime and -X: zip stores timestamps, so without these the same
-          # source produces a different archive on every run.
-          TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
-          zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
-
-          # Uploaded per region rather than relying on replication, so a missing
-          # replication rule cannot leave a region without artifacts. upload-versioned.sh
-          # writes each key and its .sha256 with If-None-Match: *, which the buckets
-          # require, so a re-run skips what is already there.
-          for region in $REGIONS; do
-            # Both: configure-aws-credentials exports AWS_REGION, which the CLI prefers
-            # over AWS_DEFAULT_REGION. Setting only the latter left the us-gov-east-1
-            # calls addressed to the us-gov-west-1 endpoint, reaching the right bucket
-            # only through a cross-region redirect.
-            export AWS_DEFAULT_REGION="$region" AWS_REGION="$region"
-            bucket="${BUCKET_PREFIX}-${region}"
-
-            for arch in arm64 x86-64; do
-              bash ci/upload-versioned.sh \
-                "coralogix-aws-shipper-${arch}.zip" \
-                "$bucket" "coralogix-aws-shipper-${arch}-${current_version}.zip"
-            done
-
-            # template-govcloud.yaml reads the versioned custom resource key; there is no
-            # unversioned one.
-            bash ci/upload-versioned.sh custom-resource-govcloud.zip \
-              "$bucket" "coralogix-aws-shipper-custom-resource-govcloud-${current_version}.zip"
-          done
-
-  # Tagged only once publish has succeeded and publish-govcloud has succeeded or was
-  # skipped by the GOVCLOUD_PUBLISH switch. template-govcloud.yaml resolves its
-  # Lambda code to versioned keys -- this release's, unless its Release mapping is held
-  # back for a GovCloud opt-in release -- so a tag created any earlier can point at
-  # artifacts that do not exist yet, and would keep pointing at them if a publish
-  # failed.
+  # Tagged only once publish has succeeded, so a tag never points at artifacts that do
+  # not exist yet. GovCloud is published separately by publish-govcloud.yaml, after this
+  # run, so a GovCloud approval or failure never holds back the commercial tag or sync.
   tag:
     name: tag
-    needs: [check_version, publish, publish-govcloud]
+    needs: [check_version, publish]
     # check_version is skipped on workflow_dispatch, leaving template_updated empty, so
     # requiring it would leave a dispatched recovery run permanently untagged -- and
     # dispatch is the only way to finish a release that died after its artifacts went up.
-    # publish-govcloud is skipped while GOVCLOUD_PUBLISH is off, and that must not leave
-    # the commercial release untagged; a GovCloud run that fails still blocks the tag.
     if: ${{ !cancelled() && needs.publish.result == 'success'
-            && contains(fromJSON('["success", "skipped"]'), needs['publish-govcloud'].result)
             && github.ref == 'refs/heads/master'
             && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
