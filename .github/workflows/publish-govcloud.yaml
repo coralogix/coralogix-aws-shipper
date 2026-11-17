@@ -1,0 +1,303 @@
+name: Publish GovCloud
+
+# Copies a released version's GovCloud artifacts to the GovCloud distribution account,
+# outside the FedRAMP boundary. Runs after a successful Publish run on master while the
+# GOVCLOUD_PUBLISH repository variable is 'true', or by hand for any released version.
+#
+# Nothing is built here. Publish already built the GovCloud ZIPs (validated AWS-LC FIPS
+# module) and the GovCloud custom resource, and staged them in the commercial bucket
+# under write-once keys with a .sha256 and the release commit in their metadata. This
+# workflow checks those three things and uploads the same bytes, so GovCloud never gets
+# a second build of a version.
+#
+# Kept out of Publish so that a GovCloud approval, rejection or failure never holds back
+# the commercial tag or the CloudFormation sync. Uploading does not release a version to
+# GovCloud customers: template-govcloud.yaml's Release mapping decides what they deploy.
+
+on:
+  workflow_run:
+    workflows: [Publish]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Released version to publish to GovCloud, e.g. 1.5.3
+        required: true
+
+# One run per version: a group keeps only one run pending, so a shared group would let a
+# later release evict an earlier one before it was published.
+concurrency:
+  group: publish-govcloud-${{ inputs.version || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+env:
+  # Where Publish stages the GovCloud artifacts (its AWS_SERVERLESS_BUCKET-AWS_DEFAULT_REGION).
+  STAGING_URL: https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com
+
+jobs:
+  # Finds the version and its release commit, verifies the staged artifacts and asks for
+  # approval. No credentials and no approval yet: when the Publish run released nothing,
+  # this ends the run without asking anyone.
+  verify:
+    if: ${{ github.event_name == 'workflow_dispatch'
+            || (vars.GOVCLOUD_PUBLISH == 'true'
+                && github.event.workflow_run.conclusion == 'success'
+                && github.event.workflow_run.head_branch == 'master') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
+      digests: ${{ steps.verified.outputs.digests }}
+    steps:
+      - name: find the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          # GitHub API call with retries. Exit 4 only on a confirmed 404; any other
+          # failure is reported and fails the run, so an outage can never look like
+          # "nothing was released".
+          api() {
+            local attempt out
+            for attempt in 1 2 3; do
+              if out=$(gh api "$@" 2>api.err); then printf '%s' "$out"; return 0; fi
+              if grep -q 'HTTP 404' api.err; then return 4; fi
+              echo "::warning::gh api $1 failed (attempt $attempt of 3): $(cat api.err)" >&2
+              sleep $((attempt * 5))
+            done
+            echo "::error::gh api $1 failed: $(cat api.err)" >&2
+            return 1
+          }
+
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            version=$(tr -d '[:space:]' <<<"$INPUT_VERSION")
+          else
+            # Every push that touches template.yaml runs Publish, but only a version bump
+            # releases. The tag job tags the release commit as its last step, so a tag on
+            # this commit is the sign that this run released.
+            template=$(api "repos/$GITHUB_REPOSITORY/contents/template.yaml?ref=$HEAD_SHA" \
+              -H 'Accept: application/vnd.github.raw') \
+              || { echo "::error::Can't read template.yaml at $HEAD_SHA."; exit 1; }
+            version=$(sed -n 's/^ *SemanticVersion: *//p' <<<"$template" | head -1 | tr -d "\"' ")
+          fi
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$version' is not a version like 1.5.3."; exit 1; }
+
+          # The tag names the release commit; peel an annotated tag to its commit.
+          rc=0
+          ref=$(api "repos/$GITHUB_REPOSITORY/git/ref/tags/$version") || rc=$?
+          [ "$rc" -eq 0 ] || [ "$rc" -eq 4 ] || exit 1
+          if [ "$rc" -eq 4 ]; then
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              echo "::error::$version has no tag, so it was not released."; exit 1
+            fi
+            echo "Publish run on $HEAD_SHA released nothing (no $version tag); nothing to do."
+            exit 0
+          fi
+          commit=$(jq -r '.object.sha' <<<"$ref")
+          if [ "$(jq -r '.object.type' <<<"$ref")" = tag ]; then
+            commit=$(api "repos/$GITHUB_REPOSITORY/git/tags/$commit" --jq '.object.sha') \
+              || { echo "::error::Can't read annotated tag $version."; exit 1; }
+          fi
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] && [ "$commit" != "$HEAD_SHA" ]; then
+            echo "Tag $version names $commit, not $HEAD_SHA: this run did not release it; nothing to do."
+            exit 0
+          fi
+
+          echo "Publishing $version ($commit) to GovCloud."
+          { echo "version=$version"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
+
+      # Before the approval: reviewers are only asked once the artifacts have passed
+      # these checks, and nothing here touches GovCloud.
+      - name: download and verify the staged artifacts
+        id: verified
+        if: ${{ steps.release.outputs.version != '' }}
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Staged key -> GovCloud key.
+          while read -r staged published; do
+            curl -fsS --retry 3 -o "dist/$staged" "$STAGING_URL/$staged"
+            curl -fsS --retry 3 -o "dist/$staged.sha256" "$STAGING_URL/$staged.sha256"
+
+            # The sidecar must be exactly one "<sha256>  <this file's name>" line, and that
+            # digest must match this download. sha256sum -c alone would check whatever
+            # file the sidecar names, which could be a different, already-verified one.
+            sidecar=$(cat "dist/$staged.sha256")
+            if [ "$(wc -l < "dist/$staged.sha256")" -gt 1 ] \
+              || ! [[ $sidecar =~ ^([0-9a-f]{64})\ [\ *]([^[:space:]]+)$ ]] \
+              || [ "${BASH_REMATCH[2]}" != "$staged" ]; then
+              echo "::error::$staged.sha256 is not a single checksum line for $staged: '$sidecar'"
+              exit 1
+            fi
+            expected=${BASH_REMATCH[1]}
+            actual=$(sha256sum "dist/$staged" | cut -d' ' -f1)
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$staged has SHA-256 $actual, but its .sha256 says $expected."
+              exit 1
+            fi
+            echo "$staged: SHA-256 $actual matches"
+
+            # Publish records the commit that built each staged artifact.
+            owner=$(curl -fsSI --retry 3 "$STAGING_URL/$staged" | tr -d '\r' \
+              | sed -n 's/^x-amz-meta-commit: *//Ip')
+            if [ "$owner" != "$COMMIT" ]; then
+              echo "::error::$staged was built by '$owner', not the $VERSION release commit $COMMIT."
+              exit 1
+            fi
+
+            if [ "$staged" != "$published" ]; then
+              mv "dist/$staged" "dist/$published"
+            fi
+          done <<EOF
+          coralogix-aws-shipper-govcloud-arm64-$VERSION.zip coralogix-aws-shipper-arm64-$VERSION.zip
+          coralogix-aws-shipper-govcloud-x86-64-$VERSION.zip coralogix-aws-shipper-x86-64-$VERSION.zip
+          coralogix-aws-shipper-custom-resource-govcloud-$VERSION.zip coralogix-aws-shipper-custom-resource-govcloud-$VERSION.zip
+          EOF
+
+          # "<sha256> <file>" per verified file, for the publish job to check again.
+          echo "digests=$(cd dist && sha256sum ./*.zip | sed 's#  \./# #' | paste -sd, -)" >> "$GITHUB_OUTPUT"
+
+      # The publish job uploads these verified files; it does not download again.
+      - name: keep the verified artifacts
+        if: ${{ steps.release.outputs.version != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: govcloud-dist
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      # Tells the approvers there is a deployment waiting. A missing webhook or a Slack
+      # error only warns: the approval request on GitHub still stands.
+      - name: notify the approvers
+        if: ${{ steps.release.outputs.version != '' }}
+        timeout-minutes: 2
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.GOV_APPROVERS_SLACK }}
+          VERSION: ${{ steps.release.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            echo "::warning::GOV_APPROVERS_SLACK is not set; no Slack notification sent."
+            exit 0
+          fi
+          jq -n --arg text "GovCloud publication of shipper $VERSION is verified and awaiting approval: $RUN_URL" '{text: $text}' \
+            | curl -fsS --connect-timeout 5 --max-time 15 --retry 2 -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL" >/dev/null \
+            || echo "::warning::Slack notification failed; the approval request on GitHub still stands."
+
+  publish:
+    needs: verify
+    if: ${{ needs.verify.outputs.version != '' }}
+    runs-on: ubuntu-latest
+    # The distribution account's role trusts only this environment's sub claim, and the
+    # environment requires a reviewer, so every GovCloud upload is approved.
+    environment: govcloud
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      COMMIT: ${{ needs.verify.outputs.commit }}
+    steps:
+      # Before any credentials are requested, so a misconfigured environment fails here
+      # instead of halfway through an upload.
+      - name: check govcloud configuration
+        id: config
+        env:
+          ROLE_ARN: ${{ vars.GOVCLOUD_ROLE_ARN }}
+          BUCKET_PREFIX: ${{ vars.GOVCLOUD_BUCKET_PREFIX }}
+          REGIONS: ${{ vars.GOVCLOUD_REGIONS }}
+        run: |
+          set -euo pipefail
+          # Surrounding whitespace is dropped; anything else must be a valid value.
+          trim() { printf '%s' "$1" | tr '\n' ' ' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g'; }
+          role_arn=$(trim "$ROLE_ARN")
+          bucket_prefix=$(trim "$BUCKET_PREFIX")
+          [ -n "$role_arn" ] || { echo "::error::GOVCLOUD_ROLE_ARN is not set on the govcloud environment."; exit 1; }
+          [ -n "$bucket_prefix" ] || { echo "::error::GOVCLOUD_BUCKET_PREFIX is not set on the govcloud environment."; exit 1; }
+          [[ $role_arn =~ ^arn:aws-us-gov:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]] || { echo "::error::GOVCLOUD_ROLE_ARN '$role_arn' is not a GovCloud IAM role ARN."; exit 1; }
+          [[ $bucket_prefix =~ ^[a-z0-9][a-z0-9.-]*$ ]] || { echo "::error::GOVCLOUD_BUCKET_PREFIX '$bucket_prefix' is not a valid bucket name prefix."; exit 1; }
+
+          # Space- or newline-separated.
+          read -ra regions <<<"$(tr '\n' ' ' <<<"$REGIONS")"
+          [ "${#regions[@]}" -gt 0 ] || { echo "::error::GOVCLOUD_REGIONS is not set on the govcloud environment."; exit 1; }
+          for region in "${regions[@]}"; do
+            case "$region" in
+              us-gov-west-1|us-gov-east-1) ;;
+              *) echo "::error::GOVCLOUD_REGIONS has '$region'; allowed: us-gov-west-1, us-gov-east-1."; exit 1 ;;
+            esac
+          done
+
+          {
+            echo "role_arn=$role_arn"
+            echo "bucket_prefix=$bucket_prefix"
+            echo "regions=${regions[*]}"
+            echo "first_region=${regions[0]}"
+          } >> "$GITHUB_OUTPUT"
+
+      # For ci/upload-versioned.sh only.
+      - name: checkout
+        uses: actions/checkout@v7
+
+      - name: get the verified artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: govcloud-dist
+          path: dist
+
+      # The artifact store only warns on a digest mismatch; fail on one instead, and on a
+      # missing or extra file, so exactly the verified bytes are uploaded.
+      - name: check the verified artifacts
+        env:
+          DIGESTS: ${{ needs.verify.outputs.digests }}
+        run: |
+          set -euo pipefail
+          [ -n "$DIGESTS" ] || { echo "::error::No verified digests from the verify job."; exit 1; }
+          expected=$(tr ',' '\n' <<<"$DIGESTS" | sort)
+          actual=$(cd dist && sha256sum ./*.zip | sed 's#  \./# #' | sort)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::The artifacts differ from what was verified."
+            diff <(echo "$expected") <(echo "$actual") || true
+            exit 1
+          fi
+          echo "$actual"
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          audience: sts.amazonaws.com
+          role-to-assume: ${{ steps.config.outputs.role_arn }}
+          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
+          aws-region: ${{ steps.config.outputs.first_region }}
+
+      - name: upload
+        env:
+          BUCKET_PREFIX: ${{ steps.config.outputs.bucket_prefix }}
+          REGIONS: ${{ steps.config.outputs.regions }}
+        run: |
+          set -euo pipefail
+          # Uploaded per region rather than relying on replication, so a missing
+          # replication rule cannot leave a region without artifacts. upload-versioned.sh
+          # writes each key and its .sha256 with If-None-Match: *, which the buckets
+          # require, so a re-run skips what is already there. The release commit, not
+          # this run's, is recorded as each key's owner, so a later manual run for the
+          # same version is not mistaken for a different build.
+          for region in $REGIONS; do
+            # Both: configure-aws-credentials exports AWS_REGION, which the CLI prefers
+            # over AWS_DEFAULT_REGION.
+            export AWS_DEFAULT_REGION="$region" AWS_REGION="$region"
+            bucket="${BUCKET_PREFIX}-${region}"
+            for key in \
+              "coralogix-aws-shipper-arm64-$VERSION.zip" \
+              "coralogix-aws-shipper-x86-64-$VERSION.zip" \
+              "coralogix-aws-shipper-custom-resource-govcloud-$VERSION.zip"; do
+              GITHUB_SHA="$COMMIT" bash ci/upload-versioned.sh "dist/$key" "$bucket" "$key"
+            done
+          done

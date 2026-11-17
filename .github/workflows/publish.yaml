@@ -298,16 +298,15 @@ jobs:
           name: packaged.yaml
           path: packaged.yaml
 
-      # GovCloud is a separate partition, so publish-govcloud cannot read the
-      # commercial bucket. Hand the zip over as a workflow artifact instead.
+      # Staged in the commercial bucket under an immutable key, with its .sha256 and
+      # this commit in its metadata. publish-govcloud.yaml copies these exact bytes to
+      # the GovCloud distribution account after the release, so GovCloud never gets a
+      # second build of the same version.
       #
-      # The zip is reproducible given the same bootstrap, but the bootstrap is not:
-      # it is rebuilt in a mutable environment -- builder image, toolchain, registry.
-      # Uploads are conditional per key, so a run that published one GovCloud region
-      # and failed the other would, on retry, leave the two regions serving different
-      # binaries under one version. Publishing the artifact to an immutable key here
-      # and staging from it makes the first run's bytes the only ones that ship, which
-      # is what the commercial path does for the same reason.
+      # The zip is reproducible given the same bootstrap, but the bootstrap is not: it
+      # is rebuilt in a mutable environment -- builder image, toolchain, registry.
+      # Staging the first run's bytes under a write-once key makes them the only ones
+      # that ship, which is what the commercial path does for the same reason.
       - name: stage-${{ matrix.target }}-govcloud-zip-immutably
         if: ${{ env.RELEASING == 'true' }}
         run: |
@@ -315,18 +314,6 @@ jobs:
           bash ci/upload-versioned.sh \
             "coralogix-aws-shipper-govcloud-${{ matrix.target }}.zip" \
             "${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}" "$key"
-
-          # Whatever is actually published, which on a retry is the first run's bytes.
-          aws s3 cp \
-            "s3://${{ env.AWS_SERVERLESS_BUCKET }}-${{ env.AWS_DEFAULT_REGION }}/$key" \
-            coralogix-aws-shipper-${{ matrix.target }}.zip
-
-      - name: store-${{ matrix.target }}-zip-for-govcloud
-        if: ${{ env.RELEASING == 'true' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: govcloud-${{ matrix.target }}
-          path: coralogix-aws-shipper-${{ matrix.target }}.zip
 
   publish:
     name: publish
@@ -493,139 +480,16 @@ jobs:
             fi
           fi
 
-  publish-govcloud:
-    name: publish-govcloud
-    # Behind publish, not beside it: publish settles whether this commit may release this
-    # version, and without that gate a rejected commit could still write GovCloud's
-    # immutable artifacts.
-    needs: [check_version, build, publish]
-    # As publish above, plus publish itself: it settles whether this commit may release
-    # this version, and without waiting for it a rejected commit could still write
-    # GovCloud's immutable artifacts. Naming the result matters on workflow_dispatch,
-    # where a disjunct that is simply true would otherwise run this past a failed publish.
-    #
-    # Off unless the GOVCLOUD_PUBLISH repository variable is 'true': a release no longer
-    # reaches GovCloud by default, and while the variable is unset this job is skipped
-    # before any credentials are requested. The switch does not hold
-    # template-govcloud.yaml back; the release PR has to leave that mapping alone.
-    # To release a version to GovCloud: set the mapping to that version in its release
-    # PR, set the variable to 'true' before merging, check that both GovCloud regions
-    # received the versioned and unversioned keys, then unset the variable. Backfilling
-    # a version that was already released without GovCloud is not covered here: its
-    # versioned keys are owned by the release commit, so it needs its own procedure.
-    if: ${{ !cancelled() && vars.GOVCLOUD_PUBLISH == 'true'
-            && needs.build.result == 'success' && needs.publish.result == 'success'
-            && github.ref == 'refs/heads/master'
-            && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
-    runs-on: ubuntu-latest
-    # Trust policy on the publish role matches this environment's sub claim.
-    environment: govcloud
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: checkout
-        uses: actions/checkout@v7
-
-      - uses: aws-actions/configure-aws-credentials@v6
-        with:
-          audience: sts.amazonaws.com
-          role-to-assume: arn:aws-us-gov:iam::309801239943:role/coralogix-serverless-repo-publisher
-          role-session-name: coralogix-aws-shipper-${{ github.run_id }}
-          aws-region: us-gov-west-1
-
-      - name: download govcloud zips
-        uses: actions/download-artifact@v8
-        with:
-          pattern: govcloud-*
-          merge-multiple: true
-
-      - name: install yq
-        run: sudo snap install yq
-
-      - name: get_version
-        run: |
-          echo "current_version=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)" >> $GITHUB_ENV
-          # The release GovCloud deploys by default. tests.yaml holds it at or behind the
-          # SemanticVersion above, and it is what the unversioned keys have to track.
-          echo "govcloud_version=$(yq -r '.Mappings.Release.Shipper.Version' template-govcloud.yaml)" >> $GITHUB_ENV
-
-      - name: upload
-        run: |
-          # Pinned mtime and -X: zip stores timestamps, so without these the same
-          # source produces a different archive on every run.
-          TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
-          zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
-
-          # Uploaded per region rather than relying on replication, so a missing
-          # replication rule cannot leave a region without artifacts. Versioned
-          # keys are immutable, so a replicated object makes this a no-op.
-          for region in us-gov-west-1 us-gov-east-1; do
-            # Both: configure-aws-credentials exports AWS_REGION, which the CLI prefers
-            # over AWS_DEFAULT_REGION. Setting only the latter left the us-gov-east-1
-            # calls addressed to the us-gov-west-1 endpoint, reaching the right bucket
-            # only through a cross-region redirect.
-            export AWS_DEFAULT_REGION="$region" AWS_REGION="$region"
-            bucket="coralogix-serverless-repo-${region}"
-
-            for arch in arm64 x86-64; do
-              bash ci/upload-versioned.sh \
-                "coralogix-aws-shipper-${arch}.zip" \
-                "$bucket" "coralogix-aws-shipper-${arch}-${current_version}.zip"
-            done
-
-            bash ci/upload-versioned.sh custom-resource-govcloud.zip \
-              "$bucket" "coralogix-aws-shipper-custom-resource-govcloud-${current_version}.zip"
-
-            # Commercial has carried these unversioned keys for years and the Terraform
-            # module reads them unless a version is pinned, so GovCloud needs them too or
-            # an unpinned deployment there resolves to a key that was never published.
-            #
-            # No unversioned custom resource to match: template-govcloud.yaml reads the
-            # versioned key and the Terraform module has no custom resource at all.
-            # Commercial keeps its own only for stacks deployed before the synced
-            # template moved onto versioned keys.
-            #
-            # Tracks the Release mapping, not this release. The two agree today, but
-            # the mapping may be held behind a release GovCloud should not take by
-            # default -- 1.4.20 through 1.4.22 were, because their GovCloud artifact was
-            # the commercial build on the unvalidated AWS-LC FIPS v4 module. Pointing
-            # these at the newest release would hand unpinned Terraform the very build
-            # CloudFormation declines to deploy by default.
-            #
-            # Sourced from the published versioned object: this run's upload when the two
-            # versions agree, an earlier release's when they do not.
-            #
-            # PUT_LATEST_PINNED carries this release, which is what orders these writes.
-            # The mapping itself cannot: it is hand-edited, so re-holding it after an
-            # un-hold is a deliberate rollback the keys must follow. Ordering by the
-            # release instead still refuses a stale concurrent run -- two releases
-            # overlapping on master read different mappings, and the older one finishing
-            # last would otherwise undo the newer one.
-            PUT_LATEST_PINNED="$current_version" bash ci/put-latest.sh \
-              "s3://$bucket/coralogix-aws-shipper-arm64-${govcloud_version}.zip" \
-              "$bucket" coralogix-aws-shipper.zip "$govcloud_version"
-            PUT_LATEST_PINNED="$current_version" bash ci/put-latest.sh \
-              "s3://$bucket/coralogix-aws-shipper-x86-64-${govcloud_version}.zip" \
-              "$bucket" coralogix-aws-shipper-x86-64.zip "$govcloud_version"
-          done
-
-  # Tagged only once publish has succeeded and publish-govcloud has succeeded or was
-  # skipped by the GOVCLOUD_PUBLISH switch. template-govcloud.yaml resolves its
-  # Lambda code to versioned keys -- this release's, unless its Release mapping is held
-  # back for a GovCloud opt-in release -- so a tag created any earlier can point at
-  # artifacts that do not exist yet, and would keep pointing at them if a publish
-  # failed.
+  # Tagged only once publish has succeeded, so a tag never points at artifacts that do
+  # not exist yet. GovCloud is published separately by publish-govcloud.yaml, after this
+  # run, so a GovCloud approval or failure never holds back the commercial tag or sync.
   tag:
     name: tag
-    needs: [check_version, publish, publish-govcloud]
+    needs: [check_version, publish]
     # check_version is skipped on workflow_dispatch, leaving template_updated empty, so
     # requiring it would leave a dispatched recovery run permanently untagged -- and
     # dispatch is the only way to finish a release that died after its artifacts went up.
-    # publish-govcloud is skipped while GOVCLOUD_PUBLISH is off, and that must not leave
-    # the commercial release untagged; a GovCloud run that fails still blocks the tag.
     if: ${{ !cancelled() && needs.publish.result == 'success'
-            && contains(fromJSON('["success", "skipped"]'), needs['publish-govcloud'].result)
             && github.ref == 'refs/heads/master'
             && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
