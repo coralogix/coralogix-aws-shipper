@@ -10,7 +10,7 @@ name: Publish GovCloud
 # workflow checks those three things and uploads the same bytes, so GovCloud never gets
 # a second build of a version.
 #
-# Kept out of Publish so that a GovCloud approval, rejection or failure never holds back
+# Kept out of Publish so that a GovCloud failure never holds back
 # the commercial tag or the CloudFormation sync. Uploading does not release a version to
 # GovCloud customers: template-govcloud.yaml's Release mapping decides what they deploy.
 
@@ -35,9 +35,8 @@ env:
   STAGING_URL: https://coralogix-serverless-repo-eu-central-1.s3.eu-central-1.amazonaws.com
 
 jobs:
-  # Finds the version and its release commit, verifies the staged artifacts and asks for
-  # approval. No credentials and no approval yet: when the Publish run released nothing,
-  # this ends the run without asking anyone.
+  # Finds the version and its release commit and verifies the staged artifacts. No
+  # credentials yet: when the Publish run released nothing, this ends the run.
   verify:
     if: ${{ github.event_name == 'workflow_dispatch'
             || (vars.GOVCLOUD_PUBLISH == 'true'
@@ -111,8 +110,7 @@ jobs:
           echo "Publishing $version ($commit) to GovCloud."
           { echo "version=$version"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
 
-      # Before the approval: reviewers are only asked once the artifacts have passed
-      # these checks, and nothing here touches GovCloud.
+      # Nothing here touches GovCloud; publish only runs once these checks pass.
       - name: download and verify the staged artifacts
         id: verified
         if: ${{ steps.release.outputs.version != '' }}
@@ -175,30 +173,13 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Tells the approvers there is a deployment waiting. A missing webhook or a Slack
-      # error only warns: the approval request on GitHub still stands.
-      - name: notify the approvers
-        if: ${{ steps.release.outputs.version != '' }}
-        timeout-minutes: 2
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.GOV_APPROVERS_SLACK }}
-          VERSION: ${{ steps.release.outputs.version }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
-            echo "::warning::GOV_APPROVERS_SLACK is not set; no Slack notification sent."
-            exit 0
-          fi
-          jq -n --arg text "GovCloud publication of shipper $VERSION is verified and awaiting approval: $RUN_URL" '{text: $text}' \
-            | curl -fsS --connect-timeout 5 --max-time 15 --retry 2 -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL" >/dev/null \
-            || echo "::warning::Slack notification failed; the approval request on GitHub still stands."
-
   publish:
     needs: verify
     if: ${{ needs.verify.outputs.version != '' }}
     runs-on: ubuntu-latest
     # The distribution account's role trusts only this environment's sub claim, and the
-    # environment requires a reviewer, so every GovCloud upload is approved.
+    # environment only allows master. No reviewer: the bucket is public artifacts, and
+    # template-govcloud.yaml's Release mapping, not this upload, releases a version.
     environment: govcloud
     permissions:
       contents: read
