@@ -497,42 +497,77 @@ jobs:
     name: publish-govcloud
     # Behind publish, not beside it: publish settles whether this commit may release this
     # version, and without that gate a rejected commit could still write GovCloud's
-    # immutable artifacts.
+    # immutable artifacts. Naming the result matters on workflow_dispatch, where a
+    # disjunct that is simply true would otherwise run this past a failed publish.
     needs: [check_version, build, publish]
-    # As publish above, plus publish itself: it settles whether this commit may release
-    # this version, and without waiting for it a rejected commit could still write
-    # GovCloud's immutable artifacts. Naming the result matters on workflow_dispatch,
-    # where a disjunct that is simply true would otherwise run this past a failed publish.
+    # Off unless the GOVCLOUD_PUBLISH repository variable is 'true': a release does not
+    # reach GovCloud by default, and while the variable is unset this job is skipped
+    # before any credentials are requested.
     #
-    # Off unless the GOVCLOUD_PUBLISH repository variable is 'true': a release no longer
-    # reaches GovCloud by default, and while the variable is unset this job is skipped
-    # before any credentials are requested. The switch does not hold
-    # template-govcloud.yaml back; the release PR has to leave that mapping alone.
-    # To release a version to GovCloud: set the mapping to that version in its release
-    # PR, set the variable to 'true' before merging, check that both GovCloud regions
-    # received the versioned and unversioned keys, then unset the variable. Backfilling
-    # a version that was already released without GovCloud is not covered here: its
-    # versioned keys are owned by the release commit, so it needs its own procedure.
+    # Publishes to the GovCloud distribution account, outside the FedRAMP boundary. The
+    # role, bucket prefix and regions come from the govcloud environment's variables
+    # (GOVCLOUD_ROLE_ARN, GOVCLOUD_BUCKET_PREFIX, GOVCLOUD_REGIONS). Only versioned keys
+    # are written: the buckets refuse overwrites, so an unversioned "latest" key could
+    # never move after its first write. To release a version to GovCloud, set the
+    # variable to 'true' before merging its release PR, check that every region received
+    # the versioned keys and their .sha256 files, then unset the variable.
     if: ${{ !cancelled() && vars.GOVCLOUD_PUBLISH == 'true'
             && needs.build.result == 'success' && needs.publish.result == 'success'
             && github.ref == 'refs/heads/master'
             && (github.event_name == 'workflow_dispatch' || needs.check_version.outputs.template_updated == 'true') }}
     runs-on: ubuntu-latest
-    # Trust policy on the publish role matches this environment's sub claim.
+    # The distribution account's role trusts only this environment's sub claim. The
+    # environment requires a reviewer, so every GovCloud publish is approved.
     environment: govcloud
     permissions:
       contents: read
       id-token: write
     steps:
+      # Before any credentials are requested, so a misconfigured environment fails here
+      # instead of halfway through an upload.
+      - name: check govcloud configuration
+        id: config
+        env:
+          ROLE_ARN: ${{ vars.GOVCLOUD_ROLE_ARN }}
+          BUCKET_PREFIX: ${{ vars.GOVCLOUD_BUCKET_PREFIX }}
+          REGIONS: ${{ vars.GOVCLOUD_REGIONS }}
+        run: |
+          set -euo pipefail
+          # Surrounding whitespace is dropped; anything else must be a valid value.
+          trim() { printf '%s' "$1" | tr '\n' ' ' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g'; }
+          role_arn=$(trim "$ROLE_ARN")
+          bucket_prefix=$(trim "$BUCKET_PREFIX")
+          [ -n "$role_arn" ] || { echo "::error::GOVCLOUD_ROLE_ARN is not set on the govcloud environment."; exit 1; }
+          [ -n "$bucket_prefix" ] || { echo "::error::GOVCLOUD_BUCKET_PREFIX is not set on the govcloud environment."; exit 1; }
+          [[ $role_arn =~ ^arn:aws-us-gov:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]] || { echo "::error::GOVCLOUD_ROLE_ARN '$role_arn' is not a GovCloud IAM role ARN."; exit 1; }
+          [[ $bucket_prefix =~ ^[a-z0-9][a-z0-9.-]*$ ]] || { echo "::error::GOVCLOUD_BUCKET_PREFIX '$bucket_prefix' is not a valid bucket name prefix."; exit 1; }
+
+          # Space- or newline-separated.
+          read -ra regions <<<"$(tr '\n' ' ' <<<"$REGIONS")"
+          [ "${#regions[@]}" -gt 0 ] || { echo "::error::GOVCLOUD_REGIONS is not set on the govcloud environment."; exit 1; }
+          for region in "${regions[@]}"; do
+            case "$region" in
+              us-gov-west-1|us-gov-east-1) ;;
+              *) echo "::error::GOVCLOUD_REGIONS has '$region'; allowed: us-gov-west-1, us-gov-east-1."; exit 1 ;;
+            esac
+          done
+
+          {
+            echo "role_arn=$role_arn"
+            echo "bucket_prefix=$bucket_prefix"
+            echo "regions=${regions[*]}"
+            echo "first_region=${regions[0]}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: checkout
         uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           audience: sts.amazonaws.com
-          role-to-assume: arn:aws-us-gov:iam::309801239943:role/coralogix-serverless-repo-publisher
+          role-to-assume: ${{ steps.config.outputs.role_arn }}
           role-session-name: coralogix-aws-shipper-${{ github.run_id }}
-          aws-region: us-gov-west-1
+          aws-region: ${{ steps.config.outputs.first_region }}
 
       - name: download govcloud zips
         uses: actions/download-artifact@v8
@@ -545,28 +580,30 @@ jobs:
 
       - name: get_version
         run: |
-          echo "current_version=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)" >> $GITHUB_ENV
-          # The release GovCloud deploys by default. tests.yaml holds it at or behind the
-          # SemanticVersion above, and it is what the unversioned keys have to track.
-          echo "govcloud_version=$(yq -r '.Mappings.Release.Shipper.Version' template-govcloud.yaml)" >> $GITHUB_ENV
+          echo "current_version=$(yq -r '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' template.yaml)" >> "$GITHUB_ENV"
 
       - name: upload
+        env:
+          BUCKET_PREFIX: ${{ steps.config.outputs.bucket_prefix }}
+          REGIONS: ${{ steps.config.outputs.regions }}
         run: |
+          set -euo pipefail
           # Pinned mtime and -X: zip stores timestamps, so without these the same
           # source produces a different archive on every run.
           TZ=UTC touch -t 198001010000 custom-resource-govcloud/index.py
           zip -jX custom-resource-govcloud.zip custom-resource-govcloud/index.py
 
           # Uploaded per region rather than relying on replication, so a missing
-          # replication rule cannot leave a region without artifacts. Versioned
-          # keys are immutable, so a replicated object makes this a no-op.
-          for region in us-gov-west-1 us-gov-east-1; do
+          # replication rule cannot leave a region without artifacts. upload-versioned.sh
+          # writes each key and its .sha256 with If-None-Match: *, which the buckets
+          # require, so a re-run skips what is already there.
+          for region in $REGIONS; do
             # Both: configure-aws-credentials exports AWS_REGION, which the CLI prefers
             # over AWS_DEFAULT_REGION. Setting only the latter left the us-gov-east-1
             # calls addressed to the us-gov-west-1 endpoint, reaching the right bucket
             # only through a cross-region redirect.
             export AWS_DEFAULT_REGION="$region" AWS_REGION="$region"
-            bucket="coralogix-serverless-repo-${region}"
+            bucket="${BUCKET_PREFIX}-${region}"
 
             for arch in arm64 x86-64; do
               bash ci/upload-versioned.sh \
@@ -574,40 +611,10 @@ jobs:
                 "$bucket" "coralogix-aws-shipper-${arch}-${current_version}.zip"
             done
 
+            # template-govcloud.yaml reads the versioned custom resource key; there is no
+            # unversioned one.
             bash ci/upload-versioned.sh custom-resource-govcloud.zip \
               "$bucket" "coralogix-aws-shipper-custom-resource-govcloud-${current_version}.zip"
-
-            # Commercial has carried these unversioned keys for years and the Terraform
-            # module reads them unless a version is pinned, so GovCloud needs them too or
-            # an unpinned deployment there resolves to a key that was never published.
-            #
-            # No unversioned custom resource to match: template-govcloud.yaml reads the
-            # versioned key and the Terraform module has no custom resource at all.
-            # Commercial keeps its own only for stacks deployed before the synced
-            # template moved onto versioned keys.
-            #
-            # Tracks the Release mapping, not this release. The two agree today, but
-            # the mapping may be held behind a release GovCloud should not take by
-            # default -- 1.4.20 through 1.4.22 were, because their GovCloud artifact was
-            # the commercial build on the unvalidated AWS-LC FIPS v4 module. Pointing
-            # these at the newest release would hand unpinned Terraform the very build
-            # CloudFormation declines to deploy by default.
-            #
-            # Sourced from the published versioned object: this run's upload when the two
-            # versions agree, an earlier release's when they do not.
-            #
-            # PUT_LATEST_PINNED carries this release, which is what orders these writes.
-            # The mapping itself cannot: it is hand-edited, so re-holding it after an
-            # un-hold is a deliberate rollback the keys must follow. Ordering by the
-            # release instead still refuses a stale concurrent run -- two releases
-            # overlapping on master read different mappings, and the older one finishing
-            # last would otherwise undo the newer one.
-            PUT_LATEST_PINNED="$current_version" bash ci/put-latest.sh \
-              "s3://$bucket/coralogix-aws-shipper-arm64-${govcloud_version}.zip" \
-              "$bucket" coralogix-aws-shipper.zip "$govcloud_version"
-            PUT_LATEST_PINNED="$current_version" bash ci/put-latest.sh \
-              "s3://$bucket/coralogix-aws-shipper-x86-64-${govcloud_version}.zip" \
-              "$bucket" coralogix-aws-shipper-x86-64.zip "$govcloud_version"
           done
 
   # Tagged only once publish has succeeded and publish-govcloud has succeeded or was
