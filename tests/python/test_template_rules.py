@@ -146,6 +146,31 @@ class TemplateContractTest(unittest.TestCase):
                     },
                 )
 
+    def test_govcloud_code_defaults_to_the_distribution_buckets(self) -> None:
+        # Publish GovCloud fills these buckets from 1.4.23 onward; older releases were never
+        # copied there, so the Release mapping must not point below that.
+        repository_root = Path(__file__).resolve().parents[2]
+        document = load_template(repository_root / "template-govcloud.yaml")
+        resources = document["Resources"]
+        for function, bucket_parameter in (
+            ("LambdaFunction", "LambdaCodeBucket"),
+            ("CustomResourceFunction", "CustomResourceCodeBucket"),
+        ):
+            with self.subTest(function=function):
+                self.assertEqual(
+                    resources[function]["Properties"]["Code"]["S3Bucket"],
+                    {
+                        "Fn::If": [
+                            f"{bucket_parameter}IsSet",
+                            {"Ref": bucket_parameter},
+                            {"Fn::Sub": "coralogix-public-artifacts-${AWS::Region}"},
+                        ]
+                    },
+                )
+
+        version = document["Mappings"]["Release"]["Shipper"]["Version"]
+        self.assertGreaterEqual(tuple(int(part) for part in version.split(".")), (1, 4, 23))
+
 
 class OtlpPrivateLinkRuleTest(unittest.TestCase):
     def test_template_loader_restores_fake_boto3_module(self) -> None:

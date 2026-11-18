@@ -901,7 +901,7 @@ The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east
 
 ### GovCloud builds and the eMudhra CA compromise
 
-`template-govcloud.yaml` deploys **1.5.0**, which fixes the eMudhra CA compromise (CVE-2026-111943) on the NIST-validated AWS-LC FIPS v3 module.
+`template-govcloud.yaml` deploys **1.5.2**. Every release from 1.4.23 fixes the eMudhra CA compromise (CVE-2026-111943) on the NIST-validated AWS-LC FIPS v3 module.
 
 Earlier releases force a trade-off, because GovCloud had no build of its own until 1.4.23:
 
@@ -916,9 +916,9 @@ If you pinned 1.4.20, 1.4.21 or 1.4.22 to take the certificate fix, move to 1.4.
 ### Deployment artifacts
 
 The shipper Lambda and the GovCloud custom resource load their code from S3 in the
-same GovCloud region. By default, `template-govcloud.yaml` uses the Coralogix-hosted
-bucket `coralogix-serverless-repo-<region>` and the versioned artifacts of the release
-set in its `Release` mapping:
+same GovCloud region. By default, `template-govcloud.yaml` uses the Coralogix
+distribution bucket `coralogix-public-artifacts-<region>` and the versioned artifacts of
+the release set in its `Release` mapping:
 
 | Artifact | Key |
 | --- | --- |
@@ -926,43 +926,46 @@ set in its `Release` mapping:
 | Shipper Lambda (x86_64) | `coralogix-aws-shipper-x86-64-<version>.zip` |
 | GovCloud custom resource | `coralogix-aws-shipper-custom-resource-govcloud-<version>.zip` |
 
-Versioned artifacts never change once published. Each one has a `<key>.sha256` checksum
-file next to it, so a download can be verified with `sha256sum -c`, and S3 stores the
-same digest on the object itself — `aws s3api get-object --checksum-mode ENABLED`
-validates it on the way down.
-
-The unversioned `coralogix-aws-shipper.zip` and `coralogix-aws-shipper-x86-64.zip` keys
-exist for the Terraform module, which reads them unless `source_code_version` is set.
-They are mutable and carry no checksum file of their own: a hash written beside an object
-that can be replaced adds nothing over the digest S3 already stores on it. Verify against
-the immutable artifact instead — each key records the release it holds, so resolve that
-first and check the release's published checksum.
+The distribution buckets hold every release from 1.4.23 on. Artifacts are written once
+and never change. Each one has a `<key>.sha256` checksum file next to it, so a download
+can be verified with `sha256sum -c`. Downloads need no AWS credentials; the buckets don't
+allow listing, so you need the exact key.
 
 ```bash
 REGION="us-gov-west-1"   # or us-gov-east-1
-BUCKET="coralogix-serverless-repo-${REGION}"
-
-VERSION=$(aws s3api head-object --bucket "${BUCKET}" --key coralogix-aws-shipper.zip \
-          --region "${REGION}" --query 'Metadata.version' --output text)
+VERSION="1.5.2"
 KEY="coralogix-aws-shipper-arm64-${VERSION}.zip"
+URL="https://coralogix-public-artifacts-${REGION}.s3.${REGION}.amazonaws.com/${KEY}"
 
-aws s3 cp "s3://${BUCKET}/${KEY}" "${KEY}" --region "${REGION}"
-aws s3 cp "s3://${BUCKET}/${KEY}.sha256" "${KEY}.sha256" --region "${REGION}"
+curl -fsSLO "${URL}"
+curl -fsSLO "${URL}.sha256"
 sha256sum -c "${KEY}.sha256"
 ```
 
-These buckets grant `s3:GetObject` to any authenticated AWS principal and deny
-anonymous requests, so these commands sign with your GovCloud credentials; an
-unauthenticated fetch returns 403. They grant no `s3:ListBucket`, so the key has to be
-known rather than discovered.
-
-In GovCloud these keys track the `Release` mapping above, not the newest release, so an
-unpinned Terraform deployment runs the same build this template deploys. Keys written
-before 1.4.21 carry no version stamp, so `VERSION` comes back empty and the download
-404s; pick the release from the table above instead.
+Releases before 1.4.23 are not in the distribution buckets; see the
+[table above](#govcloud-builds-and-the-emudhra-ca-compromise) for why to move off them.
 
 To load the code from your own bucket instead, set `LambdaCodeBucket` and
 `CustomResourceCodeBucket` (see [Using your own bucket](#using-your-own-bucket)).
+
+#### Moving to the distribution buckets
+
+Earlier versions of `template-govcloud.yaml` loaded the code from
+`coralogix-serverless-repo-<region>` and deployed 1.5.0. When you update a stack with
+this template:
+
+- **Default settings:** both functions move to 1.5.2 from the distribution bucket.
+  Nothing else to do.
+- **Your own bucket** (`LambdaCodeBucket` / `CustomResourceCodeBucket`) **without
+  explicit keys:** the template now selects the 1.5.2 keys, so your bucket must contain
+  them. Copy them there first (see [Using your own bucket](#using-your-own-bucket)), or
+  set `LambdaCodeKey` and `CustomResourceCodeKey` to the version you already have.
+- **Explicit keys for a release before 1.4.23, without your own bucket:** those keys
+  aren't in the distribution bucket, so the update fails. Upgrade to 1.4.23 or later
+  (clear the keys to follow the template's default), or set `LambdaCodeBucket` and
+  `CustomResourceCodeBucket` to `coralogix-serverless-repo-<region>`, which still holds
+  the older releases.
+- **Explicit keys for 1.4.23 or later:** they're in the distribution bucket; nothing to do.
 
 ### Terraform deployment
 
@@ -1017,8 +1020,8 @@ Change `IntegrationType` and add the parameters required for that integration (r
 To keep the artifacts in an S3 bucket you own (in the same GovCloud region as the
 stack), copy them there under the same keys and point the template at the bucket.
 
-1. Download the shipper Lambda for your release and architecture, and verify it.
-   Take it from a GovCloud bucket, not a commercial one: since 1.4.23 the GovCloud
+1. Download the shipper Lambda and the GovCloud custom resource for your release and
+   architecture, and verify them. Take them from a GovCloud bucket, not a commercial one: since 1.4.23 the GovCloud
    binary is built separately and is not interchangeable with the commercial build.
    It is the one that carries the NIST-validated AWS-LC FIPS v3 module.
 
@@ -1027,33 +1030,20 @@ stack), copy them there under the same keys and point the template at the bucket
    VERSION="<release>"
    ARCH="arm64"   # or x86-64
    SOURCE_REGION="us-gov-west-1"   # or us-gov-east-1
+   SRC="https://coralogix-public-artifacts-${SOURCE_REGION}.s3.${SOURCE_REGION}.amazonaws.com"
    KEY="coralogix-aws-shipper-${ARCH}-${VERSION}.zip"
-   SRC="s3://coralogix-serverless-repo-${SOURCE_REGION}"
-
-   aws s3 cp "${SRC}/${KEY}" "${KEY}" --region "${SOURCE_REGION}"
-   aws s3 cp "${SRC}/${KEY}.sha256" "${KEY}.sha256" --region "${SOURCE_REGION}"
-   sha256sum -c "${KEY}.sha256"
-   ```
-
-   The buckets grant `s3:GetObject` to any authenticated AWS principal and deny
-   anonymous requests, so these commands sign with the GovCloud credentials in the
-   prerequisites above. They grant no `s3:ListBucket`, so you need the exact key —
-   `aws s3 ls` returns AccessDenied.
-
-   GovCloud holds 1.4.18 onward. 1.4.18 to 1.4.22 are copies of the commercial build,
-   and 1.4.20 to 1.4.22 are on the unvalidated v4 module — see the
-   [table above](#govcloud-builds-and-the-emudhra-ca-compromise).
-
-2. Build the GovCloud custom resource from the same release tag. The zip must contain a
-   single top-level `index.py` (handler `index.lambda_handler`):
-
-   ```bash
-   git clone --depth 1 --branch "${VERSION}" https://github.com/coralogix/coralogix-aws-shipper.git
    CR_KEY="coralogix-aws-shipper-custom-resource-govcloud-${VERSION}.zip"
-   zip -j "${CR_KEY}" coralogix-aws-shipper/custom-resource-govcloud/index.py
+
+   for k in "${KEY}" "${CR_KEY}"; do
+     curl -fsSLO "${SRC}/${k}"
+     curl -fsSLO "${SRC}/${k}.sha256"
+     sha256sum -c "${k}.sha256"
+   done
    ```
 
-3. Upload both to your GovCloud bucket:
+   The distribution buckets hold 1.4.23 onward.
+
+2. Upload both to your GovCloud bucket:
 
    ```bash
    GOVCLOUD_BUCKET="your-govcloud-artifacts-bucket"
@@ -1063,7 +1053,7 @@ stack), copy them there under the same keys and point the template at the bucket
    aws s3 cp "${CR_KEY}" "s3://${GOVCLOUD_BUCKET}/${CR_KEY}" --region "${GOVCLOUD_REGION}"
    ```
 
-4. Deploy as in [CloudFormation deployment](#cloudformation-deployment), adding:
+3. Deploy as in [CloudFormation deployment](#cloudformation-deployment), adding:
 
    ```bash
        LambdaCodeBucket="${GOVCLOUD_BUCKET}" \
