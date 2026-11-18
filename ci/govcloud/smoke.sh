@@ -84,6 +84,7 @@ delete_stack() {
 cleanup() {
   local leftovers=() failed_ids=() status fn failed out
   log "cleanup"
+  rm -f "${query_body:-}"
   if [ "$created_stack" = true ]; then
     # The shipper's function name is only known from the stack, so read it before
     # deleting, also when the stack never completed.
@@ -207,22 +208,33 @@ count() { # <start ms> <filter pattern>; fails, printing nothing, when the logs 
     --filter-pattern "$2" --output json 2>/dev/null) && jq -e '.events | length' <<<"$out" 2>/dev/null
 }
 
+# Writes the response to $query_body and prints the HTTP status (000 when there was no
+# response), so a rejected query is told apart from a marker that hasn't arrived yet.
+query_body=$(mktemp)
 query_marker() {
   local dataprime="source logs | filter \$l.subsystemname == '$subsystem' | limit 20"
   if [ -n "${SMOKE_QUERY_CMD:-}" ]; then
-    $SMOKE_QUERY_CMD "$dataprime" 2>/dev/null
+    if $SMOKE_QUERY_CMD "$dataprime" >"$query_body" 2>/dev/null; then echo 200; else echo 000; fi
   else
     local start end
     start=$(python3 -c "import datetime as d; print(d.datetime.fromtimestamp($marker_ms/1000 - 300, d.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")
     end=$(python3 -c "import datetime as d; print((d.datetime.now(d.timezone.utc) + d.timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
     jq -n --arg q "$dataprime" --arg s "$start" --arg e "$end" \
       '{query: $q, metadata: {tier: "TIER_FREQUENT_SEARCH", syntax: "QUERY_SYNTAX_DATAPRIME", startDate: $s, endDate: $e, limit: 20}}' \
-      | curl -fsS --connect-timeout 10 --max-time 20 -X POST "https://api.${SMOKE_DOMAIN}/api/v1/dataprime/query" \
+      | curl -sS --connect-timeout 10 --max-time 20 -o "$query_body" -w '%{http_code}' \
+          -X POST "https://api.${SMOKE_DOMAIN}/api/v1/dataprime/query" \
           -H 'Content-Type: application/json' -H "Authorization: Bearer $SMOKE_QUERY_KEY" --data @- 2>/dev/null
   fi
 }
+# The start of the response, on one line, for error messages. Coralogix error bodies
+# don't echo the key.
+query_response() {
+  local r
+  r=$(head -c 200 "$query_body" | tr -s '\n\r' '  ')
+  echo "${r:-empty response}"
+}
 
-fips=0 invoked=0 errors=0 errors_checked=false delivered=false
+fips=0 invoked=0 errors=0 errors_checked=false delivered=false query_worked=false query_error=""
 # A wall-clock deadline, not a count, so slow queries can't stretch it. Worst case for the
 # whole script: creation 10 + verification 10 + deletion 2 x 10 minutes, inside the job's 60.
 deadline=$(( $(date +%s) + 600 ))
@@ -240,7 +252,20 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
     errors=0 errors_checked=false
   fi
   [ "$errors" -eq 0 ] || break
-  if ! $delivered && query_marker | grep -qF "$marker"; then delivered=true; fi
+  if ! $delivered; then
+    status=$(query_marker)
+    case "$status" in
+      2??)
+        query_worked=true
+        if grep -qF "$marker" "$query_body"; then delivered=true; fi ;;
+      # A rejected key won't fix itself, so stop now rather than at the deadline.
+      401|403)
+        fail "Coralogix rejected the query (HTTP $status: $(query_response)). Check that GOV_SMOKE_QUERY_KEY is a DataQuerying key for the test team on $SMOKE_DOMAIN." ;;
+      # Server errors and timeouts can pass; keep trying until the deadline.
+      *)
+        query_error="HTTP $status: $(query_response)" ;;
+    esac
+  fi
   log "fips=$fips invocations-after-marker=$invoked errors=$errors (checked: $errors_checked) delivered=$delivered"
   if [ "$fips" -gt 0 ] && [ "$invoked" -gt 0 ] && $delivered && $errors_checked; then break; fi
 done
@@ -253,7 +278,10 @@ fi
 $errors_checked || fail "Couldn't read $shipper_group to check for errors."
 [ "$fips" -gt 0 ] || fail "No 'AWS FIPS mode enabled' line in $shipper_group."
 [ "$invoked" -gt 0 ] || fail "The shipper did not run after the marker was written."
-$delivered || fail "The marker did not reach Coralogix ($SMOKE_DOMAIN, subsystem $subsystem) within 10 minutes."
+if ! $delivered; then
+  $query_worked && fail "Coralogix queries worked, but the marker never arrived ($SMOKE_DOMAIN, subsystem $subsystem). Check that the Send-Your-Data key in $secret_name belongs to the test team on $SMOKE_DOMAIN."
+  fail "The Coralogix query never succeeded (last: ${query_error:-no response}), so delivery couldn't be checked."
+fi
 
 log "PASS: $version $arch deployed, ran in FIPS mode and delivered the marker"
 [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "- $version $arch: PASS" >> "$GITHUB_STEP_SUMMARY"
