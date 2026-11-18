@@ -1074,6 +1074,14 @@ stack), copy them there under the same keys and point the template at the bucket
    Set `FunctionArchitectures="x86_64"` if you downloaded the x86-64 package. To use
    different object keys, also set `LambdaCodeKey` and `CustomResourceCodeKey`.
 
+### Permissions boundary
+
+If your account requires a permissions boundary on new IAM roles, set
+`PermissionsBoundaryArn` to the ARN of that managed policy. `template-govcloud.yaml`
+then sets it on every role the stack creates. Leave it empty (the default) for no
+boundary. The boundary must still allow what the shipper and its custom resource
+need, such as reading the API key secret and creating the CloudWatch subscription.
+
 ### Verify the deployment
 
 - The CloudFormation stack reaches **CREATE_COMPLETE** or **UPDATE_COMPLETE**.

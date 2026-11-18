@@ -282,3 +282,43 @@ jobs:
               GITHUB_SHA="$COMMIT" bash ci/upload-versioned.sh "dist/$key" "$bucket" "$key"
             done
           done
+
+  # Deploys the version from the GovCloud bucket and checks it ships logs in FIPS mode.
+  # Also runs when the upload found the version already there, so dispatching a version
+  # again re-tests it. Skipped until GOVCLOUD_SMOKE_DOMAIN is set (repository variable:
+  # job conditions can't read environment variables).
+  smoke:
+    needs: [verify, publish]
+    if: ${{ vars.GOVCLOUD_SMOKE_DOMAIN != '' }}
+    runs-on: ubuntu-latest
+    environment: govcloud
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          audience: sts.amazonaws.com
+          role-to-assume: ${{ vars.GOVCLOUD_ROLE_ARN }}
+          role-session-name: coralogix-aws-shipper-smoke-${{ github.run_id }}
+          aws-region: us-gov-west-1
+
+      - name: smoke test
+        env:
+          SMOKE_DOMAIN: ${{ vars.GOVCLOUD_SMOKE_DOMAIN }}
+          SMOKE_BOUNDARY_ARN: ${{ vars.GOVCLOUD_SMOKE_BOUNDARY_ARN }}
+          SMOKE_QUERY_KEY: ${{ secrets.GOV_SMOKE_QUERY_KEY }}
+          SMOKE_ARTIFACT_BUCKET: ${{ vars.GOVCLOUD_BUCKET_PREFIX }}-us-gov-west-1
+          # The attempt too, so a re-run never collides with a previous attempt's leftovers.
+          SMOKE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: bash ci/govcloud/smoke.sh "$VERSION" us-gov-west-1 "$ARCH"

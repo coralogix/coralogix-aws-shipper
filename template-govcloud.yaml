@@ -87,6 +87,7 @@ Metadata:
           - FunctionArchitectures
           - LambdaAssumeRoleARN
           - ExecutionRoleARN
+          - PermissionsBoundaryArn
           - ReservedConcurrentExecutions
       - Label:
           default: VPC configuration (optional)
@@ -501,6 +502,15 @@ Parameters:
     Description: The ARN of a user-defined role that will be used as the execution role for the lambda function.
     Default: ''
 
+  PermissionsBoundaryArn:
+    Type: String
+    Description: |
+      ARN of an IAM managed policy to set as the permissions boundary on every IAM role this
+      stack creates. Leave empty for no boundary.
+    AllowedPattern: '^$|^arn:aws[a-z-]*:iam::[0-9]{12}:policy/.+$'
+    ConstraintDescription: Must be empty or an IAM managed policy ARN.
+    Default: ''
+
   ReservedConcurrentExecutions:
     Type: Number
     Description: The number of concurrent executions that are reserved for this function.
@@ -614,6 +624,7 @@ Conditions:
   CustomResourceCodeKeyIsSet: !Not [ !Equals [ !Ref CustomResourceCodeKey, '' ] ]
   # Artifact keys spell x86_64 as x86-64.
   IsX86: !Equals [ !Ref FunctionArchitectures, x86_64 ]
+  HasPermissionsBoundary: !Not [ !Equals [ !Ref PermissionsBoundaryArn, '' ] ]
 
   # DLQ
   DLQEnabled: !Equals [ !Ref EnableDLQ, 'true' ]
@@ -927,6 +938,7 @@ Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      PermissionsBoundary: !If [ HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue ]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1155,6 +1167,7 @@ Resources:
   WaiterFunctionRole:
     Type: AWS::IAM::Role
     Properties:
+      PermissionsBoundary: !If [ HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue ]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1556,6 +1569,7 @@ Resources:
     Type: AWS::IAM::Role
     Condition: TelemetryModeIsMetrics
     Properties:
+      PermissionsBoundary: !If [ HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue ]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1634,6 +1648,7 @@ Resources:
     Type: AWS::IAM::Role
     Condition: TelemetryModeIsMetrics
     Properties:
+      PermissionsBoundary: !If [ HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue ]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1659,6 +1674,7 @@ Resources:
   CustomResourceFunctionRole:
     Type: AWS::IAM::Role
     Properties:
+      PermissionsBoundary: !If [ HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue ]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
