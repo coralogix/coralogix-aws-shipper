@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### GovCloud
+
+- **`template-govcloud.yaml` loads the shipper from the GovCloud distribution buckets
+  and deploys 1.5.2.** The default code bucket for the shipper and its custom resource
+  is now `coralogix-public-artifacts-<region>`, which holds every release from 1.4.23
+  on, and the default release moves from 1.5.0 to 1.5.2. An existing stack changes
+  only when it's updated with this template. Stacks that set `LambdaCodeBucket`,
+  `CustomResourceCodeBucket`, `LambdaCodeKey` or `CustomResourceCodeKey` may need
+  changes; see "Moving to the distribution buckets" in the README.
+
 ## v1.5.2 / 2026-11-12
 
 ### 💡 Enhancements 💡
