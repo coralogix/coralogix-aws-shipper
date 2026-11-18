@@ -222,6 +222,7 @@ async fn coralogix_send(config: &Config, message: Vec<u8>) -> Result<(), Error> 
         "metrics HTTP request completed"
     );
 
+    response.error_for_status()?;
     Ok(())
 }
 
