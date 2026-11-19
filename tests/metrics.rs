@@ -12,6 +12,11 @@ use opentelemetry_proto::tonic::common::v1::any_value;
 use prost::Message;
 
 async fn run_test_firehose_transform_flow() {
+    try_run_test_firehose_transform_flow().await.unwrap();
+}
+
+async fn try_run_test_firehose_transform_flow(
+) -> Result<aws_lambda_events::event::firehose::KinesisFirehoseResponse, lambda_runtime::Error> {
     let data = std::fs::read("./tests/fixtures/cwstream_metrics.json").unwrap();
     let config = Config::load_from_env().unwrap();
     let aws_cfg = aws_config::defaults(BehaviorVersion::latest())
@@ -24,9 +29,7 @@ async fn run_test_firehose_transform_flow() {
     let rgt = RgtClient::new(&aws_cfg);
     let evt: events::Combined = serde_json::from_slice(&data).unwrap();
     let evt = LambdaEvent::new(evt, Context::default());
-    coralogix_aws_shipper::metrics::handler(&config, &rgt, evt)
-        .await
-        .unwrap();
+    coralogix_aws_shipper::metrics::handler(&config, &rgt, evt).await
 }
 
 #[tokio::test]
@@ -220,4 +223,42 @@ async fn test_firehose_transform_flow_batched() {
     // With batching enabled, we expect a single POST for the record,
     // even if the record contained multiple length-delimited OTel messages.
     assert_eq!(message_count.lock().unwrap().clone(), 1);
+}
+
+#[tokio::test]
+async fn test_firehose_transform_flow_on_non_2xx() {
+    for (fail_on_send_error, expect_err) in [("true", true), ("false", false)] {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/metrics"))
+            .respond_with(wiremock::ResponseTemplate::new(429))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = temp_env::async_with_vars(
+            [
+                ("CORALOGIX_API_KEY", Some("1234456789X")),
+                ("APP_NAME", Some("testapp")),
+                ("SUB_NAME", Some("testsubsystem")),
+                ("CORALOGIX_ENDPOINT", Some(server.uri().as_str())),
+                ("INTEGRATION_TYPE", Some("S3")),
+                ("AWS_REGION", Some("eu-central-1")),
+                ("TELEMETRY_MODE", Some("metrics")),
+                ("BATCH_METRICS", Some("1")),
+                ("METRICS_TAG_ENRICHMENT_ENABLED", Some("false")),
+                ("METRICS_FAIL_ON_SEND_ERROR", Some(fail_on_send_error)),
+            ],
+            try_run_test_firehose_transform_flow(),
+        )
+        .await;
+
+        match result {
+            Err(e) => assert!(
+                expect_err && e.to_string().contains("429"),
+                "METRICS_FAIL_ON_SEND_ERROR={fail_on_send_error}: {e}"
+            ),
+            Ok(_) => assert!(!expect_err, "METRICS_FAIL_ON_SEND_ERROR={fail_on_send_error}"),
+        }
+    }
 }

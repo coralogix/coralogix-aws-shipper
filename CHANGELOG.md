@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Metrics
+
+- **New optional `METRICS_FAIL_ON_SEND_ERROR` env var (default `false`).**
+  When `true`, metrics mode fails the invocation when Coralogix answers with a non-2xx
+  status, so Firehose retries the batch and finally writes it to the S3
+  `processing-failed` prefix. Default keeps today's behaviour: the status is only logged.
+
 ### GovCloud
 
 - **`template-govcloud.yaml` loads the shipper from the GovCloud distribution buckets
