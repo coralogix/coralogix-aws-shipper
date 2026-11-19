@@ -972,9 +972,11 @@ this template:
 The Coralogix Terraform module used in commercial regions,
 [`terraform-coralogix-aws`](https://github.com/coralogix/terraform-coralogix-aws/tree/master/modules/coralogix-aws-shipper),
 also deploys in GovCloud. Set `govcloud_deployment = true` to enable FIPS on the Lambda
-(`ENABLE_AWS_FIPS` and `AWS_USE_FIPS_ENDPOINT`). The Lambda code is loaded from
-`coralogix-serverless-repo-<region>` unless `custom_s3_bucket` is set. Set
-`source_code_version` to pin a release.
+(`ENABLE_AWS_FIPS` and `AWS_USE_FIPS_ENDPOINT`). From module v4.18.0, the Lambda code is
+loaded from the distribution bucket `coralogix-public-artifacts-<region>` unless
+`custom_s3_bucket` is set, in which case the module copies it there from the
+distribution bucket. Leave `source_code_version` empty to deploy the release this
+template deploys (1.5.2), or pin 1.4.23 or later; an older pin fails at plan.
 
 ### CloudFormation deployment
 
