@@ -226,30 +226,39 @@ async fn test_firehose_transform_flow_batched() {
 }
 
 #[tokio::test]
-async fn test_firehose_transform_flow_fails_on_non_2xx() {
-    let server = wiremock::MockServer::start().await;
-    wiremock::Mock::given(wiremock::matchers::method("POST"))
-        .and(wiremock::matchers::path("/v1/metrics"))
-        .respond_with(wiremock::ResponseTemplate::new(429))
-        .expect(1)
-        .mount(&server)
+async fn test_firehose_transform_flow_on_non_2xx() {
+    for (fail_on_send_error, expect_err) in [("true", true), ("false", false)] {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/metrics"))
+            .respond_with(wiremock::ResponseTemplate::new(429))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = temp_env::async_with_vars(
+            [
+                ("CORALOGIX_API_KEY", Some("1234456789X")),
+                ("APP_NAME", Some("testapp")),
+                ("SUB_NAME", Some("testsubsystem")),
+                ("CORALOGIX_ENDPOINT", Some(server.uri().as_str())),
+                ("INTEGRATION_TYPE", Some("S3")),
+                ("AWS_REGION", Some("eu-central-1")),
+                ("TELEMETRY_MODE", Some("metrics")),
+                ("BATCH_METRICS", Some("1")),
+                ("METRICS_TAG_ENRICHMENT_ENABLED", Some("false")),
+                ("METRICS_FAIL_ON_SEND_ERROR", Some(fail_on_send_error)),
+            ],
+            try_run_test_firehose_transform_flow(),
+        )
         .await;
 
-    let result = temp_env::async_with_vars(
-        [
-            ("CORALOGIX_API_KEY", Some("1234456789X")),
-            ("APP_NAME", Some("testapp")),
-            ("SUB_NAME", Some("testsubsystem")),
-            ("CORALOGIX_ENDPOINT", Some(server.uri().as_str())),
-            ("INTEGRATION_TYPE", Some("S3")),
-            ("AWS_REGION", Some("eu-central-1")),
-            ("TELEMETRY_MODE", Some("metrics")),
-            ("BATCH_METRICS", Some("1")),
-            ("METRICS_TAG_ENRICHMENT_ENABLED", Some("false")),
-        ],
-        try_run_test_firehose_transform_flow(),
-    )
-    .await;
-
-    assert!(result.unwrap_err().to_string().contains("429"));
+        match result {
+            Err(e) => assert!(
+                expect_err && e.to_string().contains("429"),
+                "METRICS_FAIL_ON_SEND_ERROR={fail_on_send_error}: {e}"
+            ),
+            Ok(_) => assert!(!expect_err, "METRICS_FAIL_ON_SEND_ERROR={fail_on_send_error}"),
+        }
+    }
 }

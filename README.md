@@ -798,6 +798,10 @@ To enable CloudWatch metrics streaming via Firehose (PrivateLink), you must prov
   - Note: Larger events can produce larger single requests; ensure they fit within your network and service limits.
 - **`METRICS_BATCH_MAX_SIZE`** (from **`MetricsBatchMaxSize`** parameter): Maximum size in megabytes for the aggregated encoded protobuf payload before it is flushed and sent. Default: `4`. Applies only when batching is enabled. If a single transformed message exceeds this size, it is sent by itself.
 
+#### Failing on rejected requests (optional)
+
+- **`METRICS_FAIL_ON_SEND_ERROR`** env (no stack parameter): When `true`, a non-2xx response from `POST /v1/metrics` fails the invocation, so Firehose retries the batch and, once its retry duration is exhausted, writes it to the S3 `processing-failed` prefix. Default: `false`, the response status is only logged.
+
 ## AWS Transaction Search traces (beta)
 
 As of version `v1.4.15`, the shipper can forward **AWS CloudWatch Transaction Search

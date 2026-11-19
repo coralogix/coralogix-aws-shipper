@@ -4,11 +4,10 @@
 
 ### Metrics
 
-- **Metrics mode fails the invocation when Coralogix answers with a non-2xx status.**
-  Before, the response status was only logged and every record was reported as
-  `Dropped`, so a wrong API key or endpoint, or throttling, lost the batch silently.
-  Firehose now retries the batch and, once its retry duration is exhausted, writes it
-  to the S3 `processing-failed` prefix.
+- **New optional `METRICS_FAIL_ON_SEND_ERROR` env var (default `false`).**
+  When `true`, metrics mode fails the invocation when Coralogix answers with a non-2xx
+  status, so Firehose retries the batch and finally writes it to the S3
+  `processing-failed` prefix. Default keeps today's behaviour: the status is only logged.
 
 ### GovCloud
 
