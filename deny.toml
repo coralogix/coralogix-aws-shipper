@@ -14,6 +14,8 @@ ignore = [
   { id = "RUSTSEC-2024-0436", reason = "Transitive through starlark; requires upstream dependency replacement." },
   { id = "RUSTSEC-2025-0057", reason = "Transitive through starlark_map; requires upstream dependency replacement." },
   { id = "RUSTSEC-2026-0441", reason = "Unmaintained, not a vulnerability. Transitive through aws-smithy-http (AWS SDK); no replacement is available until the SDK drops it." },
+  { id = "RUSTSEC-2026-0543", reason = "Unmaintained, not a vulnerability. chrono is a direct dependency and is required by aws_lambda_events; replacing it is a separate change." },
+  { id = "RUSTSEC-2026-0542", reason = "Unmaintained, not a vulnerability. humantime parses metric interval settings (src/metrics/config.rs) and wraps chrono; replacing it is a separate change." },
 ]
 
 [licenses]
