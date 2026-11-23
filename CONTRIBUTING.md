@@ -75,3 +75,17 @@ before you submit your code:
 - semantic version increse,
 - passing CI,
 - resolved discussions,
+
+## PR E2E listener bootstrap
+
+The PR lifecycle and trusted relay listeners are installed disabled. They make
+no AWS or private dispatch requests until an operator sets the PR enablement or
+canary allowlist. This bootstrap does not enable a merge requirement.
+
+Before canary use, set `SHIPPER_E2E_PR_ENABLED=false`, allowlist one PR using
+`SHIPPER_E2E_PR_ALLOWED_PRS` (JSON numeric IDs), and set
+`SHIPPER_E2E_PR_IMPLEMENTATION_SHA` to the reviewed relay implementation commit.
+The helpers are on the implementation branch until its automatic acceptance
+passes; dispatch inputs cannot choose code. Configure account, region, bucket,
+OIDC rc-writer role and the existing automation App separately. Never enable
+normal triggering while a temporary implementation pin is set.
