@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from zipfile import ZipFile
 
 PATH = Path(__file__).resolve().parents[2] / "ci/e2e_relay.py"
@@ -126,3 +127,35 @@ class RelayContracts(unittest.TestCase):
         self.assertTrue(relay.allowed_pr(123, enabled=False, allowed=[123]))
         self.assertFalse(relay.allowed_pr(124, enabled=False, allowed=[123]))
         self.assertTrue(relay.allowed_pr(124, enabled=True, allowed=[]))
+
+    def test_rerun_selects_only_the_requested_attempt_among_retained_artifacts(self):
+        artifacts = [
+            dict(id=n, name="coralogix-aws-shipper-arm64.zip", expired=False, digest=f"digest-{n}") for n in [1, 2]
+        ]
+
+        def download(artifact, path):
+            path.write_bytes(transport(github_run_attempt=str(artifact["id"])))
+
+        with patch.object(relay, "download_artifact", side_effect=download):
+            selected = relay.select_bundle(artifacts, self.directory, "arm64", run())
+            self.assertEqual(selected["id"], "2")
+            with self.assertRaisesRegex(ValueError, "this attempt"):
+                relay.select_bundle(artifacts[:1], self.directory, "arm64", run())
+
+    def test_two_artifacts_claiming_one_attempt_are_rejected(self):
+        artifacts = [dict(id=n, name="coralogix-aws-shipper-arm64.zip", expired=False) for n in [1, 2]]
+        with (
+            patch.object(relay, "download_artifact", side_effect=lambda _a, p: p.write_bytes(transport())),
+            self.assertRaisesRegex(ValueError, "ambiguous"),
+        ):
+            relay.select_bundle(artifacts, self.directory, "arm64", run())
+
+    def test_wrong_head_with_current_attempt_is_not_treated_as_a_retained_artifact(self):
+        artifact = dict(id=2, name="coralogix-aws-shipper-arm64.zip", expired=False)
+        with (
+            patch.object(
+                relay, "download_artifact", side_effect=lambda _a, p: p.write_bytes(transport(source_sha="b" * 40))
+            ),
+            self.assertRaisesRegex(ValueError, "exact expected producer"),
+        ):
+            relay.select_bundle([artifact], self.directory, "arm64", run())

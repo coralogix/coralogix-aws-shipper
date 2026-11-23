@@ -21,7 +21,7 @@ class WorkflowContracts(unittest.TestCase):
         event = triggers(data)["pull_request"]
         assert event["branches"] == ["master"]
         assert "paths" not in event and "paths-ignore" not in event
-        assert {"opened", "synchronize", "reopened", "unlabeled"} <= set(event["types"])
+        assert {"opened", "synchronize", "reopened", "unlabeled", "edited"} <= set(event["types"])
         assert data["concurrency"]["cancel-in-progress"] is True
         assert "github.event.pull_request.number" in data["concurrency"]["group"]
         assert "github.event.pull_request.head.sha" in yaml.safe_dump(data["jobs"])

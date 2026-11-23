@@ -20,6 +20,10 @@ ARCHITECTURES = ("arm64", "x86-64")
 MAX_ARCHIVE = 110 * 1024 * 1024
 
 
+class DifferentAttempt(ValueError):
+    """A retained artifact belongs to an earlier producer attempt."""
+
+
 def positive(value):
     if type(value) is not int or value < 1:
         raise ValueError("invalid GitHub run/artifact identity")
@@ -113,6 +117,11 @@ def validate_transport(path, destination, arch, run):
                 raise ValueError("artifact transport member exceeds size limit")
         body, metadata_bytes = transport.read(name), transport.read(meta_name)
     metadata = json.loads(metadata_bytes)
+    if isinstance(metadata, dict) and (metadata.get("github_run_id"), metadata.get("github_run_attempt")) != (
+        positive(run["id"]),
+        positive(run["run_attempt"]),
+    ):
+        raise DifferentAttempt("retained artifact belongs to another attempt")
     expected = dict(
         artifact_name=name,
         artifact_size=len(body),
@@ -136,6 +145,54 @@ def validate_transport(path, destination, arch, run):
         entries = archive.infolist()
         if len(entries) != 1 or entries[0].filename != "bootstrap" or not 0 < entries[0].file_size <= 250 * 1024 * 1024:
             raise ValueError("deployment ZIP must contain only the root bootstrap")
+
+
+def download_artifact(artifact, download):
+    artifact_id = positive(artifact["id"])
+    digest = artifact.get("digest", "")
+    if (
+        artifact.get("expired") is not False
+        or not isinstance(digest, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None
+        or type(artifact.get("size_in_bytes")) is not int
+        or not 0 < artifact["size_in_bytes"] <= MAX_ARCHIVE
+    ):
+        raise ValueError("expired or invalid GitHub artifact")
+    with download.open("wb") as stream:
+        result = subprocess.run(  # noqa: S603 - fixed repository and validated numeric artifact ID
+            gh_command("api", f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip"),
+            stdout=stream,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+    if result.returncode:
+        raise RuntimeError("GitHub artifact download failed")
+    if download.stat().st_size > MAX_ARCHIVE or "sha256:" + hashlib.sha256(download.read_bytes()).hexdigest() != digest:
+        raise ValueError("GitHub transport digest mismatch")
+
+
+def select_bundle(artifacts, directory, arch, run):
+    selected = []
+    for artifact in artifacts:
+        if artifact.get("name") != f"coralogix-aws-shipper-{arch}.zip" or artifact.get("expired") is True:
+            continue
+        artifact_id = positive(artifact["id"])
+        download = directory / f"transport-{artifact_id}.zip"
+        download_artifact(artifact, download)
+        destination = directory / f"bundle-{artifact_id}"
+        try:
+            validate_transport(download, destination, arch, run)
+        except DifferentAttempt:
+            continue
+        selected.append((artifact, destination))
+    if len(selected) != 1:
+        raise ValueError("missing or ambiguous architecture artifact for this attempt")
+    artifact, destination = selected[0]
+    verified = directory / "verified"
+    verified.mkdir(exist_ok=True)
+    for file in destination.iterdir():
+        shutil.copyfile(file, verified / file.name)
+    return dict(id=positive(artifact["id"]), digest=artifact["digest"])
 
 
 def output(**values):
@@ -187,37 +244,7 @@ def prepare(directory):
             validate_jobs(jobs)
             artifacts = pages(f"repos/{REPOSITORY}/actions/runs/{run_id}/artifacts", "artifacts")
             for arch in ARCHITECTURES:
-                matches = [a for a in artifacts if a.get("name") == f"coralogix-aws-shipper-{arch}.zip"]
-                if len(matches) != 1:
-                    raise ValueError("missing or ambiguous architecture artifact")
-                artifact = matches[0]
-                artifact_id = positive(artifact["id"])
-                digest = artifact.get("digest", "")
-                if (
-                    artifact.get("expired") is not False
-                    or not isinstance(digest, str)
-                    or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None
-                    or type(artifact.get("size_in_bytes")) is not int
-                    or not 0 < artifact["size_in_bytes"] <= MAX_ARCHIVE
-                ):
-                    raise ValueError("expired or invalid GitHub artifact")
-                download = directory / f"transport-{arch}.zip"
-                with download.open("wb") as stream:
-                    result = subprocess.run(  # noqa: S603 - fixed repository and validated numeric artifact ID
-                        gh_command("api", f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip"),
-                        stdout=stream,
-                        stderr=subprocess.PIPE,
-                        timeout=120,
-                    )
-                if result.returncode:
-                    raise RuntimeError("GitHub artifact download failed")
-                if (
-                    download.stat().st_size > MAX_ARCHIVE
-                    or "sha256:" + hashlib.sha256(download.read_bytes()).hexdigest() != digest
-                ):
-                    raise ValueError("GitHub transport digest mismatch")
-                validate_transport(download, verified, arch, run)
-                github_artifacts[arch] = dict(id=artifact_id, digest=digest)
+                github_artifacts[arch] = select_bundle(artifacts, directory, arch, run)
         for number in prs:
             prefix = f"rc/pr/{number}/{run['head_sha']}/{run_id}/{attempt}/"
             producer = dict(workflow_path=BUILD, run_id=run_id, run_attempt=attempt)

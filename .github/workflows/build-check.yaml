@@ -7,7 +7,7 @@ name: build check
 # Actions artifact for the private shipper-e2e suite to verify before use.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
     branches:
       - master
 
