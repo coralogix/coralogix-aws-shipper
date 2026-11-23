@@ -166,3 +166,13 @@ class RelayContracts(unittest.TestCase):
         self.assertTrue(relay.matches_pr(source, pr))
         self.assertFalse(relay.matches_pr(source, pr | {"head": dict(ref="other", sha=SHA)}))
         self.assertFalse(relay.matches_pr(source | {"pull_requests": [{"number": 124}]}, pr))
+
+    def test_attempt_named_artifacts_avoid_upload_collisions_and_skip_other_attempts(self):
+        artifacts = [
+            dict(id=n, name=f"coralogix-aws-shipper-arm64-attempt-{n}.zip", expired=False, digest=f"digest-{n}")
+            for n in [1, 2]
+        ]
+        with patch.object(relay, "download_artifact", side_effect=lambda _a, p: p.write_bytes(transport())) as download:
+            selected = relay.select_bundle(artifacts, self.directory, "arm64", run())
+            self.assertEqual(selected["id"], "2")
+            self.assertEqual(download.call_count, 1)

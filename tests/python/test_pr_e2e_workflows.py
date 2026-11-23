@@ -25,6 +25,10 @@ class WorkflowContracts(unittest.TestCase):
         assert data["concurrency"]["cancel-in-progress"] is True
         assert "github.event.pull_request.number" in data["concurrency"]["group"]
         assert "github.event.pull_request.head.sha" in yaml.safe_dump(data["jobs"])
+        upload = next(
+            s for s in data["jobs"]["fips-build"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")
+        )
+        assert "github.run_attempt" in upload["with"]["name"]
 
     def test_lifecycle_notifications_have_no_base_filter_or_privileged_credentials(self):
         data = workflow("e2e-pr-events.yaml")

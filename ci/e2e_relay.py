@@ -183,8 +183,12 @@ def download_artifact(artifact, download):
 
 def select_bundle(artifacts, directory, arch, run):
     selected = []
+    names = {
+        f"coralogix-aws-shipper-{arch}.zip",  # Existing builds before the relay.
+        f"coralogix-aws-shipper-{arch}-attempt-{positive(run['run_attempt'])}.zip",
+    }
     for artifact in artifacts:
-        if artifact.get("name") != f"coralogix-aws-shipper-{arch}.zip" or artifact.get("expired") is True:
+        if artifact.get("name") not in names or artifact.get("expired") is True:
             continue
         artifact_id = positive(artifact["id"])
         download = directory / f"transport-{artifact_id}.zip"

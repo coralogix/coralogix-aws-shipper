@@ -150,7 +150,7 @@ jobs:
       - name: upload shipper e2e artifact
         uses: actions/upload-artifact@v4
         with:
-          name: coralogix-aws-shipper-${{ matrix.artifact_arch }}.zip
+          name: coralogix-aws-shipper-${{ matrix.artifact_arch }}-attempt-${{ github.run_attempt }}.zip
           path: |
             ${{ runner.temp }}/shipper-e2e-artifacts/coralogix-aws-shipper-${{ matrix.artifact_arch }}.zip
             ${{ runner.temp }}/shipper-e2e-artifacts/coralogix-aws-shipper-${{ matrix.artifact_arch }}.metadata.json
