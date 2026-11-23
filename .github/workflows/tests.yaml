@@ -67,7 +67,7 @@ jobs:
               custom-resource/*|custom-resource-govcloud/*)
                 python=true
                 ;;
-              tests/python/*)
+              tests/python/*|ci/e2e_relay.py)
                 python=true
                 ;;
               examples/*/terraform/*.tf|examples/*/terraform/**/*.tf)
@@ -216,8 +216,8 @@ jobs:
       - name: lint Python custom resources
         if: ${{ steps.changes.outputs.python == 'true' }}
         run: |
-          ruff check --config custom-resource/pyproject.toml custom-resource/ custom-resource-govcloud/ tests/python/
-          ruff format --check --config custom-resource/pyproject.toml custom-resource/ custom-resource-govcloud/ tests/python/
+          ruff check --config custom-resource/pyproject.toml custom-resource/ custom-resource-govcloud/ tests/python/ ci/e2e_relay.py
+          ruff format --check --config custom-resource/pyproject.toml custom-resource/ custom-resource-govcloud/ tests/python/ ci/e2e_relay.py
 
       - name: mypy type check custom resources
         if: ${{ steps.changes.outputs.python == 'true' }}

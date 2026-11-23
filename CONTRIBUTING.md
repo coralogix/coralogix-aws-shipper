@@ -44,6 +44,41 @@ The best way to reach us with a question when contributing is to ask on the orig
 - Reviewers will be automatically assigned based on code owners
 - Reviewers will get to the PR as soon as possible, but usually within 2 days
 
+### AWS Shipper E2E
+
+The optional **AWS Shipper E2E** status runs the private delivery suite before
+merge. For enabled team PRs targeting `master`, every commit starts the existing
+native build for both architectures. Trusted default-branch automation verifies
+and transfers those exact ZIPs to the private runner; it never rebuilds them or
+executes PR code alongside reporting credentials.
+
+A new commit supersedes its previous test. Deployment waits for independent
+cleanup of the old attempt, then tests the newest head. Success means all 19
+Terraform/arm64 delivery cases passed with no skips and cleanup was verified.
+Both architecture bundles are validated; x86-64 runtime and SAR/CloudFormation
+installation are separate coverage. Skipping the build cannot pass E2E.
+Fork and bot PRs require a reviewed maintainer-owned shipper branch for this path.
+
+The relay is disabled by default. Operators configure these repository variables:
+`SHIPPER_E2E_PR_ENABLED` (`true` for normal operation),
+`SHIPPER_E2E_PR_ALLOWED_PRS` (JSON numeric PR IDs for a canary),
+`SHIPPER_E2E_AWS_ACCOUNT_ID`, `SHIPPER_E2E_AWS_REGION`,
+`SHIPPER_E2E_GATE_BUCKET`, and `SHIPPER_E2E_RC_WRITER_ROLE_ARN`.
+It uses OIDC, plus the existing `AUTOMATION_APP_ID` / `AUTOMATION_PRIVATE_KEY`
+secrets only in a separate private-dispatch job. The private controller has its
+own matching rollout configuration and owns commit-status writes.
+
+During bootstrap only, `SHIPPER_E2E_PR_IMPLEMENTATION_SHA` can pin a reviewed relay
+commit while normal enablement is off and a canary PR is allowlisted. Dispatch
+inputs never select executable code. Default-branch listeners must be reviewed
+and installed before automatic event routing can be tested. Keep the status
+non-required until the canary and cleanup checks pass; remove the temporary pin
+before normal enablement.
+
+Retry by rerunning all public build jobs, so both ZIPs come from one new attempt.
+Never cancel the independent cleanup workflow. Private run reports provide
+detailed failures; public status descriptions omit account and resource details.
+
 ## Development Environment Setup
 
 You Must have Cargo and Cargo-lambda installed and configured. 
