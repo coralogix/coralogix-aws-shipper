@@ -50,6 +50,16 @@ def allowed_pr(number, *, enabled, allowed):
     return enabled or number in allowed
 
 
+def matches_pr(run, pr):
+    """An association can be empty, but source branch and current head must match."""
+    return (
+        isinstance(run.get("head_branch"), str)
+        and run["head_branch"] == pr.get("head", {}).get("ref")
+        and run["head_sha"] == pr.get("head", {}).get("sha")
+        and (not run.get("pull_requests") or any(p.get("number") == pr["number"] for p in run["pull_requests"]))
+    )
+
+
 def rollout():
     enabled = os.environ.get("SHIPPER_E2E_PR_ENABLED", "false")
     if enabled not in {"true", "false"}:
@@ -230,7 +240,7 @@ def prepare(directory):
             if (
                 pr.get("state") == "open"
                 and pr.get("base", {}).get("ref") == "master"
-                and pr.get("head", {}).get("sha") == run["head_sha"]
+                and matches_pr(run, pr)
                 and (pr["head"].get("repo") or {}).get("full_name") == REPOSITORY
                 and pr.get("user", {}).get("type") == "User"
                 and not pr["user"]["login"].endswith("[bot]")

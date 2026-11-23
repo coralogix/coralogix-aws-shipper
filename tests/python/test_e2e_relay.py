@@ -159,3 +159,10 @@ class RelayContracts(unittest.TestCase):
             self.assertRaisesRegex(ValueError, "exact expected producer"),
         ):
             relay.select_bundle([artifact], self.directory, "arm64", run())
+
+    def test_same_sha_associations_still_require_the_exact_pr_branch(self):
+        source = run(head_branch="feature", pull_requests=[])
+        pr = dict(number=123, head=dict(ref="feature", sha=SHA))
+        self.assertTrue(relay.matches_pr(source, pr))
+        self.assertFalse(relay.matches_pr(source, pr | {"head": dict(ref="other", sha=SHA)}))
+        self.assertFalse(relay.matches_pr(source | {"pull_requests": [{"number": 124}]}, pr))
