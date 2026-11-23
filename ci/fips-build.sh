@@ -10,6 +10,9 @@ set -euo pipefail
 WORKDIR="${WORKDIR:-/work}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-${WORKDIR}/.build-artifacts}"
 MAX_GLIBC="${MAX_GLIBC:-2.34}"   # provided.al2023 runtime glibc
+# GovCloud ships this build. NIST certificate #5596 covers AWS-LC FIPS 4.0.0 and later 4.x
+# releases are its update stream; a new major needs Compliance sign-off before it ships.
+FIPS_MODULE="AWS-LC FIPS 4."
 BIN_NAME="coralogix-aws-shipper"
 
 # The target architecture MUST be explicit. cargo-lambda defaults to x86_64, so
@@ -91,4 +94,12 @@ if ! echo "${file_out}" | grep -qi "${EXPECTED_ARCH_TOKEN}"; then
   exit 1
 fi
 
-echo "=== FIPS BUILD OK (${LAMBDA_ARCH}, glibc <= ${MAX_GLIBC}) ==="
+echo "=== verifying the linked FIPS module is ${FIPS_MODULE}x ==="
+module="$(grep -aoE 'AWS-LC FIPS [0-9]+\.[0-9]+\.[0-9]+' "${ARTIFACT_DIR}/bootstrap" | sort -u)"
+echo "FIPS module: ${module:-not found}"
+if [[ "${module}" != "${FIPS_MODULE}"* ]] || [ "$(wc -l <<<"${module}")" -ne 1 ]; then
+  echo "ERROR: expected exactly one '${FIPS_MODULE}x' module in the bootstrap." >&2
+  exit 1
+fi
+
+echo "=== FIPS BUILD OK (${LAMBDA_ARCH}, glibc <= ${MAX_GLIBC}, ${module}) ==="

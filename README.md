@@ -5,7 +5,7 @@
 > [!WARNING]
 > **Security advisory** (Priority: Low): On October 20, 2026, the private keys for 8 intermediate certificate authorities operated by eMudhra were reported compromised. This is an industry-wide issue, not specific to Coralogix. Out of an abundance of caution, update coralogix-aws-shipper to **1.4.23 or later**: update your CloudFormation/SAR stack, or set `source_code_version = "1.4.23"` in the Terraform module. 1.4.20 carries the certificate fix but predates 1.4.21, which removed a vulnerable dependency (RUSTSEC-2026-0387) reachable when using S3 multi-region access points. Coralogix endpoints and internal services do not use eMudhra or emSign certificates, and we have not identified any impact to customer data.
 >
-> **FedRAMP/GovCloud customers**: update to **1.4.23 or later**. GovCloud now has its own build, which carries the certificate fix on the NIST-validated AWS-LC FIPS module v3 (certificates #5314 and #5298), so you no longer have to choose between the two. Releases 1.4.20 through 1.4.22 shipped GovCloud the commercial build, which uses the v4 module (submitted to NIST, not yet validated); if you opted into one of those by setting `LambdaCodeKey` or `source_code_version`, move to 1.4.23. Questions: [support.fedramp@coralogix.com](mailto:support.fedramp@coralogix.com).
+> **FedRAMP/GovCloud customers**: update to **1.4.23 or later**. Every release from 1.4.23 carries the certificate fix on a NIST-validated AWS-LC FIPS module (see [GovCloud builds](#govcloud-builds-and-the-emudhra-ca-compromise)). Releases 1.4.20 through 1.4.22 used the v4 module before NIST validated it; if you opted into one of those by setting `LambdaCodeKey` or `source_code_version`, move to 1.4.23 or later. Questions: [support.fedramp@coralogix.com](mailto:support.fedramp@coralogix.com).
 >
 > See the [eMudhra security advisory](https://coralogix.com/blog/coralogix-security-advisory-emudhra-certificate-update/) for full upgrade guidance and breaking-change details.
 >
@@ -897,21 +897,20 @@ request.
 The Coralogix AWS Shipper runs in **AWS GovCloud (US)** partitions (`us-gov-east-1`, `us-gov-west-1`) using the dedicated `template-govcloud.yaml`. GovCloud deployments enable **FIPS mode** by default: the Lambda is configured with `AWS_USE_FIPS_ENDPOINT=true` (routing all SDK calls to FIPS service endpoints) and `ENABLE_AWS_FIPS=true` (switching the AWS SDK HTTP client to the AWS-LC FIPS TLS provider).
 
 > [!NOTE]
-> FIPS is enabled at runtime via environment variables. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment. Since 1.4.23, GovCloud has a dedicated build that pins the AWS-LC FIPS **v3** module, validated as certificates #5314 and #5298. The commercial build uses the v4 module, which is submitted to NIST for FIPS 140-3 validation but not yet certified.
+> FIPS is enabled at runtime via environment variables. To opt out, remove `AWS_USE_FIPS_ENDPOINT` and `ENABLE_AWS_FIPS` from `template-govcloud.yaml` before deployment. Releases after 1.5.2 use the AWS-LC FIPS **v4** module, validated as NIST certificate #5596, in the same build as commercial. 1.4.23 through 1.5.2 use a GovCloud-only build on the v3 module (certificates #5314 and #5298).
 
 ### GovCloud builds and the eMudhra CA compromise
 
-`template-govcloud.yaml` deploys **1.5.2**. Every release from 1.4.23 fixes the eMudhra CA compromise (CVE-2026-111943) on the NIST-validated AWS-LC FIPS v3 module.
-
-Earlier releases force a trade-off, because GovCloud had no build of its own until 1.4.23:
+`template-govcloud.yaml` deploys **1.5.2**. Every release from 1.4.23 fixes the eMudhra CA compromise (CVE-2026-111943) on a NIST-validated AWS-LC FIPS module:
 
 | Version | Certificate fix | FIPS module |
 | --- | --- | --- |
-| 1.4.23 and later | yes | v3, validated (#5314, #5298) |
-| 1.4.20 to 1.4.22 | yes | v4, submitted to NIST, not validated |
+| after 1.5.2 | yes | v4, validated (#5596), same build as commercial |
+| 1.4.23 to 1.5.2 | yes | v3, validated (#5314, #5298), GovCloud-only build |
+| 1.4.20 to 1.4.22 | yes | v4, not yet validated when released |
 | 1.4.19 and earlier | no | v3, validated (#5314, #5298) |
 
-If you pinned 1.4.20, 1.4.21 or 1.4.22 to take the certificate fix, move to 1.4.23 to return to a validated module. Clear `LambdaCodeKey` (CloudFormation) or `source_code_version` (Terraform) to follow the template's default again.
+NIST certificate #5596 covers AWS-LC FIPS 4.0.0; later 4.x releases are accepted as its update stream under FedRAMP. If you pinned 1.4.20, 1.4.21 or 1.4.22 to take the certificate fix, move to 1.4.23 or later. Clear `LambdaCodeKey` (CloudFormation) or `source_code_version` (Terraform) to follow the template's default again.
 
 ### Deployment artifacts
 
@@ -1023,9 +1022,8 @@ To keep the artifacts in an S3 bucket you own (in the same GovCloud region as th
 stack), copy them there under the same keys and point the template at the bucket.
 
 1. Download the shipper Lambda and the GovCloud custom resource for your release and
-   architecture, and verify them. Take them from a GovCloud bucket, not a commercial one: since 1.4.23 the GovCloud
-   binary is built separately and is not interchangeable with the commercial build.
-   It is the one that carries the NIST-validated AWS-LC FIPS v3 module.
+   architecture, and verify them. Take them from a GovCloud bucket, not a commercial one: 1.4.23 through 1.5.2 have
+   a GovCloud-only build on the NIST-validated AWS-LC FIPS v3 module.
 
    ```bash
    # Release to download — https://github.com/coralogix/coralogix-aws-shipper/tags

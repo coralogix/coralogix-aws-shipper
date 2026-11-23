@@ -4,6 +4,11 @@
 
 ### GovCloud
 
+- **GovCloud ships the same build as commercial, on the AWS-LC FIPS v4 module.** NIST
+  validated v4 as certificate #5596, so the GovCloud-only build on the v3 module, with
+  its separate lockfile and patched `rustls-webpki`, is removed. GovCloud still runs
+  with FIPS mode on, and now also gets the rustls fixes the v3 build could not take
+  (RUSTSEC-2026-0285, -0346, -0348, -0349).
 - **`template-govcloud.yaml` loads the shipper from the GovCloud distribution buckets
   and deploys 1.5.2.** The default code bucket for the shipper and its custom resource
   is now `coralogix-public-artifacts-<region>`, which holds every release from 1.4.23

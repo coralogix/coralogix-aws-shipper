@@ -602,14 +602,10 @@ Mappings:
   # run ahead of it (checked in tests.yaml). The version must already be in the GovCloud
   # distribution buckets (coralogix-public-artifacts-<region>), which Publish GovCloud
   # fills after each release; they hold 1.4.23 onward.
-  # 1.4.23 is the first release whose GovCloud artifact is built from ci/govcloud/
-  # rather than copied from the commercial build. It carries the eMudhra distrust fix
-  # on the NIST-validated AWS-LC FIPS v3 module (certificates #5314 and #5298), so the
-  # choice between the certificate fix and the validated module no longer exists.
-  #
-  # 1.4.20 through 1.4.22 were held at 1.4.19 because their GovCloud artifact was the
-  # commercial build, which moved to the AWS-LC FIPS v4 module that NIST has not
-  # validated (INFOSEC-9192).
+  # Releases after 1.5.2 ship the commercial build, on the AWS-LC FIPS v4 module (NIST
+  # certificate #5596). 1.4.23 through 1.5.2 have a GovCloud-only build on the v3 module
+  # (#5314, #5298). 1.4.20 through 1.4.22 were held back because v4 was not yet
+  # validated then (INFOSEC-9192).
   Release:
     Shipper:
       Version: 1.5.2
