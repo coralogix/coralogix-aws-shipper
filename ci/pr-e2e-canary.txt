@@ -1,0 +1,4 @@
+Temporary PR E2E rollout canary.
+This marker has no runtime effect.
+It validates merged master automation and the configured CI test destination.
+The validation PR will be closed after the retry and cleanup checks.
