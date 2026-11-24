@@ -1,0 +1,18 @@
+name: AWS Shipper E2E PR Events
+
+# No base/path filter: retargeting away from master must also stop an existing test.
+# This job has no checkout or privileged credentials. The trusted workflow_run relay
+# treats completion as a request to re-read current PR state, never as a build result.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Notify E2E of PR lifecycle change
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'PR lifecycle changed; the trusted E2E relay reconciles current GitHub state.'
