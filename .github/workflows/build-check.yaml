@@ -7,25 +7,15 @@ name: build check
 # Actions artifact for the private shipper-e2e suite to verify before use.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
     branches:
       - master
-    paths:
-      - "src/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "requirements.txt"
-      - "Makefile"
-      # Dependabot PRs for this file require a Dependabot secret named
-      # SSH_PRIVATE_KEY so the FIPS build can resolve private SDK git deps.
-      - "requirements.txt"
-      - "template.yaml"
-      - "ci/**"
-      # The job here installs the pinned toolchain and compiles inside AL2023. The test
-      # workflow builds on the host only, so without this an incompatible toolchain bump
-      # merges without the FIPS build running.
-      - "rust-toolchain.toml"
-      - ".github/workflows/build-check.yaml"
+
+# Every PR head needs an explicit E2E build outcome, including documentation changes.
+# The latest build replaces obsolete work; its artifacts are still bound to one attempt.
+concurrency:
+  group: shipper-pr-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   fips-build:
@@ -160,7 +150,7 @@ jobs:
       - name: upload shipper e2e artifact
         uses: actions/upload-artifact@v4
         with:
-          name: coralogix-aws-shipper-${{ matrix.artifact_arch }}.zip
+          name: coralogix-aws-shipper-${{ matrix.artifact_arch }}-attempt-${{ github.run_attempt }}.zip
           path: |
             ${{ runner.temp }}/shipper-e2e-artifacts/coralogix-aws-shipper-${{ matrix.artifact_arch }}.zip
             ${{ runner.temp }}/shipper-e2e-artifacts/coralogix-aws-shipper-${{ matrix.artifact_arch }}.metadata.json
