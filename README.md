@@ -1116,3 +1116,5 @@ Set the `MAX_ELAPSED_TIME` variable for the default change (default = 250). The 
 Our world-class customer success team is available 24/7 to walk you through your setup and answer any questions that may come up.
 
 Contact us **via our in-app chat** or by emailing [support@coralogix.com](mailto:support@coralogix.com).
+
+<!-- Temporary documentation-only E2E skip validation. Not intended to merge. -->
