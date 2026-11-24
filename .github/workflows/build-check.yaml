@@ -37,6 +37,8 @@ jobs:
             artifact_arch: x86-64
             runner: ubuntu-latest
     steps:
+      - name: Controlled build-failure canary (not for merge)
+        run: exit 1
       - name: checkout
         uses: actions/checkout@v7
         with:
