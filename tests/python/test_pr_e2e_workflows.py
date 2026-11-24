@@ -33,7 +33,7 @@ class WorkflowContracts(unittest.TestCase):
     def test_lifecycle_notifications_have_no_base_filter_or_privileged_credentials(self):
         data = workflow("e2e-pr-events.yaml")
         event = triggers(data)["pull_request"]
-        assert {"opened", "synchronize", "reopened", "closed", "edited"} <= set(event["types"])
+        assert {"opened", "synchronize", "reopened", "closed", "edited", "labeled", "unlabeled"} <= set(event["types"])
         assert not {"branches", "branches-ignore", "paths", "paths-ignore"} & event.keys()
         assert data["permissions"] == {"contents": "read"}
         jobs = yaml.safe_dump(data["jobs"])
