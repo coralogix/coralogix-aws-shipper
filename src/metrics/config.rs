@@ -15,6 +15,7 @@ pub struct Config {
     pub batching_enabled: bool,
     // Maximum batch size in bytes for metrics payloads (encoded protobuf)
     pub batch_max_size_bytes: usize,
+    pub fail_on_send_error: bool,
     /// When true, resolve AWS resource tags via Resource Groups Tagging API (Firehose metrics).
     pub tag_enrichment_enabled: bool,
     /// When true, tagging / discovery errors skip enrichment for affected namespaces (Go lambda default).
@@ -56,6 +57,10 @@ impl Config {
             .unwrap_or(false);
 
         // Metrics batch max size (in MB); default 4MB similar to logs
+        let fail_on_send_error = env::var("METRICS_FAIL_ON_SEND_ERROR")
+            .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+
         let batch_max_size_mb: usize = env::var("METRICS_BATCH_MAX_SIZE")
             .unwrap_or_else(|_| "4".to_string())
             .parse()
@@ -89,6 +94,7 @@ impl Config {
             retry_delay,
             batching_enabled,
             batch_max_size_bytes,
+            fail_on_send_error,
             tag_enrichment_enabled,
             continue_on_resource_failure,
             file_cache_enabled,
@@ -110,6 +116,7 @@ impl Clone for Config {
             retry_delay: self.retry_delay,
             batching_enabled: self.batching_enabled,
             batch_max_size_bytes: self.batch_max_size_bytes,
+            fail_on_send_error: self.fail_on_send_error,
             tag_enrichment_enabled: self.tag_enrichment_enabled,
             continue_on_resource_failure: self.continue_on_resource_failure,
             file_cache_enabled: self.file_cache_enabled,
