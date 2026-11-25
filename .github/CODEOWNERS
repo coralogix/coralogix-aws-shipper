@@ -3,3 +3,6 @@
 
 # Technical writers own documentation
 README.md @coralogix/team-technical-writers
+
+# CI implementation and operating documentation are owned by the eco-system team
+/ci/ @coralogix/team-eco-system
