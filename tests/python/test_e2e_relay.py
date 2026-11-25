@@ -71,8 +71,9 @@ class RelayContracts(unittest.TestCase):
 
     def test_artifact_download_retries_and_truncates_partial_response(self):
         body = b"verified transport"
-        artifact = dict(id=42, expired=False, size_in_bytes=len(body),
-                        digest="sha256:" + hashlib.sha256(body).hexdigest())
+        artifact = dict(
+            id=42, expired=False, size_in_bytes=len(body), digest="sha256:" + hashlib.sha256(body).hexdigest()
+        )
         calls = []
 
         def download(*args, **kwargs):
@@ -81,15 +82,20 @@ class RelayContracts(unittest.TestCase):
             return SimpleNamespace(returncode=1 if len(calls) == 1 else 0, stderr=b"HTTP 503")
 
         path = self.directory / "transport.zip"
-        with patch.object(relay, "gh_command", return_value=["gh"]), patch.object(relay.subprocess, "run", side_effect=download), patch.object(relay.time, "sleep"):
+        with (
+            patch.object(relay, "gh_command", return_value=["gh"]),
+            patch.object(relay.subprocess, "run", side_effect=download),
+            patch.object(relay.time, "sleep"),
+        ):
             relay.download_artifact(artifact, path)
         self.assertEqual(len(calls), 2)
         self.assertEqual(path.read_bytes(), body)
 
     def test_artifact_download_retries_timeout(self):
         body = b"verified transport"
-        artifact = dict(id=42, expired=False, size_in_bytes=len(body),
-                        digest="sha256:" + hashlib.sha256(body).hexdigest())
+        artifact = dict(
+            id=42, expired=False, size_in_bytes=len(body), digest="sha256:" + hashlib.sha256(body).hexdigest()
+        )
         calls = []
 
         def download(*args, **kwargs):
@@ -100,7 +106,11 @@ class RelayContracts(unittest.TestCase):
             kwargs["stdout"].write(body)
             return SimpleNamespace(returncode=0, stderr=b"")
 
-        with patch.object(relay, "gh_command", return_value=["gh"]), patch.object(relay.subprocess, "run", side_effect=download), patch.object(relay.time, "sleep"):
+        with (
+            patch.object(relay, "gh_command", return_value=["gh"]),
+            patch.object(relay.subprocess, "run", side_effect=download),
+            patch.object(relay.time, "sleep"),
+        ):
             relay.download_artifact(artifact, self.directory / "transport.zip")
         self.assertEqual(len(calls), 2)
 
@@ -108,9 +118,13 @@ class RelayContracts(unittest.TestCase):
         artifact = dict(id=42, expired=False, size_in_bytes=5, digest="sha256:" + "a" * 64)
         path = self.directory / "transport.zip"
         failure = SimpleNamespace(returncode=1, stderr=b"private-detail-sentinel (HTTP 503)")
-        with patch.object(relay, "gh_command", return_value=["gh"]), patch.object(relay.subprocess, "run", return_value=failure) as run_download, patch.object(relay.time, "sleep"):
-            with self.assertRaises(RuntimeError) as error:
-                relay.download_artifact(artifact, path)
+        with (
+            patch.object(relay, "gh_command", return_value=["gh"]),
+            patch.object(relay.subprocess, "run", return_value=failure) as run_download,
+            patch.object(relay.time, "sleep"),
+            self.assertRaises(RuntimeError) as error,
+        ):
+            relay.download_artifact(artifact, path)
         self.assertEqual(run_download.call_count, 3)
         self.assertIn("HTTP 503", str(error.exception))
         self.assertNotIn("private-detail-sentinel", str(error.exception))
@@ -119,13 +133,17 @@ class RelayContracts(unittest.TestCase):
     def test_download_digest_mismatch_is_not_retried(self):
         artifact = dict(id=42, expired=False, size_in_bytes=5, digest="sha256:" + "a" * 64)
 
-        def download(*args, **kwargs):
+        def download(*_args, **kwargs):
             kwargs["stdout"].write(b"wrong")
             return SimpleNamespace(returncode=0, stderr=b"")
 
-        with patch.object(relay, "gh_command", return_value=["gh"]), patch.object(relay.subprocess, "run", side_effect=download) as run_download, patch.object(relay.time, "sleep") as sleep:
-            with self.assertRaisesRegex(ValueError, "digest mismatch"):
-                relay.download_artifact(artifact, self.directory / "transport.zip")
+        with (
+            patch.object(relay, "gh_command", return_value=["gh"]),
+            patch.object(relay.subprocess, "run", side_effect=download) as run_download,
+            patch.object(relay.time, "sleep") as sleep,
+            self.assertRaisesRegex(ValueError, "digest mismatch"),
+        ):
+            relay.download_artifact(artifact, self.directory / "transport.zip")
         self.assertEqual(run_download.call_count, 1)
         sleep.assert_not_called()
 
