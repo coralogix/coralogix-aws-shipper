@@ -5,7 +5,7 @@ name: AWS Shipper E2E PR Events
 # treats completion as a request to re-read current PR state, never as a build result.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed, edited, ready_for_review]
+    types: [opened, synchronize, reopened, closed, edited, ready_for_review, labeled, unlabeled]
 
 permissions:
   contents: read

@@ -168,15 +168,28 @@ def download_artifact(artifact, download):
         or not 0 < artifact["size_in_bytes"] <= MAX_ARCHIVE
     ):
         raise ValueError("expired or invalid GitHub artifact")
-    with download.open("wb") as stream:
-        result = subprocess.run(  # noqa: S603 - fixed repository and validated numeric artifact ID
-            gh_command("api", f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip"),
-            stdout=stream,
-            stderr=subprocess.PIPE,
-            timeout=120,
-        )
-    if result.returncode:
-        raise RuntimeError("GitHub artifact download failed")
+    status = "request failed"
+    for attempt in range(3):
+        try:
+            # Each retry truncates any partial transport; no bytes are extracted yet.
+            with download.open("wb") as stream:
+                result = subprocess.run(  # noqa: S603 - fixed repository and validated numeric artifact ID
+                    gh_command("api", f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip"),
+                    stdout=stream,
+                    stderr=subprocess.PIPE,
+                    timeout=120,
+                )
+            if result.returncode == 0:
+                break
+            match = re.search(rb"HTTP ([1-5][0-9]{2})\b", result.stderr or b"")
+            status = "HTTP " + match[1].decode("ascii") if match else "request failed"
+        except subprocess.TimeoutExpired:
+            status = "request timed out"
+        if attempt < 2:
+            time.sleep(2**attempt)
+    else:
+        download.unlink(missing_ok=True)
+        raise RuntimeError(f"GitHub artifact download failed after 3 attempts ({status})")
     if download.stat().st_size > MAX_ARCHIVE or "sha256:" + hashlib.sha256(download.read_bytes()).hexdigest() != digest:
         raise ValueError("GitHub transport digest mismatch")
 
