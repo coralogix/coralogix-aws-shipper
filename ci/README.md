@@ -59,6 +59,9 @@ Making **AWS Shipper E2E** required before merge is a separate branch-rule setti
 
 ## Retry and failures
 
+GitHub artifact downloads retry three times. If the relay still fails before
+staging, rerun its failed jobs; the original source build is revalidated.
+
 Rerun **all jobs** of the shipper PR's **build check** to test a new build attempt
 of the same commit. Follow the E2E status link for case results and private reports.
 Failed or cancelled attempts must finish independent cleanup before another
